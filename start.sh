@@ -1,0 +1,1 @@
+eval $(cat deployments/conf.env | xargs) PORT=3000 go run ./main.go 
