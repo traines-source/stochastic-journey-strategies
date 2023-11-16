@@ -1,6 +1,6 @@
 package model
 
-type mtime int32
+type Mtime int32
 
 type Route struct {
 	ID          string
@@ -20,24 +20,26 @@ type Station struct {
 }
 
 type Connection struct {
-	Route       *Route
-	From        *Station
-	To          *Station
-	Departure   StopInfo
-	Arrival     StopInfo
-	Message     string
-	Cancelled   bool
-	ProductType int16
+	Route              *Route
+	From               *Station
+	To                 *Station
+	Departure          StopInfo
+	Arrival            StopInfo
+	Message            string
+	Cancelled          bool
+	ProductType        int16
+	DestinationArrival Distribution
 }
 
 type StopInfo struct {
-	Scheduled      mtime
+	Scheduled      Mtime
 	Delay          int16
 	ScheduledTrack string
 	ProjectedTrack string
 }
 
 type Distribution struct {
-	Histogram []float32
-	Start     mtime
+	Histogram            []float32
+	Start                Mtime
+	Mean                 Mtime
 }
