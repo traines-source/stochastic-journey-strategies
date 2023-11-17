@@ -1,2 +1,3 @@
 # Stochastic Strategies for Public Transport Journeys Based on Realtime Delay Predictions
 
+This project aims to provide an implementation of an algorithm for stochastic journey planning for public transport. It relies on the delay distributions obtained from [public-transport-statistics](https://github.com/traines-source/public-transport-statistics) and will be a dependency of [time-space-train-planner](https://github.com/traines-source/time-space-train-planner), which provides the UI and middleware.
