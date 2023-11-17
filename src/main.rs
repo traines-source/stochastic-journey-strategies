@@ -1,5 +1,6 @@
-
-type Mtime = i32;
+use std::cmp;
+mod distribution;
+mod types;
 
 struct Route {
 	id: String,
@@ -26,36 +27,31 @@ struct Connection<'a> {
 	message: String,
 	cancelled: bool,
 	product_type: i16,
-	destination_arrival: Distribution
+	destination_arrival: distribution::Distribution
 }
 
 struct StopInfo {
-	scheduled: Mtime,
+	scheduled: types::Mtime,
 	delay: i16,
 	scheduled_track: String,
 	projected_track: String
 }
 
-struct Distribution {
-	histogram: Vec<f32>,
-	start: Mtime,
-	mean: Mtime
-}
 
 fn main() {
     println!("Hello, world!");
 }
 
 
-fn query(origin: &Station, destination: &Station, start_time: Mtime, max_time: Mtime) {
+fn query(origin: &Station, destination: &Station, start_time: types::Mtime, max_time: types::Mtime) {
 
 }
 
-fn distribution(t: &StopInfo) -> Distribution {
-	Distribution{
+fn distribution(t: &StopInfo) -> distribution::Distribution {
+	distribution::Distribution{
         histogram: vec![1.1],
-        mean: 0,
-        start: 0
+        start: 0,
+		mean: 0.0,
     }
 }
 
