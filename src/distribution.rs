@@ -16,7 +16,7 @@ impl Distribution {
         }
     }
 
-    fn uniform(start: types::Mtime, width: usize) -> Distribution {
+    pub fn uniform(start: types::Mtime, width: usize) -> Distribution {
         if width == 0 {
             return Distribution::empty(start);
         }
@@ -55,6 +55,14 @@ impl Distribution {
         self.histogram = h;
 		self.start = start as types::Mtime;
         self.mean = self.mean + other.mean*weight;
+    }
+
+    pub fn shift(&self, start: types::Mtime) -> Distribution {
+        Distribution{
+            histogram: self.histogram.clone(),
+            start: self.start+start,
+            mean: self.mean+start as f32
+        }
     }
 }
 
