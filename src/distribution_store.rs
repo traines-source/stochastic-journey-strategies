@@ -58,7 +58,110 @@ impl Store {
         }
     }
 
-    pub fn reachable_probability(&self, arrival: &connection::StopInfo, arrival_product_type: i16, departure: &connection::StopInfo, departure_product_type: i16, now: types::Mtime) -> f32 {
-        1.0
+    fn calculate_reachable_probability(&mut self, arrival: &connection::StopInfo, arrival_product_type: i16, departure: &connection::StopInfo, departure_product_type: i16, now: types::Mtime, key: ReachabilityKey) -> f32 {
+        let a = self.delay_distribution(arrival, false, arrival_product_type, now);
+        let d = self.delay_distribution(departure, true, departure_product_type, now);
+        let p = a.before_probability(&d, 1);
+        self.reachability.insert(key, p);
+        p
+    }
+
+    pub fn reachable_probability(&mut self, arrival: &connection::StopInfo, arrival_product_type: i16, departure: &connection::StopInfo, departure_product_type: i16, now: types::Mtime) -> f32 {
+        let key = ReachabilityKey{
+            from_product_type: arrival_product_type,
+            to_product_type: departure_product_type,
+            from_prior_delay: self.delay_bucket(arrival.delay),
+            to_prior_delay: self.delay_bucket(arrival.delay),
+            prior_ttl: self.ttl_bucket((arrival.projected()-now) as i32),
+            diff: (departure.projected()-arrival.projected()) as i16
+        };
+        match self.reachability.get(&key) {
+            Some(p) => *p,
+            None => self.calculate_reachable_probability(arrival, arrival_product_type, departure, departure_product_type, now, key)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn setup() -> Store {
+        let mut s = Store{
+            delay: HashMap::new(),
+            delay_buckets: HashMap::new(),
+            ttl_buckets: HashMap::new(),
+            reachability: HashMap::new()
+        };
+        s.delay.insert(DelayKey{
+            product_type: 1,
+            prior_delay: (5,10),
+            prior_ttl: (30,45),
+            is_departure: true
+        }, distribution::Distribution::uniform(-2, 3));
+        s.delay.insert(DelayKey{
+            product_type: 1,
+            prior_delay: (0,0),
+            prior_ttl: (30,45),
+            is_departure: true
+        }, distribution::Distribution::uniform(-3, 4));
+        s.delay_buckets.insert(7, (5,10));
+        s.ttl_buckets.insert(41, (30,45));
+        return s;
+    }
+
+    #[test]
+    fn distribution_with_delay() {
+        let s = setup();
+        let d = s.delay_distribution(&connection::StopInfo{
+            scheduled: 55,
+            delay: Some(7),
+            scheduled_track: "".to_string(),
+            projected_track: "".to_string()
+        }, true, 1, 21);
+        assert_eq!(d.start, 60);
+        assert_eq!(d.mean, 61.0);
+        assert_eq!(d.histogram.len(), 3);
+    }
+
+    #[test]
+    fn distribution_with_nonexistant_delay() {
+        let s = setup();
+        let d = s.delay_distribution(&connection::StopInfo{
+            scheduled: 55,
+            delay: Some(1),
+            scheduled_track: "".to_string(),
+            projected_track: "".to_string()
+        }, true, 1, 15);
+        assert_eq!(d.start, 53);
+        assert_eq!(d.mean, 54.5);
+        assert_eq!(d.histogram.len(), 4);
+    }
+
+    #[test]
+    fn distribution_with_no_delay() {
+        let s = setup();
+        let d = s.delay_distribution(&connection::StopInfo{
+            scheduled: 55,
+            delay: None,
+            scheduled_track: "".to_string(),
+            projected_track: "".to_string()
+        }, true, 1, 14);
+        assert_eq!(d.start, 52);
+        assert_eq!(d.mean, 53.5);
+        assert_eq!(d.histogram.len(), 4);
+    }
+
+    #[test]
+    fn distribution_with_nonexistant_product() {
+        let s = setup();
+        let d = s.delay_distribution(&connection::StopInfo{
+            scheduled: 55,
+            delay: Some(1),
+            scheduled_track: "".to_string(),
+            projected_track: "".to_string()
+        }, true, 555, 15);
+        assert_eq!(d.start, 56);
+        assert_eq!(d.mean, 56.0);
+        assert_eq!(d.histogram.len(), 1);
     }
 }

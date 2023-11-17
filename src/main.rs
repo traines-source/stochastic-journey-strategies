@@ -4,6 +4,9 @@ mod distribution_store;
 mod connection;
 mod types;
 
+#[macro_use]
+extern crate assert_float_eq;
+
 fn main() {
     println!("Hello, world!");
 }
@@ -13,7 +16,7 @@ fn query(origin: &connection::Station, destination: &connection::Station, start_
 
 }
 
-fn recursive<'a>(c: &'a mut connection::Connection, destination: &connection::Station, now: types::Mtime, store: &distribution_store::Store) {
+fn recursive<'a>(c: &'a mut connection::Connection, destination: &connection::Station, now: types::Mtime, store: &mut distribution_store::Store) {
 	if c.to.id == destination.id {
 		c.destination_arrival = store.delay_distribution(&c.arrival, false, c.product_type, now);
 		return;

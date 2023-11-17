@@ -32,8 +32,8 @@ pub struct Connection<'a> {
 pub struct StopInfo {
 	pub scheduled: types::Mtime,
 	pub delay: Option<i16>,
-	scheduled_track: String,
-	projected_track: String
+	pub scheduled_track: String,
+	pub projected_track: String
 }
 
 impl StopInfo {
