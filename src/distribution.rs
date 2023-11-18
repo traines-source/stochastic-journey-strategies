@@ -166,6 +166,7 @@ mod tests {
         assert_eq!(a.histogram.len(), 0);
         assert_eq!(a.start, 5);
         assert_eq!(a.mean, a.mean());
+        assert_eq!(a.exists(), false);
     }
 
     #[test]

@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 assert_float_eq = "1"
+by_address = "1"

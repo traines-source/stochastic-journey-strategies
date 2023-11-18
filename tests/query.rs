@@ -157,3 +157,47 @@ fn with_uniform() {
     assert_float_relative_eq!(a.histogram[13], 0.05);
     assert_float_relative_eq!(a.histogram[14], 0.05);
 }
+
+#[test]
+fn infinite_loop() {
+    let (mut store, route, station1, station2, station3) = setup();
+
+    let c1 = connection::Connection::new(&route,
+        &station1, 10, Some(0),
+        &station2, 12, Some(0),
+        0.0);
+    
+    let c2 = connection::Connection::new(&route,
+        &station2, 14, Some(0),
+        &station1, 16, Some(0),
+        0.0);
+
+    let c3 = connection::Connection::new(&route,
+        &station2, 20, None,
+        &station3, 30, Some(0),
+        0.0);
+    
+    station1.add_departure(&c1);
+    station2.add_departure(&c2);
+    station2.add_departure(&c3);
+    
+    store.insert_distribution(0..5, 0..20, false, 1, distribution::Distribution::uniform(-5, 9));
+    store.insert_distribution(0..5, 0..20, true, 1, distribution::Distribution::uniform(-5, 9));
+
+    stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
+    let a = c1.destination_arrival.borrow();
+    assert_eq!(a.start, 30);
+    //assert_float_relative_eq!(a.mean, 30.0);
+    assert_eq!(a.histogram.len(), 1);
+    //assert_float_relative_eq!(a.histogram[0], 1.0);
+    
+    let a = c2.destination_arrival.borrow();
+    assert_eq!(a.start, 0);
+    assert_float_relative_eq!(a.mean, 0.0);
+    assert_eq!(a.histogram.len(), 0);
+
+    let a = c3.destination_arrival.borrow();
+    assert_eq!(a.start, 30);
+    assert_float_relative_eq!(a.mean, 30.0);
+    assert_eq!(a.histogram.len(), 1);
+}

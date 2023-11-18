@@ -1,4 +1,7 @@
 
+use std::collections::HashMap;
+use by_address::ByAddress;
+
 use crate::distribution;
 use crate::distribution_store;
 use crate::connection;
@@ -11,7 +14,8 @@ pub fn query<'a>(store: &'a mut distribution_store::Store, origin: &'a connectio
         destination: destination,
         start_time: start_time,
         max_time: max_time,
-        now: now
+        now: now,
+        trace: HashMap::new()
     };
     for dep in &*origin.departures.borrow() {
         q.recursive(dep);
@@ -23,11 +27,12 @@ struct Query<'a> {
     destination: &'a connection::Station<'a>,
     start_time: types::Mtime,
     max_time: types::Mtime,
-    now: types::Mtime
+    now: types::Mtime,
+    trace: HashMap<ByAddress<&'a connection::Connection<'a>>, f32>
 }
 
-impl Query<'_> {
-    fn recursive<'a>(&mut self, c: &'a connection::Connection) {
+impl<'a> Query<'a> {
+    fn recursive(&mut self, c: &'a connection::Connection<'a>) {
         if c.destination_arrival.borrow().exists() {
             return;
         }
@@ -35,6 +40,10 @@ impl Query<'_> {
             c.destination_arrival.replace(self.store.delay_distribution(&c.arrival, false, c.product_type, self.now));
             return;
         }
+        if self.trace.contains_key(&ByAddress(c)) {
+            return;
+        }
+        self.trace.insert(ByAddress(c), 1.0);
         for dep in &*c.to.departures.borrow() {
             self.recursive(dep);
         }
