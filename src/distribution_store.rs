@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::ops::Range;
 use crate::distribution;
 use crate::connection;
 use crate::types;
@@ -30,6 +29,14 @@ pub struct Store {
 }
 
 impl Store {
+    pub fn new() -> Store {
+        Store{
+            delay: HashMap::new(),
+            delay_buckets: HashMap::new(),
+            ttl_buckets: HashMap::new(),
+            reachability: HashMap::new()
+        }
+    }
     fn delay_bucket(&self, delay: Option<i16>) -> (i16, i16) {
         match delay {
             Some(d) => *self.delay_buckets.get(&d).unwrap_or(&(0,0)),
@@ -86,12 +93,7 @@ impl Store {
 mod tests {
     use super::*;
     fn setup() -> Store {
-        let mut s = Store{
-            delay: HashMap::new(),
-            delay_buckets: HashMap::new(),
-            ttl_buckets: HashMap::new(),
-            reachability: HashMap::new()
-        };
+        let mut s = Store::new();
         s.delay.insert(DelayKey{
             product_type: 1,
             prior_delay: (5,10),
@@ -106,7 +108,7 @@ mod tests {
         }, distribution::Distribution::uniform(-3, 4));
         s.delay_buckets.insert(7, (5,10));
         s.ttl_buckets.insert(41, (30,45));
-        return s;
+        s
     }
 
     #[test]

@@ -1,12 +1,24 @@
 use crate::distribution;
 use crate::types;
 
-struct Route {
+pub struct Route {
 	id: String,
 	name: String,
 	product_type: i16,
 	message: String,
 	direction: String
+}
+
+impl Route {
+	pub fn new(id: String, name: String, product_type: i16) -> Route {
+		Route {
+			id: id,
+			name: name,
+			product_type: product_type,
+			message: "".to_string(),
+			direction: "".to_string()
+		}
+	}
 }
 
 pub struct Station<'a> {
@@ -17,6 +29,18 @@ pub struct Station<'a> {
 	lon: f32
 }
 
+impl<'a> Station<'_> {
+	pub fn new(id: String, name: String, departures: &'a mut [Connection<'a>]) -> Station<'a> {
+		Station {
+			id: id,
+			name: name,
+			departures: departures,
+			lat: 0.,
+			lon: 0.
+		}
+	}
+}
+
 pub struct Connection<'a> {
 	route: &'a Route,
 	pub from: &'a Station<'a>,
@@ -24,9 +48,38 @@ pub struct Connection<'a> {
 	pub departure: StopInfo,
 	pub arrival: StopInfo,
 	message: String,
-	cancelled: bool,
+	cancelled_probability: f32,
 	pub product_type: i16,
 	pub destination_arrival: distribution::Distribution
+}
+
+impl<'a> Connection<'_> {
+	pub fn new(route: &'a Route,
+	from: &'a mut Station<'a>, from_scheduled: types::Mtime, from_delay: Option<i16>,
+	to: &'a mut Station<'a>, to_scheduled: types::Mtime, to_delay: Option<i16>,
+	cancelled_probability: f32) -> Connection<'a> {
+		Connection {
+			route: route,
+			from: from,
+			to: to,
+			departure: StopInfo {
+				scheduled: from_scheduled,
+				delay: from_delay,
+				scheduled_track: "".to_string(),
+				projected_track: "".to_string()
+			},
+			arrival: StopInfo {
+				scheduled: to_scheduled,
+				delay: to_delay,
+				scheduled_track: "".to_string(),
+				projected_track: "".to_string()
+			},
+			message: "".to_string(),
+			cancelled_probability: cancelled_probability,
+			product_type: route.product_type,
+			destination_arrival: distribution::Distribution::empty(0)
+		}	
+	}
 }
 
 pub struct StopInfo {

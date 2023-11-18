@@ -8,6 +8,11 @@ pub struct Distribution {
 }
 
 impl Distribution {
+
+	pub fn exists(&self) -> bool {
+        self.histogram.len() > 0
+    }
+
     pub fn empty(start: types::Mtime) -> Distribution {
         Distribution{
             histogram: vec![],
@@ -201,7 +206,7 @@ mod tests {
 
     #[test]
     fn before_apart() {
-        let mut a = Distribution::uniform(5, 2);
+        let a = Distribution::uniform(5, 2);
         let b = Distribution::uniform(8, 2);
         assert_eq!(a.before_probability(&b, 0), 1.0);
         assert_eq!(a.before_probability(&b, 1), 1.0);
@@ -213,7 +218,7 @@ mod tests {
 
     #[test]
     fn before_overlap() {
-        let mut a = Distribution::uniform(5, 2);
+        let a = Distribution::uniform(5, 2);
         let b = Distribution::uniform(6, 2);
         assert_eq!(a.before_probability(&b, 0), 1.0);
         assert_eq!(a.before_probability(&b, 1), 0.75);
