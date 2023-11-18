@@ -41,6 +41,9 @@ impl Distribution {
     }
     
     pub fn add(&mut self, other: &Distribution, weight: f32) {
+        if !self.exists() {
+            self.start = other.start;
+        }
         let self_start = self.start as usize;
         let other_start = other.start as usize;
         let start = cmp::min(self_start, other_start);
@@ -72,10 +75,10 @@ impl Distribution {
 
     pub fn before_probability(&self, other: &Distribution, offset: i32) -> f32 {
         let mut p = 0.0;
-        let selfLen = self.histogram.len() as i32;
-        let otherLen = other.histogram.len() as i32;
-        for i in 0..selfLen {
-            for j in 0..otherLen {
+        let self_len = self.histogram.len() as i32;
+        let other_len = other.histogram.len() as i32;
+        for i in 0..self_len {
+            for j in 0..other_len {
                 if self.start+i+offset > other.start+j {
                     continue
                 }
@@ -140,8 +143,8 @@ mod tests {
     #[test]
     #[should_panic]
     fn add_negative() {
-        let mut a = Distribution::empty(-5);
-        let b = Distribution::empty(0);
+        let mut a = Distribution::uniform(0, 1);
+        let b = Distribution::uniform(-5, 1);
         a.add(&b, 1.0);
     }
 
@@ -160,7 +163,7 @@ mod tests {
         let mut a = Distribution::empty(10);
         let b = Distribution::empty(5);
         a.add(&b, 1.0);
-        assert_eq!(a.histogram.len(), 5);
+        assert_eq!(a.histogram.len(), 0);
         assert_eq!(a.start, 5);
         assert_eq!(a.mean, a.mean());
     }

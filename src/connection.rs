@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use crate::distribution;
 use crate::types;
 
@@ -24,39 +26,43 @@ impl Route {
 pub struct Station<'a> {
 	pub id: String,
 	name: String,
-	pub departures: &'a mut [Connection<'a>],
+	pub departures: RefCell<Vec<&'a Connection<'a>>>,
 	lat: f32,
 	lon: f32
 }
 
-impl<'a> Station<'_> {
-	pub fn new(id: String, name: String, departures: &'a mut [Connection<'a>]) -> Station<'a> {
+impl<'a> Station<'a> {
+	pub fn new(id: String, name: String, departures: Vec<&'a Connection<'a>>) -> Station<'a> {
 		Station {
 			id: id,
 			name: name,
-			departures: departures,
+			departures: RefCell::new(departures),
 			lat: 0.,
 			lon: 0.
 		}
+	}
+
+	pub fn add_departure(&self, c: &'a Connection<'a>) {
+		self.departures.borrow_mut().push(c);
 	}
 }
 
 pub struct Connection<'a> {
 	route: &'a Route,
 	pub from: &'a Station<'a>,
-	pub to: &'a mut Station<'a>,
+	pub to: &'a Station<'a>,
 	pub departure: StopInfo,
 	pub arrival: StopInfo,
 	message: String,
-	cancelled_probability: f32,
+	pub cancelled_probability: f32,
 	pub product_type: i16,
-	pub destination_arrival: distribution::Distribution
+	pub destination_arrival: RefCell<distribution::Distribution>
 }
 
-impl<'a> Connection<'_> {
+impl<'a> Connection<'a> {
 	pub fn new(route: &'a Route,
-	from: &'a mut Station<'a>, from_scheduled: types::Mtime, from_delay: Option<i16>,
-	to: &'a mut Station<'a>, to_scheduled: types::Mtime, to_delay: Option<i16>,
+	from: &'a Station<'a>, from_scheduled: types::Mtime, from_delay: Option<i16>,
+	to: &'a Station<'a>, to_scheduled: types::Mtime, to_delay: Option<i16>,
 	cancelled_probability: f32) -> Connection<'a> {
 		Connection {
 			route: route,
@@ -77,7 +83,7 @@ impl<'a> Connection<'_> {
 			message: "".to_string(),
 			cancelled_probability: cancelled_probability,
 			product_type: route.product_type,
-			destination_arrival: distribution::Distribution::empty(0)
+			destination_arrival: RefCell::new(distribution::Distribution::empty(0))
 		}	
 	}
 }
