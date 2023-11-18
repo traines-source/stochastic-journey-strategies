@@ -203,6 +203,7 @@ mod tests {
         let a = Distribution::uniform(-5, 2).shift(3);
         assert_eq!(a.histogram.len(), 2);
         assert_eq!(a.start, -2);
+        assert_eq!(a.mean, -1.5);
         assert_eq!(a.histogram[0], 0.5);
         assert_eq!(a.histogram[1], 0.5);
     }

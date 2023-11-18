@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::ops::Range;
+
 use crate::distribution;
 use crate::connection;
 use crate::types;
@@ -37,11 +39,29 @@ impl Store {
             reachability: HashMap::new()
         }
     }
+
     fn delay_bucket(&self, delay: Option<i16>) -> (i16, i16) {
         match delay {
             Some(d) => *self.delay_buckets.get(&d).unwrap_or(&(0,0)),
             None => (0,0)
         }        
+    }
+
+    pub fn insert_distribution(&mut self, prior_delay: Range<i16>, prior_ttl: Range<i16>, is_departure: bool, product_type: i16, distribution: distribution::Distribution) {
+        let prior_delay_tuple = (prior_delay.start, prior_delay.end);
+        let prior_ttl_tuple = (prior_ttl.start, prior_ttl.end);
+        self.delay.insert(DelayKey{
+            product_type: product_type,
+            prior_delay: prior_delay_tuple,
+            prior_ttl: prior_ttl_tuple,
+            is_departure: is_departure
+        }, distribution);
+        for i in prior_delay {
+            self.delay_buckets.insert(i, prior_delay_tuple);
+        }
+        for i in prior_ttl {
+            self.ttl_buckets.insert(i, prior_ttl_tuple);
+        }
     }
 
     fn ttl_bucket(&self, ttl: i32) -> (i16, i16) {
@@ -109,6 +129,23 @@ mod tests {
         s.delay_buckets.insert(7, (5,10));
         s.ttl_buckets.insert(41, (30,45));
         s
+    }
+
+    #[test]
+    fn insert() {
+        let mut s = Store::new();
+        s.insert_distribution(30..45, 10..15, true, 5, distribution::Distribution::uniform(55, 2));
+        assert_eq!(s.delay_bucket(Some(33)), (30,45));
+        assert_eq!(s.ttl_bucket(10), (10,15));
+        assert_eq!(s.ttl_bucket(15), (0,0));
+        let o = s.delay.get(&DelayKey{
+            product_type: 5,
+            prior_delay: (30,45),
+            prior_ttl: (10,15),
+            is_departure: true
+        }).unwrap();
+        assert_eq!(o.start, 55);
+        assert_eq!(o.histogram.len(), 2);
     }
 
     #[test]

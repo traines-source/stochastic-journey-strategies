@@ -103,3 +103,30 @@ impl StopInfo {
         }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+    #[test]
+    fn projected_delay() {
+        let s = StopInfo{
+			scheduled: 5,
+			delay: Some(3),
+			scheduled_track: "".to_string(),
+			projected_track: "".to_string()
+		};
+		assert_eq!(s.projected(), 8);
+    }
+	#[test]
+	fn projected_wo_delay() {
+        let s = StopInfo{
+			scheduled: 5,
+			delay: None,
+			scheduled_track: "".to_string(),
+			projected_track: "".to_string()
+		};
+		assert_eq!(s.projected(), 5);
+    }
+}

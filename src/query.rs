@@ -38,18 +38,18 @@ impl Query<'_> {
         for dep in &*c.to.departures.borrow() {
             self.recursive(dep);
         }
-        let mut departuresByArrival = c.to.departures.borrow().clone();
-        departuresByArrival.sort_by(|a, b| a.destination_arrival.borrow().mean.partial_cmp(&b.destination_arrival.borrow().mean).unwrap());
+        let mut departures_By_arrival = c.to.departures.borrow().clone();
+        departures_By_arrival.sort_by(|a, b| a.destination_arrival.borrow().mean.partial_cmp(&b.destination_arrival.borrow().mean).unwrap());
 
         let mut remaining_probability = 1.0;
         let mut new_distribution = distribution::Distribution::empty(c.arrival.scheduled);
         let mut last_mean_departure = 0.;
-        for dep in &departuresByArrival {
+        for dep in &departures_By_arrival {
             let mean = self.store.delay_distribution(&dep.departure, true, dep.product_type, self.now).mean;
             if mean < last_mean_departure {
                 continue;
             }
-            let p = self.store.reachable_probability(&c.arrival, c.product_type, &dep.departure, dep.product_type, self.now);
+            let p = self.store.reachable_probability(&c.arrival, c.product_type, &dep.departure, dep.product_type, self.now)*(1.0-dep.cancelled_probability);
             new_distribution.add(&*dep.destination_arrival.borrow(), p*remaining_probability);
             remaining_probability *= 1.0-p;
             last_mean_departure = mean;
