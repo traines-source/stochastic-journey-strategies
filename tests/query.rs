@@ -148,7 +148,7 @@ fn with_cancelled_probability() {
 
     let mut d = distribution::Distribution::uniform(0, 1);
     d.feasible_probability = 0.5;
-    store.insert_distribution(0..5, 0..20, true, 1, d);
+    store.insert_from_distribution(0..5, 0..20, true, 1, d);
 
     stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
 
@@ -190,8 +190,8 @@ fn with_uniform() {
     station2.add_departure(&c2);
     station2.add_departure(&c3);
     
-    store.insert_distribution(0..5, 0..15, false, 1, distribution::Distribution::uniform(-5, 10));
-    store.insert_distribution(0..5, 35..45, false, 1, distribution::Distribution::uniform(-2, 6));
+    store.insert_from_distribution(0..5, 0..15, false, 1, distribution::Distribution::uniform(-5, 10));
+    store.insert_from_distribution(0..5, 35..45, false, 1, distribution::Distribution::uniform(-2, 6));
 
     stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
     let a = c1.destination_arrival.borrow();
@@ -230,8 +230,8 @@ fn infinite_loop() {
     station2.add_departure(&c2);
     station2.add_departure(&c3);
     
-    store.insert_distribution(0..5, 0..20, false, 1, distribution::Distribution::uniform(-5, 9));
-    store.insert_distribution(0..5, 0..20, true, 1, distribution::Distribution::uniform(-5, 9));
+    store.insert_from_distribution(0..5, 0..20, false, 1, distribution::Distribution::uniform(-5, 9));
+    store.insert_from_distribution(0..5, 0..20, true, 1, distribution::Distribution::uniform(-5, 9));
 
     stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
     let a = c1.destination_arrival.borrow();

@@ -1,4 +1,6 @@
 use std::cmp;
+use std::ops::Range;
+
 use crate::types;
 
 pub struct Distribution {
@@ -93,6 +95,39 @@ impl Distribution {
             return 1.0
         }
         p
+    }
+
+    pub fn from_buckets(latest_sample_delays: Vec<(Range<i16>, i32)>, total_feasible_sample_count: i32) -> Distribution {
+        let total = total_feasible_sample_count as f32;
+        let cancelled = 0..0;
+        let mut h = vec![];
+        let mut feasibility = 1.0;
+        let mut mean = 0.0;
+        let mut i = latest_sample_delays[0].0.start;
+        for bucket in &latest_sample_delays {
+            if bucket.0 == cancelled {
+                feasibility = total/(total+bucket.1 as f32);
+                continue;
+            }
+            while i < bucket.0.start {
+                h.push(0.0);
+                i += 1;
+            }      
+            let len = bucket.0.len() as f32;      
+            for _j in bucket.0.clone() {
+                let fraction = bucket.1 as f32/total/len;
+                h.push(fraction);
+                mean += i as f32*fraction;
+                i += 1;
+            }
+        }
+        assert_float_absolute_eq!(h.iter().sum::<f32>(), 1.0, 1e-3);
+        Distribution{
+            histogram: h,
+            start: latest_sample_delays[0].0.start as i32,
+            mean:  mean,
+            feasible_probability: feasibility
+        }
     }
 }
 
@@ -251,5 +286,23 @@ mod tests {
         assert_float_relative_eq!(a.before_probability(&b, 2), 0.2*(0.5+0.3)+0.6*0.3);
         assert_float_relative_eq!(a.before_probability(&b, 3), 0.2*0.3);
         assert_float_relative_eq!(a.before_probability(&b, 4), 0.0);
+    }
+
+    #[test]
+    fn test_from_buckets() {
+        let buckets = vec![(-1..3, 50), (5..7, 50), (7..7, 22), (0..0, 5)];
+        let a = Distribution::from_buckets(buckets, 100);
+        assert_eq!(a.histogram.len(), 8);
+        assert_eq!(a.start, -1);
+        assert_eq!(a.mean, 3.0);
+        assert_float_relative_eq!(a.feasible_probability, 0.95238095238);
+        assert_float_relative_eq!(a.histogram[0], 0.125);
+        assert_float_relative_eq!(a.histogram[1], 0.125);
+        assert_float_relative_eq!(a.histogram[2], 0.125);
+        assert_float_relative_eq!(a.histogram[3], 0.125);
+        assert_float_relative_eq!(a.histogram[4], 0.0);
+        assert_float_relative_eq!(a.histogram[5], 0.0);
+        assert_float_relative_eq!(a.histogram[6], 0.25);
+        assert_float_relative_eq!(a.histogram[7], 0.25);
     }
 }
