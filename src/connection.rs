@@ -48,7 +48,8 @@ impl<'a> Station<'a> {
 }
 
 pub struct Connection<'a> {
-	route: &'a Route,
+	pub route: &'a Route,
+	pub trip_id: i32,
 	pub from: &'a Station<'a>,
 	pub to: &'a Station<'a>,
 	pub departure: StopInfo,
@@ -59,11 +60,12 @@ pub struct Connection<'a> {
 }
 
 impl<'a> Connection<'a> {
-	pub fn new(route: &'a Route,
+	pub fn new(route: &'a Route, trip_id: i32,
 	from: &'a Station<'a>, from_scheduled: types::Mtime, from_delay: Option<i16>,
 	to: &'a Station<'a>, to_scheduled: types::Mtime, to_delay: Option<i16>) -> Connection<'a> {
 		Connection {
 			route: route,
+			trip_id: trip_id,
 			from: from,
 			to: to,
 			departure: StopInfo {

@@ -61,11 +61,16 @@ impl<'a> Query<'a> {
                 continue;
             }
             let dest = &*dep.destination_arrival.borrow();
-            let mut p = self.store.reachable_probability(&c.arrival, c.product_type, &dep.departure, dep.product_type, self.now);
-            p *= dest.feasible_probability;            
-            new_distribution.add(dest, p*remaining_probability);
-            remaining_probability *= 1.0-p;
-            last_mean_departure = mean;
+            let mut p = 1.0;
+            if c.trip_id != dep.trip_id || ByAddress(c.route) != ByAddress(dep.route) {
+                p = self.store.reachable_probability(&c.arrival, c.product_type, &dep.departure, dep.product_type, self.now);
+            }
+            p *= dest.feasible_probability;
+            if p > 0.0 {
+                new_distribution.add(dest, p*remaining_probability);
+                remaining_probability *= 1.0-p;
+                last_mean_departure = mean;
+            }
         }
         new_distribution.feasible_probability = 1.0-remaining_probability;
         c.destination_arrival.replace(new_distribution);

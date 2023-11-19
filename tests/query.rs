@@ -35,15 +35,15 @@ fn setup<'a>() -> (distribution_store::Store, connection::Route, connection::Sta
 fn non_stochastic() {
     let (mut store, route, station1, station2, station3) = setup();
 
-    let c1 = connection::Connection::new(&route,
+    let c1 = connection::Connection::new(&route, 1,
         &station1, 10, None,
         &station2, 16, None);
     
-    let c2 = connection::Connection::new(&route,
+    let c2 = connection::Connection::new(&route, 2,
         &station2, 20, None,
         &station3, 30, None);
 
-    let c3 = connection::Connection::new(&route,
+    let c3 = connection::Connection::new(&route, 3,
         &station2, 30, None,
         &station3, 40, None);
     
@@ -71,20 +71,74 @@ fn non_stochastic() {
     assert_eq!(a.histogram.len(), 1);
 }
 
+#[test]
+fn zero_minutes_transfer() {
+    let (mut store, route, station1, station2, station3) = setup();
+
+    let c1 = connection::Connection::new(&route, 1,
+        &station1, 10, None,
+        &station2, 20, None);
+    
+    let c2 = connection::Connection::new(&route, 2,
+        &station2, 20, None,
+        &station3, 30, None);
+    
+    station1.add_departure(&c1);
+    station2.add_departure(&c2);
+
+    stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
+
+    let a = c1.destination_arrival.borrow();
+    assert_eq!(a.exists(), false);
+
+    let a = c2.destination_arrival.borrow();
+    assert_eq!(a.start, 30);
+    assert_eq!(a.histogram.len(), 1);
+}
+
+#[test]
+fn zero_minutes_transfer_same_trip() {
+    let (mut store, route, station1, station2, station3) = setup();
+
+    let c1 = connection::Connection::new(&route, 1,
+        &station1, 10, None,
+        &station2, 20, None);
+    
+    let c2 = connection::Connection::new(&route, 1,
+        &station2, 20, None,
+        &station3, 30, None);
+    
+    station1.add_departure(&c1);
+    station2.add_departure(&c2);
+
+    stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
+
+    let a = c1.destination_arrival.borrow();
+    assert_eq!(a.exists(), true);
+    assert_eq!(a.start, 30);
+    assert_float_relative_eq!(a.mean, 30.0);
+    assert_float_relative_eq!(a.feasible_probability, 1.0);
+    assert_eq!(a.histogram.len(), 1);
+    assert_float_relative_eq!(a.histogram[0], 1.0);
+
+    let a = c2.destination_arrival.borrow();
+    assert_eq!(a.start, 30);
+    assert_eq!(a.histogram.len(), 1);
+}
 
 #[test]
 fn with_cancelled_probability() {
     let (mut store, route, station1, station2, station3) = setup();
 
-    let c1 = connection::Connection::new(&route,
+    let c1 = connection::Connection::new(&route, 1,
         &station1, 10, None,
         &station2, 16, None);
     
-    let c2 = connection::Connection::new(&route,
+    let c2 = connection::Connection::new(&route, 2,
         &station2, 20, Some(0),
         &station3, 30, None);
 
-    let c3 = connection::Connection::new(&route,
+    let c3 = connection::Connection::new(&route, 3,
         &station2, 30, None,
         &station3, 40, None);
     
@@ -120,15 +174,15 @@ fn with_cancelled_probability() {
 fn with_uniform() {
     let (mut store, route, station1, station2, station3) = setup();
 
-    let c1 = connection::Connection::new(&route,
+    let c1 = connection::Connection::new(&route, 1,
         &station1, 10, None,
         &station2, 15, Some(3));
     
-    let c2 = connection::Connection::new(&route,
+    let c2 = connection::Connection::new(&route, 2,
         &station2, 20, None,
         &station3, 30, None);
     
-    let c3 = connection::Connection::new(&route,
+    let c3 = connection::Connection::new(&route, 3,
         &station2, 30, None,
         &station3, 40, Some(1));
     
@@ -160,15 +214,15 @@ fn with_uniform() {
 fn infinite_loop() {
     let (mut store, route, station1, station2, station3) = setup();
 
-    let c1 = connection::Connection::new(&route,
+    let c1 = connection::Connection::new(&route, 1,
         &station1, 10, Some(0),
         &station2, 12, Some(0));
     
-    let c2 = connection::Connection::new(&route,
+    let c2 = connection::Connection::new(&route, 2,
         &station2, 14, Some(0),
         &station1, 16, Some(0));
 
-    let c3 = connection::Connection::new(&route,
+    let c3 = connection::Connection::new(&route, 3,
         &station2, 20, None,
         &station3, 30, Some(0));
     
@@ -188,10 +242,7 @@ fn infinite_loop() {
     assert_float_relative_eq!(a.histogram[0], 1.0);
     
     let a = c2.destination_arrival.borrow();
-    assert_eq!(a.start, 0);
-    assert_float_relative_eq!(a.mean, 0.0);
-    assert_float_relative_eq!(a.feasible_probability, 0.0);
-    assert_eq!(a.histogram.len(), 0);
+    assert_eq!(a.exists(), false);
 
     let a = c3.destination_arrival.borrow();
     assert_eq!(a.start, 30);
