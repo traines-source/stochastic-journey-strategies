@@ -37,18 +37,15 @@ fn non_stochastic() {
 
     let c1 = connection::Connection::new(&route,
         &station1, 10, None,
-        &station2, 16, None,
-        0.0);
+        &station2, 16, None);
     
     let c2 = connection::Connection::new(&route,
         &station2, 20, None,
-        &station3, 30, None,
-        0.0);
+        &station3, 30, None);
 
     let c3 = connection::Connection::new(&route,
         &station2, 30, None,
-        &station3, 40, None,
-        0.0);
+        &station3, 40, None);
     
     station1.add_departure(&c1);
     station2.add_departure(&c2);
@@ -59,6 +56,7 @@ fn non_stochastic() {
     let a = c1.destination_arrival.borrow();
     assert_eq!(a.start, 30);
     assert_float_relative_eq!(a.mean, 30.0);
+    assert_float_relative_eq!(a.feasible_probability, 1.0);
     assert_eq!(a.histogram.len(), 11);
     assert_float_relative_eq!(a.histogram[0], 1.0);
     assert_float_relative_eq!(a.histogram[1], 0.0);
@@ -80,28 +78,30 @@ fn with_cancelled_probability() {
 
     let c1 = connection::Connection::new(&route,
         &station1, 10, None,
-        &station2, 16, None,
-        0.0);
+        &station2, 16, None);
     
     let c2 = connection::Connection::new(&route,
-        &station2, 20, None,
-        &station3, 30, None,
-        0.5);
+        &station2, 20, Some(0),
+        &station3, 30, None);
 
     let c3 = connection::Connection::new(&route,
         &station2, 30, None,
-        &station3, 40, None,
-        0.0);
+        &station3, 40, None);
     
     station1.add_departure(&c1);
     station2.add_departure(&c2);
     station2.add_departure(&c3);
+
+    let mut d = distribution::Distribution::uniform(0, 1);
+    d.feasible_probability = 0.5;
+    store.insert_distribution(0..5, 0..20, true, 1, d);
 
     stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
 
     let a = c1.destination_arrival.borrow();
     assert_eq!(a.start, 30);
     assert_float_relative_eq!(a.mean, 35.0);
+    assert_float_relative_eq!(a.feasible_probability, 1.0);
     assert_eq!(a.histogram.len(), 11);
     assert_float_relative_eq!(a.histogram[0], 0.5);
     assert_float_relative_eq!(a.histogram[1], 0.0);
@@ -122,18 +122,15 @@ fn with_uniform() {
 
     let c1 = connection::Connection::new(&route,
         &station1, 10, None,
-        &station2, 15, Some(3),
-        0.0);
+        &station2, 15, Some(3));
     
     let c2 = connection::Connection::new(&route,
         &station2, 20, None,
-        &station3, 30, None,
-        0.0);
+        &station3, 30, None);
     
     let c3 = connection::Connection::new(&route,
         &station2, 30, None,
-        &station3, 40, Some(1),
-        0.0);
+        &station3, 40, Some(1));
     
     station1.add_departure(&c1);
     station2.add_departure(&c2);
@@ -146,6 +143,7 @@ fn with_uniform() {
     let a = c1.destination_arrival.borrow();
     assert_eq!(a.start, 30);
     assert_float_relative_eq!(a.mean, 33.45);
+    assert_float_relative_eq!(a.feasible_probability, 1.0);
     assert_eq!(a.histogram.len(), 15);
     assert_float_relative_eq!(a.histogram[0], 0.7);
     assert_float_relative_eq!(a.histogram[1], 0.0);
@@ -164,18 +162,15 @@ fn infinite_loop() {
 
     let c1 = connection::Connection::new(&route,
         &station1, 10, Some(0),
-        &station2, 12, Some(0),
-        0.0);
+        &station2, 12, Some(0));
     
     let c2 = connection::Connection::new(&route,
         &station2, 14, Some(0),
-        &station1, 16, Some(0),
-        0.0);
+        &station1, 16, Some(0));
 
     let c3 = connection::Connection::new(&route,
         &station2, 20, None,
-        &station3, 30, Some(0),
-        0.0);
+        &station3, 30, Some(0));
     
     station1.add_departure(&c1);
     station2.add_departure(&c2);
@@ -187,17 +182,20 @@ fn infinite_loop() {
     stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
     let a = c1.destination_arrival.borrow();
     assert_eq!(a.start, 30);
-    //assert_float_relative_eq!(a.mean, 30.0);
+    assert_float_relative_eq!(a.mean, 30.0);
+    assert_float_relative_eq!(a.feasible_probability, 1.0);
     assert_eq!(a.histogram.len(), 1);
-    //assert_float_relative_eq!(a.histogram[0], 1.0);
+    assert_float_relative_eq!(a.histogram[0], 1.0);
     
     let a = c2.destination_arrival.borrow();
     assert_eq!(a.start, 0);
     assert_float_relative_eq!(a.mean, 0.0);
+    assert_float_relative_eq!(a.feasible_probability, 0.0);
     assert_eq!(a.histogram.len(), 0);
 
     let a = c3.destination_arrival.borrow();
     assert_eq!(a.start, 30);
     assert_float_relative_eq!(a.mean, 30.0);
+    assert_float_relative_eq!(a.feasible_probability, 1.0);
     assert_eq!(a.histogram.len(), 1);
 }

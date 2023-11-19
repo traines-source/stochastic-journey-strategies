@@ -88,7 +88,7 @@ impl Store {
     fn calculate_reachable_probability(&mut self, arrival: &connection::StopInfo, arrival_product_type: i16, departure: &connection::StopInfo, departure_product_type: i16, now: types::Mtime, key: ReachabilityKey) -> f32 {
         let a = self.delay_distribution(arrival, false, arrival_product_type, now);
         let d = self.delay_distribution(departure, true, departure_product_type, now);
-        let p = a.before_probability(&d, 1);
+        let p = a.before_probability(&d, 1)*d.feasible_probability;
         self.reachability.insert(key, p);
         p
     }

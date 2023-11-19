@@ -47,6 +47,8 @@ impl<'a> Query<'a> {
         for dep in &*c.to.departures.borrow() {
             self.recursive(dep);
         }
+        self.trace.remove(&ByAddress(c));
+        
         let mut departures_By_arrival = c.to.departures.borrow().clone();
         departures_By_arrival.sort_by(|a, b| a.destination_arrival.borrow().mean.partial_cmp(&b.destination_arrival.borrow().mean).unwrap());
 
@@ -58,11 +60,14 @@ impl<'a> Query<'a> {
             if mean < last_mean_departure {
                 continue;
             }
-            let p = self.store.reachable_probability(&c.arrival, c.product_type, &dep.departure, dep.product_type, self.now)*(1.0-dep.cancelled_probability);
-            new_distribution.add(&*dep.destination_arrival.borrow(), p*remaining_probability);
+            let dest = &*dep.destination_arrival.borrow();
+            let mut p = self.store.reachable_probability(&c.arrival, c.product_type, &dep.departure, dep.product_type, self.now);
+            p *= dest.feasible_probability;            
+            new_distribution.add(dest, p*remaining_probability);
             remaining_probability *= 1.0-p;
             last_mean_departure = mean;
         }
+        new_distribution.feasible_probability = 1.0-remaining_probability;
         c.destination_arrival.replace(new_distribution);
     }
 }

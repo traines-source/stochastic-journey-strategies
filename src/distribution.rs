@@ -4,7 +4,8 @@ use crate::types;
 pub struct Distribution {
 	pub histogram: Vec<f32>,
 	pub start: types::Mtime,
-	pub mean: f32
+	pub mean: f32,
+    pub feasible_probability: f32
 }
 
 impl Distribution {
@@ -17,7 +18,8 @@ impl Distribution {
         Distribution{
             histogram: vec![],
             start: start,
-            mean: 0.
+            mean: 0.,
+            feasible_probability: 0.0
         }
     }
 
@@ -28,7 +30,8 @@ impl Distribution {
         Distribution{
             histogram: vec![1.0/(width as f32); width],
             start: start,
-            mean:  start as f32+((width-1) as f32/2.0)
+            mean:  start as f32+((width-1) as f32/2.0),
+            feasible_probability: 1.0
         }
     }
 
@@ -69,7 +72,8 @@ impl Distribution {
         Distribution{
             histogram: self.histogram.clone(),
             start: self.start+start,
-            mean: self.mean+start as f32
+            mean: self.mean+start as f32,
+            feasible_probability: self.feasible_probability
         }
     }
 

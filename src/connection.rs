@@ -54,7 +54,6 @@ pub struct Connection<'a> {
 	pub departure: StopInfo,
 	pub arrival: StopInfo,
 	message: String,
-	pub cancelled_probability: f32,
 	pub product_type: i16,
 	pub destination_arrival: RefCell<distribution::Distribution>
 }
@@ -62,8 +61,7 @@ pub struct Connection<'a> {
 impl<'a> Connection<'a> {
 	pub fn new(route: &'a Route,
 	from: &'a Station<'a>, from_scheduled: types::Mtime, from_delay: Option<i16>,
-	to: &'a Station<'a>, to_scheduled: types::Mtime, to_delay: Option<i16>,
-	cancelled_probability: f32) -> Connection<'a> {
+	to: &'a Station<'a>, to_scheduled: types::Mtime, to_delay: Option<i16>) -> Connection<'a> {
 		Connection {
 			route: route,
 			from: from,
@@ -81,7 +79,6 @@ impl<'a> Connection<'a> {
 				projected_track: "".to_string()
 			},
 			message: "".to_string(),
-			cancelled_probability: cancelled_probability,
 			product_type: route.product_type,
 			destination_arrival: RefCell::new(distribution::Distribution::empty(0))
 		}	
