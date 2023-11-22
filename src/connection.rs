@@ -4,11 +4,11 @@ use crate::distribution;
 use crate::types;
 
 pub struct Route {
-	id: String,
-	name: String,
-	product_type: i16,
-	message: String,
-	direction: String
+	pub id: String,
+	pub name: String,
+	pub product_type: i16,
+	pub message: String,
+	pub direction: String
 }
 
 impl Route {
@@ -26,13 +26,13 @@ impl Route {
 pub struct Station<'a> {
 	pub id: String,
 	name: String,
-	pub departures: RefCell<Vec<&'a Connection<'a>>>,
+	pub departures: RefCell<Vec<Connection<'a>>>,
 	lat: f32,
 	lon: f32
 }
 
 impl<'a> Station<'a> {
-	pub fn new(id: String, name: String, departures: Vec<&'a Connection<'a>>) -> Station<'a> {
+	pub fn new(id: String, name: String, departures: Vec<Connection<'a>>) -> Station<'a> {
 		Station {
 			id: id,
 			name: name,
@@ -42,7 +42,7 @@ impl<'a> Station<'a> {
 		}
 	}
 
-	pub fn add_departure(&self, c: &'a Connection<'a>) {
+	pub fn add_departure(&self, c: Connection<'a>) {
 		self.departures.borrow_mut().push(c);
 	}
 }

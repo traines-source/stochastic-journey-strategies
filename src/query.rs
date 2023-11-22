@@ -7,7 +7,6 @@ use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-
 pub fn query<'a>(store: &'a mut distribution_store::Store, origin: &'a connection::Station<'a>, destination: &'a connection::Station<'a>, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime) {
     let mut q = Query {
         store: store,
@@ -28,11 +27,11 @@ struct Query<'a> {
     start_time: types::Mtime,
     max_time: types::Mtime,
     now: types::Mtime,
-    trace: HashMap<ByAddress<&'a connection::Connection<'a>>, f32>
+    trace: HashMap<*const connection::Connection<'a>, f32>
 }
 
-impl<'a> Query<'a> {
-    fn recursive(&mut self, c: &'a connection::Connection<'a>) {
+impl<'a, 'b> Query<'a> {
+    fn recursive(&mut self, c: &'b connection::Connection<'a>) {
         if c.destination_arrival.borrow().exists() {
             return;
         }
@@ -40,22 +39,24 @@ impl<'a> Query<'a> {
             c.destination_arrival.replace(self.store.delay_distribution(&c.arrival, false, c.product_type, self.now));
             return;
         }
-        if self.trace.contains_key(&ByAddress(c)) {
+        if self.trace.contains_key(&(c as *const connection::Connection<'a>)) {
             return;
         }
-        self.trace.insert(ByAddress(c), 1.0);
-        for dep in &*c.to.departures.borrow() {
+        self.trace.insert(c as *const connection::Connection<'a>, 1.0);
+        let binding = c.to.departures.borrow();
+        for dep in &*binding {
             self.recursive(dep);
         }
-        self.trace.remove(&ByAddress(c));
+        self.trace.remove(&(c as *const connection::Connection<'a>));
         
-        let mut departures_By_arrival = c.to.departures.borrow().clone();
-        departures_By_arrival.sort_by(|a, b| a.destination_arrival.borrow().mean.partial_cmp(&b.destination_arrival.borrow().mean).unwrap());
+        
+        let mut departures_by_arrival: Vec<&connection::Connection<'a>> = binding.iter().collect();
+        departures_by_arrival.sort_by(|a, b| a.destination_arrival.borrow().mean.partial_cmp(&b.destination_arrival.borrow().mean).unwrap());
 
         let mut remaining_probability = 1.0;
         let mut new_distribution = distribution::Distribution::empty(c.arrival.scheduled);
         let mut last_mean_departure = 0.;
-        for dep in &departures_By_arrival {
+        for dep in &departures_by_arrival {
             let mean = self.store.delay_distribution(&dep.departure, true, dep.product_type, self.now).mean;
             if mean < last_mean_departure {
                 continue;

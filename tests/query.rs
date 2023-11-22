@@ -30,7 +30,6 @@ fn setup<'a>() -> (distribution_store::Store, connection::Route, connection::Sta
     (store, route, station1, station2, station3)
 }
 
-
 #[test]
 fn non_stochastic() {
     let (mut store, route, station1, station2, station3) = setup();
@@ -47,11 +46,17 @@ fn non_stochastic() {
         &station2, 30, None,
         &station3, 40, None);
     
-    station1.add_departure(&c1);
-    station2.add_departure(&c2);
-    station2.add_departure(&c3);
+    station1.add_departure(c1);
+    station2.add_departure(c2);
+    station2.add_departure(c3);
 
     stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
+
+    let b1 = station1.departures.borrow();
+    let c1 = b1.get(0).unwrap();
+    let b2 = station2.departures.borrow();
+    let c2 = b2.get(0).unwrap();    
+    let c3 = b2.get(1).unwrap();
 
     let a = c1.destination_arrival.borrow();
     assert_eq!(a.start, 30);
@@ -83,10 +88,15 @@ fn zero_minutes_transfer() {
         &station2, 20, None,
         &station3, 30, None);
     
-    station1.add_departure(&c1);
-    station2.add_departure(&c2);
+    station1.add_departure(c1);
+    station2.add_departure(c2);
 
     stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
+
+    let b1 = station1.departures.borrow();
+    let c1 = b1.get(0).unwrap();
+    let b2 = station2.departures.borrow();
+    let c2 = b2.get(0).unwrap();
 
     let a = c1.destination_arrival.borrow();
     assert_eq!(a.exists(), false);
@@ -108,10 +118,15 @@ fn zero_minutes_transfer_same_trip() {
         &station2, 20, None,
         &station3, 30, None);
     
-    station1.add_departure(&c1);
-    station2.add_departure(&c2);
+    station1.add_departure(c1);
+    station2.add_departure(c2);
 
     stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
+
+    let b1 = station1.departures.borrow();
+    let c1 = b1.get(0).unwrap();
+    let b2 = station2.departures.borrow();
+    let c2 = b2.get(0).unwrap();
 
     let a = c1.destination_arrival.borrow();
     assert_eq!(a.exists(), true);
@@ -142,15 +157,21 @@ fn with_cancelled_probability() {
         &station2, 30, None,
         &station3, 40, None);
     
-    station1.add_departure(&c1);
-    station2.add_departure(&c2);
-    station2.add_departure(&c3);
-
+    station1.add_departure(c1);
+    station2.add_departure(c2);
+    station2.add_departure(c3);
+    
     let mut d = distribution::Distribution::uniform(0, 1);
     d.feasible_probability = 0.5;
     store.insert_from_distribution(0..5, 0..20, true, 1, d);
 
     stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
+
+    let b1 = station1.departures.borrow();
+    let c1 = b1.get(0).unwrap();
+    let b2 = station2.departures.borrow();
+    let c2 = b2.get(0).unwrap();    
+    let c3 = b2.get(1).unwrap();
 
     let a = c1.destination_arrival.borrow();
     assert_eq!(a.start, 30);
@@ -186,14 +207,21 @@ fn with_uniform() {
         &station2, 30, None,
         &station3, 40, Some(1));
     
-    station1.add_departure(&c1);
-    station2.add_departure(&c2);
-    station2.add_departure(&c3);
+    station1.add_departure(c1);
+    station2.add_departure(c2);
+    station2.add_departure(c3);
     
     store.insert_from_distribution(0..5, 0..15, false, 1, distribution::Distribution::uniform(-5, 10));
     store.insert_from_distribution(0..5, 35..45, false, 1, distribution::Distribution::uniform(-2, 6));
 
     stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
+
+    let b1 = station1.departures.borrow();
+    let c1 = b1.get(0).unwrap();
+    let b2 = station2.departures.borrow();
+    let c2 = b2.get(0).unwrap();    
+    let c3 = b2.get(1).unwrap();
+
     let a = c1.destination_arrival.borrow();
     assert_eq!(a.start, 30);
     assert_float_relative_eq!(a.mean, 33.45);
@@ -226,14 +254,21 @@ fn infinite_loop() {
         &station2, 20, None,
         &station3, 30, Some(0));
     
-    station1.add_departure(&c1);
-    station2.add_departure(&c2);
-    station2.add_departure(&c3);
+    station1.add_departure(c1);
+    station2.add_departure(c2);
+    station2.add_departure(c3);
     
     store.insert_from_distribution(0..5, 0..20, false, 1, distribution::Distribution::uniform(-5, 9));
     store.insert_from_distribution(0..5, 0..20, true, 1, distribution::Distribution::uniform(-5, 9));
 
     stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
+
+    let b1 = station1.departures.borrow();
+    let c1 = b1.get(0).unwrap();
+    let b2 = station2.departures.borrow();
+    let c2 = b2.get(0).unwrap();    
+    let c3 = b2.get(1).unwrap();
+
     let a = c1.destination_arrival.borrow();
     assert_eq!(a.start, 30);
     assert_float_relative_eq!(a.mean, 30.0);

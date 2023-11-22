@@ -113,7 +113,7 @@ impl Store {
         }
     }
 
-    fn load_distributions(&mut self, file_path: &str) {
+    pub fn load_distributions(&mut self, file_path: &str) {
         let key_array: [(&str, usize); 6] = [
             ("product_type_id", 0),
             ("is_departure",1),
