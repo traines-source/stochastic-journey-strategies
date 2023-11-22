@@ -2,7 +2,7 @@ use std::cmp;
 use std::ops::Range;
 
 use crate::types;
-
+#[derive(Debug)]
 pub struct Distribution {
 	pub histogram: Vec<f32>,
 	pub start: types::Mtime,
@@ -195,6 +195,7 @@ mod tests {
         assert_eq!(a.histogram.len(), 0);
         assert_eq!(a.start, 0);
         assert_eq!(a.mean, a.mean());
+        assert_eq!(a.exists(), false);
     }
 
     #[test]

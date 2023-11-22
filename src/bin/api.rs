@@ -28,7 +28,7 @@ fn main() {
     rouille::start_server("0.0.0.0:1234", move |request| {
 
         let mut store = distribution_store::Store::new();
-        store.load_distributions("../../data/de_db.csv");
+        store.load_distributions("./data/de_db.csv");
 
         println!("receiving req...");
         let mut bytes: Vec<u8> = vec![];
@@ -68,7 +68,10 @@ fn main() {
         let destination = query.destination.borrow() as &str;
         let o = stations.get(origin).unwrap();
         let d = stations.get(destination).unwrap();
+        println!("orig {} dest {}", o.id, d.id);
+        println!("querying...");
         stost::query::query(&mut store, o, d, 0, 100, to_mtime(query.now, start_time));
+        println!("finished querying...");
         let mut trips: HashMap<&str, Vec<wire::Connection>> = HashMap::new();
         for (_, s) in &stations {
             for c in &*s.departures.borrow() {
@@ -89,12 +92,12 @@ fn main() {
                     }),
                     arrival: None,
                     message: Cow::Borrowed(""),
-                    destination_arrival: Some(wire::Distribution {
+                    destination_arrival: if (da.is_none()) { None } else { let da = da.as_ref().unwrap(); Some(wire::Distribution {
                         histogram: Cow::Owned(da.histogram.clone()),
                         start: from_mtime(da.start, start_time),
                         mean: (da.mean*60.0) as i64 + start_time,
                         feasible_probability: da.feasible_probability
-                    })
+                    }) }
                 })
             }
         }

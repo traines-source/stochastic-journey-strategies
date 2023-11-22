@@ -56,7 +56,7 @@ pub struct Connection<'a> {
 	pub arrival: StopInfo,
 	message: String,
 	pub product_type: i16,
-	pub destination_arrival: RefCell<distribution::Distribution>
+	pub destination_arrival: RefCell<Option<distribution::Distribution>>
 }
 
 impl<'a> Connection<'a> {
@@ -82,7 +82,7 @@ impl<'a> Connection<'a> {
 			},
 			message: "".to_string(),
 			product_type: route.product_type,
-			destination_arrival: RefCell::new(distribution::Distribution::empty(0))
+			destination_arrival: RefCell::new(None)
 		}	
 	}
 }
