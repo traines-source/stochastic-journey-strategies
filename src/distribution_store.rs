@@ -67,6 +67,7 @@ impl Store {
         if delay_key.prior_delay.0 >= self.delay_upper.0 {
             self.delay_upper = delay_key.prior_delay;
         }
+        distribution.assert();
         self.delay.insert(delay_key, distribution);
     }
 

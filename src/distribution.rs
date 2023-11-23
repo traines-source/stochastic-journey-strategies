@@ -16,6 +16,10 @@ impl Distribution {
         self.histogram.len() > 0
     }
 
+    pub fn assert(&self) {
+        assert_float_absolute_eq!(self.histogram.iter().sum::<f32>(), 1.0, 1e-3);
+    }
+
     pub fn empty(start: types::Mtime) -> Distribution {
         Distribution{
             histogram: vec![],
@@ -43,6 +47,22 @@ impl Distribution {
             mean += (self.start as f32+i as f32)*self.histogram[i];
         }
         mean
+    }
+
+    pub fn normalize(&self) -> Distribution {
+        let sum = self.histogram.iter().sum::<f32>();
+        let mut h = self.histogram.clone();
+        let mut mean = 0.0;
+        for i in 0..self.histogram.len() {
+            h[i] /= sum;
+            mean += (self.start as f32+i as f32)*h[i];
+        }
+        Distribution {
+            histogram: h,
+            start: self.start,
+            mean: mean,
+            feasible_probability: self.feasible_probability
+        }
     }
     
     pub fn add(&mut self, other: &Distribution, weight: f32) {
@@ -103,6 +123,7 @@ impl Distribution {
         let mut h = vec![];
         let mut feasibility = 1.0;
         let mut mean = 0.0;
+        let mut sum = 0;
         let mut i = latest_sample_delays[0].0.start;
         for bucket in &latest_sample_delays {
             if bucket.0 == cancelled {
@@ -120,7 +141,11 @@ impl Distribution {
                 mean += i as f32*fraction;
                 i += 1;
             }
+            if bucket.0.len() > 0 {
+                sum += bucket.1;
+            }
         }
+        assert_eq!(sum, total_feasible_sample_count);
         assert_float_absolute_eq!(h.iter().sum::<f32>(), 1.0, 1e-3);
         Distribution{
             histogram: h,

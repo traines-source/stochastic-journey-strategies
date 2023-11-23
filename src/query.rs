@@ -99,6 +99,9 @@ impl<'a, 'b> Query<'a> {
             }
         }
         new_distribution.feasible_probability = (1.0-remaining_probability).clamp(0.0,1.0);
+        if new_distribution.feasible_probability < 1.0 {
+            new_distribution = new_distribution.normalize();
+        }
         c.destination_arrival.replace(Some(new_distribution));
         None
     }

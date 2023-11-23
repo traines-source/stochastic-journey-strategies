@@ -334,7 +334,7 @@ fn infinite_loop_cut_at_lowest_reachability() {
     station2.add_departure(c3);
     station1.add_departure(c5);
     
-    store.insert_from_distribution(0..5, 0..20, false, 1, distribution::Distribution::uniform(-5, 9));
+    store.insert_from_distribution(0..5, 0..20, false, 1, distribution::Distribution::uniform(-5, 8));
     store.insert_from_distribution(0..5, 0..20, true, 1, distribution::Distribution::uniform(-5, 9));
 
     stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
@@ -366,7 +366,7 @@ fn infinite_loop_cut_at_lowest_reachability() {
     let binding = c2.destination_arrival.borrow();
     let a = binding.as_ref().unwrap();
     assert_eq!(a.start, 30);
-    assert_float_relative_eq!(a.mean, 48.333333);
+    assert_float_relative_eq!(a.mean, 46.499992);
     assert_float_relative_eq!(a.feasible_probability, 1.0);
     assert_eq!(a.histogram.len(), 34);
 
@@ -388,84 +388,49 @@ fn infinite_loop_cut_at_lowest_reachability() {
 
 
 #[test]
-fn loop_without_path_to_destination() {
+fn partial_feasibility() {
     let (mut store, route, station1, station2, station3) = setup();
 
-    let c4 = connection::Connection::new(&route, 4,
-        &station1, 5, None,
-        &station2, 7, None);
 
     let c1 = connection::Connection::new(&route, 1,
         &station1, 10, Some(0),
-        &station2, 12, Some(0));
-    
-    let c2 = connection::Connection::new(&route, 2,
-        &station2, 8, Some(0),
-        &station1, 10, Some(0));
+        &station2, 19, Some(0));
 
     let c3 = connection::Connection::new(&route, 3,
         &station2, 20, None,
-        &station3, 30, Some(0));
-
-    let c5 = connection::Connection::new(&route, 4,
-        &station1, 30, Some(4),
-        &station3, 60, Some(3));
-    
-        
+        &station3, 30, Some(0));      
     
     station1.add_departure(c1);
-    station1.add_departure(c4);
-    station2.add_departure(c2);
     station2.add_departure(c3);
-    station1.add_departure(c5);
     
-    store.insert_from_distribution(0..5, 0..20, false, 1, distribution::Distribution::uniform(-5, 9));
-    store.insert_from_distribution(0..5, 0..20, true, 1, distribution::Distribution::uniform(-5, 9));
+    store.insert_from_distribution(0..5, 0..40, false, 1, distribution::Distribution::uniform(-5, 8));
+    store.insert_from_distribution(0..5, 0..40, true, 1, distribution::Distribution::uniform(-5, 8));
 
     stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
 
     let b1 = station1.departures.borrow();
-    let c4 = b1.get(1).unwrap();
     let c1 = b1.get(0).unwrap();
-    let c5 = b1.get(2).unwrap();
     let b2 = station2.departures.borrow();
-    let c2 = b2.get(0).unwrap();    
-    let c3 = b2.get(1).unwrap();
+    let c3 = b2.get(0).unwrap();
 
-    let binding = c4.destination_arrival.borrow();
-    let a = binding.as_ref().unwrap();
-    assert_eq!(a.start, 30);
-    assert_float_relative_eq!(a.mean, 30.0);
-    assert_float_relative_eq!(a.feasible_probability, 1.0);
-    assert_eq!(a.histogram.len(), 1);
-    assert_float_relative_eq!(a.histogram[0], 1.0);
+    
 
     let binding = c1.destination_arrival.borrow();
     let a = binding.as_ref().unwrap();
-    assert_eq!(a.start, 30);
-    assert_float_relative_eq!(a.mean, 30.0);
-    assert_float_relative_eq!(a.feasible_probability, 1.0);
-    assert_eq!(a.histogram.len(), 1);
-    assert_float_relative_eq!(a.histogram[0], 1.0);
+    assert_eq!(a.start, 25);
+    assert_float_relative_eq!(a.mean, 28.5);
+    assert_float_relative_eq!(a.feasible_probability, 0.75);
+    assert_eq!(a.histogram.len(), 8);
+    assert_float_relative_eq!(a.histogram[0], 0.125);
+    assert_float_absolute_eq!(a.histogram.iter().sum::<f32>(), 1.0, 1e-3);
     
-    let binding = c2.destination_arrival.borrow();
-    let a = binding.as_ref().unwrap();
-    assert_eq!(a.start, 30);
-    assert_float_relative_eq!(a.mean, 48.333333);
-    assert_float_relative_eq!(a.feasible_probability, 1.0);
-    assert_eq!(a.histogram.len(), 34);
-
+ 
     let binding = c3.destination_arrival.borrow();
     let a = binding.as_ref().unwrap();
-    assert_eq!(a.start, 30);
-    assert_float_relative_eq!(a.mean, 30.0);
+    assert_eq!(a.start, 25);
+    assert_float_relative_eq!(a.mean, 28.5);
     assert_float_relative_eq!(a.feasible_probability, 1.0);
-    assert_eq!(a.histogram.len(), 1);
-
-    let binding = c5.destination_arrival.borrow();
-    let a = binding.as_ref().unwrap();
-    assert_eq!(a.start, 63);
-    assert_float_relative_eq!(a.mean, 63.0);
-    assert_float_relative_eq!(a.feasible_probability, 1.0);
-    assert_eq!(a.histogram.len(), 1);
+    assert_eq!(a.histogram.len(), 8);
+    assert_float_relative_eq!(a.histogram[0], 0.125);
+    assert_float_absolute_eq!(a.histogram.iter().sum::<f32>(), 1.0, 1e-3);
 }
