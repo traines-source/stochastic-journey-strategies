@@ -44,6 +44,10 @@ impl Store {
         }
     }
 
+    pub fn reachability_len(&self) -> usize {
+        self.reachability.len()
+    }
+
     fn delay_bucket(&self, delay: Option<i16>, ttl: (i16,i16)) -> (i16, i16) {
         if ttl == (0,0) {
             return (0,0)
@@ -163,7 +167,7 @@ impl Store {
             Some(d) => d.shift(stop_info.projected()),
             None => {
                 if product_type != 100 {
-                    println!("No distribution found: {:?}", key);
+                    //println!("No distribution found: {:?}", key);
                 }
                 distribution::Distribution::uniform(stop_info.projected(), 1)
             }

@@ -51,6 +51,9 @@ impl<'a, 'b> Query<'a> {
         if c.destination_arrival.borrow().is_some() {
             return None;
         }
+        if self.trace.len() > 20 {
+            return None;
+        }
         if c.to.id == self.destination.id {
             c.destination_arrival.replace(Some(self.store.delay_distribution(&c.arrival, false, c.product_type, self.now)));
             self.connections += 1;
@@ -86,6 +89,9 @@ impl<'a, 'b> Query<'a> {
         for dep in &*binding {
             if dep.destination_arrival.borrow().is_none() && !self.cut.contains(&(my_address, dep as *const connection::Connection<'a>)) {
                 let p = self.store.reachable_probability(&c.arrival, c.product_type, &dep.departure, dep.product_type, self.now);
+                if p < 0.001 {
+                    continue;
+                }
                 let cycle_found = self.recursive(dep, p);
                 if cycle_found.is_some() {
                     assert_eq!(self.trace.pop().unwrap().0, my_address);
@@ -99,7 +105,7 @@ impl<'a, 'b> Query<'a> {
         }
         assert_eq!(self.trace.pop().unwrap().0, my_address);
         if (!self.visited.contains_key(&c.to.id as &str)) {
-            println!("finished iterating {} {} len: {} cycles: {} cut: {} direct: {} conns: {}", c.to.name, c.to.id, self.visited.len(), self.cycles_found, self.cycles_cut, self.cycles_cut_direct, self.connections);
+            println!("finished iterating {} {} len: {} cycles: {} cut: {} direct: {} conns: {} reachs: {}", c.to.name, c.to.id, self.visited.len(), self.cycles_found, self.cycles_cut, self.cycles_cut_direct, self.connections, self.store.reachability_len());
             self.visited.insert(&c.to.id as &str, self.visited.len());
         }
         
@@ -111,12 +117,15 @@ impl<'a, 'b> Query<'a> {
         let mut new_distribution = distribution::Distribution::empty(c.arrival.scheduled);
         let mut last_mean_departure = 0.;
         for dep in &departures_by_arrival {
+            let dest = dep.destination_arrival.borrow();
+            let mut p = dest.as_ref().map(|da| da.feasible_probability).unwrap_or(0.0);
+            if p < 0.001 {
+                continue;
+            }
             let mean = self.store.delay_distribution(&dep.departure, true, dep.product_type, self.now).mean;
             if mean < last_mean_departure {
                 continue;
-            }
-            let dest = dep.destination_arrival.borrow();
-            let mut p = dest.as_ref().map(|da| da.feasible_probability).unwrap_or(0.0);
+            }            
             if p > 0.0 && (c.trip_id != dep.trip_id || ByAddress(c.route) != ByAddress(dep.route)) {
                 p *= self.store.reachable_probability(&c.arrival, c.product_type, &dep.departure, dep.product_type, self.now);
             }
@@ -124,6 +133,9 @@ impl<'a, 'b> Query<'a> {
                 new_distribution.add(dest.as_ref().unwrap(), (p*remaining_probability).clamp(0.0,1.0));
                 remaining_probability = ((1.0-p).clamp(0.0,1.0)*remaining_probability).clamp(0.0,1.0);
                 last_mean_departure = mean;
+                if remaining_probability < 0.001 {
+                    break;
+                }
             }
         }
         new_distribution.feasible_probability = (1.0-remaining_probability).clamp(0.0,1.0);
