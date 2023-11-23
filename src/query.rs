@@ -36,14 +36,12 @@ impl<'a, 'b> Query<'a> {
             return None;
         }
         if c.to.id == self.destination.id {
-            println!("arrived at dest{}", c.route.name);
             c.destination_arrival.replace(Some(self.store.delay_distribution(&c.arrival, false, c.product_type, self.now)));
             return None;
         }
         let my_address = c as *const connection::Connection<'a>;
         let idx = self.trace.get_index_of(&my_address);
         if idx.is_some() {
-            //println!("Cycle found {} {}", c.route.name, self.trace.len());
             let mut min_reachability = reachable_p;
             let mut min_ptr = my_address;
             let start = idx.unwrap()+1 as usize;
@@ -100,7 +98,7 @@ impl<'a, 'b> Query<'a> {
         }
         new_distribution.feasible_probability = (1.0-remaining_probability).clamp(0.0,1.0);
         if new_distribution.feasible_probability < 1.0 {
-            new_distribution = new_distribution.normalize();
+            new_distribution.normalize();
         }
         c.destination_arrival.replace(Some(new_distribution));
         None

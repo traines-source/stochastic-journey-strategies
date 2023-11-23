@@ -3,15 +3,14 @@ use stost::distribution_store;
 use stost::query;
 use stost::connection;
 use stost::types;
-use quick_protobuf::{MessageRead, MessageWrite, BytesReader, Reader, Writer};
+use quick_protobuf::{MessageRead, MessageWrite, BytesReader, Writer};
 
-use rouille::Request;
-use rouille::RequestBody;
 use rouille::Response;
 use std::io::Read;
 use std::borrow::Cow;
 use std::borrow::Borrow;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 fn to_mtime(t: i64, reference: i64) -> types::Mtime {
     ((t-reference) as f32/60.0).round() as types::Mtime
@@ -23,12 +22,12 @@ fn from_mtime(mtime: types::Mtime, reference: i64) -> i64 {
 
 
 fn main() {
+    let mut store = distribution_store::Store::new();
+    store.load_distributions("./data/de_db.csv");
+    let store_mutex = Mutex::new(store);
 
     println!("starting...");
     rouille::start_server("0.0.0.0:1234", move |request| {
-
-        let mut store = distribution_store::Store::new();
-        store.load_distributions("./data/de_db.csv");
 
         println!("receiving req...");
         let mut bytes: Vec<u8> = vec![];
@@ -69,9 +68,10 @@ fn main() {
         let o = stations.get(origin).unwrap();
         let d = stations.get(destination).unwrap();
         println!("orig {} dest {}", o.id, d.id);
-        println!("querying...");
-        stost::query::query(&mut store, o, d, 0, 100, to_mtime(query.now, start_time));
-        println!("finished querying...");
+        let mut s = store_mutex.lock().unwrap();
+        println!("querying...");       
+        query::query(&mut s, o, d, 0, 100, to_mtime(query.now, start_time));
+        println!("finished querying.");
         let mut trips: HashMap<&str, Vec<wire::Connection>> = HashMap::new();
         for (_, s) in &stations {
             for c in &*s.departures.borrow() {

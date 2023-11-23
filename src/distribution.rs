@@ -49,20 +49,15 @@ impl Distribution {
         mean
     }
 
-    pub fn normalize(&self) -> Distribution {
+    pub fn normalize(&mut self) {
         let sum = self.histogram.iter().sum::<f32>();
-        let mut h = self.histogram.clone();
         let mut mean = 0.0;
         for i in 0..self.histogram.len() {
-            h[i] /= sum;
-            mean += (self.start as f32+i as f32)*h[i];
+            self.histogram[i] /= sum;
+            mean += (self.start as f32+i as f32)*self.histogram[i];
         }
-        Distribution {
-            histogram: h,
-            start: self.start,
-            mean: mean,
-            feasible_probability: self.feasible_probability
-        }
+        self.mean = mean;
+       
     }
     
     pub fn add(&mut self, other: &Distribution, weight: f32) {
