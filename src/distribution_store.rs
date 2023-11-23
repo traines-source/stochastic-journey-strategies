@@ -44,7 +44,10 @@ impl Store {
         }
     }
 
-    fn delay_bucket(&self, delay: Option<i16>) -> (i16, i16) {
+    fn delay_bucket(&self, delay: Option<i16>, ttl: (i16,i16)) -> (i16, i16) {
+        if ttl == (0,0) {
+            return (0,0)
+        }
         match delay {
             Some(d) => if d >= self.delay_upper.0 { self.delay_upper } else { *self.delay_buckets.get(&d).unwrap_or(&(0,0)) },
             None => (0,0)
@@ -149,14 +152,21 @@ impl Store {
     }
 
     pub fn delay_distribution(&self, stop_info: &connection::StopInfo, is_departure: bool, product_type: i16, now: types::Mtime) -> distribution::Distribution {
-        match self.delay.get(&DelayKey{
+        let ttl = self.ttl_bucket((stop_info.projected()-now) as i32);
+        let key = DelayKey{
             product_type: product_type,
-            prior_delay: self.delay_bucket(stop_info.delay),
-            prior_ttl: self.ttl_bucket((stop_info.projected()-now) as i32),
+            prior_delay: self.delay_bucket(stop_info.delay, ttl),
+            prior_ttl: ttl,
             is_departure: is_departure
-        }) {
+        };
+        match self.delay.get(&key) {
             Some(d) => d.shift(stop_info.projected()),
-            None => distribution::Distribution::uniform(stop_info.projected(), 1)
+            None => {
+                if product_type != 100 {
+                    println!("No distribution found: {:?}", key);
+                }
+                distribution::Distribution::uniform(stop_info.projected(), 1)
+            }
         }
     }
 
@@ -169,12 +179,13 @@ impl Store {
     }
 
     pub fn reachable_probability(&mut self, arrival: &connection::StopInfo, arrival_product_type: i16, departure: &connection::StopInfo, departure_product_type: i16, now: types::Mtime) -> f32 {
+        let ttl = self.ttl_bucket((arrival.projected()-now) as i32);
         let key = ReachabilityKey{
             from_product_type: arrival_product_type,
             to_product_type: departure_product_type,
-            from_prior_delay: self.delay_bucket(arrival.delay),
-            to_prior_delay: self.delay_bucket(arrival.delay),
-            prior_ttl: self.ttl_bucket((arrival.projected()-now) as i32),
+            from_prior_delay: self.delay_bucket(arrival.delay, ttl),
+            to_prior_delay: self.delay_bucket(arrival.delay, ttl),
+            prior_ttl: ttl,
             diff: (departure.projected()-arrival.projected()) as i16
         };
         match self.reachability.get(&key) {
@@ -198,7 +209,7 @@ mod tests {
     fn insert() {
         let mut s = Store::new();
         s.insert_from_distribution(30..45, 10..15, true, 5, distribution::Distribution::uniform(55, 2));
-        assert_eq!(s.delay_bucket(Some(33)), (30,45));
+        assert_eq!(s.delay_bucket(Some(33), (10,15)), (30,45));
         assert_eq!(s.ttl_bucket(10), (10,15));
         assert_eq!(s.ttl_bucket(15), (0,0));
         let o = s.delay.get(&DelayKey{

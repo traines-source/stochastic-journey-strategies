@@ -25,7 +25,7 @@ impl Route {
 
 pub struct Station<'a> {
 	pub id: String,
-	name: String,
+	pub name: String,
 	pub departures: RefCell<Vec<Connection<'a>>>,
 	lat: f32,
 	lon: f32
