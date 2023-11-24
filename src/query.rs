@@ -126,10 +126,13 @@ impl<'a, 'b> Query<'a> {
                 panic!("mean 0 with high feasibility");
             }
             assert_float_absolute_eq!(dest.as_ref().unwrap().mean, dest.as_ref().unwrap().mean(), 1e-3);
-            
+
             let dep_dist = self.store.delay_distribution(&dep.departure, true, dep.product_type, self.now);
-            if last_departure.is_some() && dep_dist.mean < last_departure.as_ref().unwrap().mean {
+            /*if last_departure.is_some() && dep_dist.mean < last_departure.as_ref().unwrap().mean {
                 continue;
+            }*/
+            if last_departure.is_some() {
+                p *= last_departure.as_ref().unwrap().before_probability(&dep_dist, 1);
             }           
             if p > 0.0 && (c.trip_id != dep.trip_id || ByAddress(c.route) != ByAddress(dep.route)) {
                 p *= self.store.reachable_probability_conn(c, dep, self.now);
