@@ -34,15 +34,15 @@ fn setup<'a>() -> (distribution_store::Store, connection::Route, connection::Sta
 fn non_stochastic() {
     let (mut store, route, station1, station2, station3) = setup();
 
-    let c1 = connection::Connection::new(&route, 1,
+    let c1 = connection::Connection::new(&route, 1, false,
         &station1, 10, None,
         &station2, 16, None);
     
-    let c2 = connection::Connection::new(&route, 2,
+    let c2 = connection::Connection::new(&route, 2, false,
         &station2, 20, None,
         &station3, 30, None);
 
-    let c3 = connection::Connection::new(&route, 3,
+    let c3 = connection::Connection::new(&route, 3, false,
         &station2, 30, None,
         &station3, 40, None);
     
@@ -84,11 +84,11 @@ fn non_stochastic() {
 fn zero_minutes_transfer() {
     let (mut store, route, station1, station2, station3) = setup();
 
-    let c1 = connection::Connection::new(&route, 1,
+    let c1 = connection::Connection::new(&route, 1, false,
         &station1, 10, None,
         &station2, 20, None);
     
-    let c2 = connection::Connection::new(&route, 2,
+    let c2 = connection::Connection::new(&route, 2, false,
         &station2, 20, None,
         &station3, 30, None);
     
@@ -117,11 +117,11 @@ fn zero_minutes_transfer() {
 fn zero_minutes_transfer_same_trip() {
     let (mut store, route, station1, station2, station3) = setup();
 
-    let c1 = connection::Connection::new(&route, 1,
+    let c1 = connection::Connection::new(&route, 1, false,
         &station1, 10, None,
         &station2, 20, None);
     
-    let c2 = connection::Connection::new(&route, 1,
+    let c2 = connection::Connection::new(&route, 1, false,
         &station2, 20, None,
         &station3, 30, None);
     
@@ -154,15 +154,15 @@ fn zero_minutes_transfer_same_trip() {
 fn with_cancelled_probability() {
     let (mut store, route, station1, station2, station3) = setup();
 
-    let c1 = connection::Connection::new(&route, 1,
+    let c1 = connection::Connection::new(&route, 1, false,
         &station1, 10, None,
         &station2, 16, None);
     
-    let c2 = connection::Connection::new(&route, 2,
+    let c2 = connection::Connection::new(&route, 2, false,
         &station2, 20, Some(0),
         &station3, 30, None);
 
-    let c3 = connection::Connection::new(&route, 3,
+    let c3 = connection::Connection::new(&route, 3, false,
         &station2, 30, None,
         &station3, 40, None);
     
@@ -207,15 +207,15 @@ fn with_cancelled_probability() {
 fn with_uniform() {
     let (mut store, route, station1, station2, station3) = setup();
 
-    let c1 = connection::Connection::new(&route, 1,
+    let c1 = connection::Connection::new(&route, 1, false,
         &station1, 10, None,
         &station2, 15, Some(3));
     
-    let c2 = connection::Connection::new(&route, 2,
+    let c2 = connection::Connection::new(&route, 2, false,
         &station2, 20, None,
         &station3, 30, None);
     
-    let c3 = connection::Connection::new(&route, 3,
+    let c3 = connection::Connection::new(&route, 3, false,
         &station2, 30, None,
         &station3, 40, Some(1));
     
@@ -255,15 +255,15 @@ fn with_uniform() {
 fn infinite_loop() {
     let (mut store, route, station1, station2, station3) = setup();
 
-    let c1 = connection::Connection::new(&route, 1,
+    let c1 = connection::Connection::new(&route, 1, false,
         &station1, 10, Some(0),
         &station2, 12, Some(0));
     
-    let c2 = connection::Connection::new(&route, 2,
+    let c2 = connection::Connection::new(&route, 2, false,
         &station2, 14, Some(0),
         &station1, 16, Some(0));
 
-    let c3 = connection::Connection::new(&route, 3,
+    let c3 = connection::Connection::new(&route, 3, false,
         &station2, 20, None,
         &station3, 30, Some(0));
     
@@ -308,23 +308,23 @@ fn infinite_loop_cut_at_lowest_reachability() {
     let (mut store, route, station1, station2, station3) = setup();
 
 
-    let c1 = connection::Connection::new(&route, 1,
+    let c1 = connection::Connection::new(&route, 1, false,
         &station1, 10, Some(0),
         &station2, 12, Some(0));
 
-    let c4 = connection::Connection::new(&route, 4,
+    let c4 = connection::Connection::new(&route, 4, false,
         &station1, 5, None,
         &station2, 7, None);
     
-    let c2 = connection::Connection::new(&route, 2,
+    let c2 = connection::Connection::new(&route, 2, false,
         &station2, 8, Some(0),
         &station1, 10, Some(0));
 
-    let c3 = connection::Connection::new(&route, 3,
+    let c3 = connection::Connection::new(&route, 3, false,
         &station2, 20, None,
         &station3, 30, Some(0));
 
-    let c5 = connection::Connection::new(&route, 4,
+    let c5 = connection::Connection::new(&route, 4, false,
         &station1, 30, Some(4),
         &station3, 60, Some(3));
     
@@ -394,11 +394,11 @@ fn partial_feasibility() {
     let (mut store, route, station1, station2, station3) = setup();
 
 
-    let c1 = connection::Connection::new(&route, 1,
+    let c1 = connection::Connection::new(&route, 1, false,
         &station1, 10, Some(0),
         &station2, 19, Some(0));
 
-    let c3 = connection::Connection::new(&route, 3,
+    let c3 = connection::Connection::new(&route, 3, false,
         &station2, 20, None,
         &station3, 30, Some(0));      
     
@@ -435,4 +435,47 @@ fn partial_feasibility() {
     assert_eq!(a.histogram.len(), 8);
     assert_float_relative_eq!(a.histogram[0], 0.125);
     assert_float_absolute_eq!(a.histogram.iter().sum::<f32>(), 1.0, 1e-3);
+}
+
+#[test]
+fn with_cancelled() {
+    let (mut store, route, station1, station2, station3) = setup();
+
+    let c1 = connection::Connection::new(&route, 1, false,
+        &station1, 10, None,
+        &station2, 15, Some(3));
+    
+    let c2 = connection::Connection::new(&route, 2, true,
+        &station2, 20, None,
+        &station3, 30, None);
+    
+    let c3 = connection::Connection::new(&route, 3, false,
+        &station2, 30, None,
+        &station3, 40, Some(1));
+    
+    station1.add_departure(c1);
+    station2.add_departure(c2);
+    station2.add_departure(c3);
+    
+    store.insert_from_distribution(0..5, 0..15, false, 1, distribution::Distribution::uniform(-5, 10));
+    store.insert_from_distribution(0..5, 35..45, false, 1, distribution::Distribution::uniform(-2, 6));
+
+    stost::query::query(&mut store, &station1, &station3, 0, 100, 5);
+
+    let b1 = station1.departures.borrow();
+    let c1 = b1.get(0).unwrap();
+    let b2 = station2.departures.borrow();
+    let c2 = b2.get(0).unwrap();    
+    let c3 = b2.get(1).unwrap();
+
+    let binding = c1.destination_arrival.borrow();
+    let a = binding.as_ref().unwrap();
+    assert_eq!(a.start, 39);
+    assert_float_relative_eq!(a.mean, 41.5);
+    assert_float_relative_eq!(a.feasible_probability, 1.0);
+    assert_eq!(a.histogram.len(), 6);
+
+    let binding = c2.destination_arrival.borrow();
+    let a = binding.as_ref().unwrap();
+    assert_eq!(a.exists(), false);
 }

@@ -53,7 +53,7 @@ fn main() {
                     let from = stations.get(c.from_id.borrow() as &str).unwrap();
                     let to = stations.get(c.to_id.borrow() as &str).unwrap();
                     from.departures.borrow_mut().push(connection::Connection::new(
-                        route, trip_id,
+                        route, trip_id, c.cancelled,
                         from, to_mtime(c.departure.as_ref().unwrap().scheduled, timetable.start_time), if c.departure.as_ref().unwrap().is_live { Some(c.departure.as_ref().unwrap().delay_minutes as i16) } else { None },
                         to, to_mtime(c.arrival.as_ref().unwrap().scheduled, timetable.start_time), if c.arrival.as_ref().unwrap().is_live { Some(c.arrival.as_ref().unwrap().delay_minutes as i16) } else { None }
                     ));

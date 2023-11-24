@@ -56,12 +56,13 @@ pub struct Connection<'a> {
 	pub departure: StopInfo,
 	pub arrival: StopInfo,
 	message: String,
+	pub cancelled: bool,
 	pub product_type: i16,
-	pub destination_arrival: RefCell<Option<distribution::Distribution>>
+	pub destination_arrival: RefCell<Option<distribution::Distribution>>	
 }
 
 impl<'a> Connection<'a> {
-	pub fn new(route: &'a Route, trip_id: i32,
+	pub fn new(route: &'a Route, trip_id: i32, cancelled: bool,
 	from: &'a Station<'a>, from_scheduled: types::Mtime, from_delay: Option<i16>,
 	to: &'a Station<'a>, to_scheduled: types::Mtime, to_delay: Option<i16>) -> Connection<'a> {
 		Connection {
@@ -82,6 +83,7 @@ impl<'a> Connection<'a> {
 				projected_track: "".to_string()
 			},
 			message: "".to_string(),
+			cancelled: cancelled,
 			product_type: route.product_type,
 			destination_arrival: RefCell::new(None)
 		}	

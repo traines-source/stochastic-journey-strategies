@@ -48,7 +48,13 @@ struct Query<'a> {
 
 impl<'a, 'b> Query<'a> {
     fn recursive(&mut self, c: &'b connection::Connection<'a>, reachable_p: f32) -> Option<*const connection::Connection<'a>> {
+        // TODO after cycle detection for reproducibility?
         if c.destination_arrival.borrow().is_some() {
+            return None;
+        }
+        if c.cancelled {
+            c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled)));
+            self.connections += 1;
             return None;
         }
         if c.to.id == self.destination.id {
