@@ -167,8 +167,12 @@ impl Store {
         match self.delay.get(&key) {
             Some(d) => d.shift(stop_info.projected()),
             None => {
-                if product_type != 100 {
-                    //println!("No distribution found: {:?}", key);
+                if product_type == 100 {
+                    if is_departure {
+                        return distribution::Distribution::uniform(stop_info.projected(), 3)
+                    } else {
+                        return distribution::Distribution::uniform(stop_info.projected()-2, 3)
+                    }
                 }
                 distribution::Distribution::uniform(stop_info.projected(), 1)
             }
