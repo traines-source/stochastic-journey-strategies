@@ -41,7 +41,7 @@ impl Distribution {
         }
     }
 
-    fn mean(&self) -> f32 {
+    pub fn mean(&self) -> f32 {
         let mut mean = 0.0;
         for i in 0..self.histogram.len() {
             mean += (self.start as f32+i as f32)*self.histogram[i];

@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use crate::distribution;
 use crate::types;
 
+#[derive(Debug)]
 pub struct Route {
 	pub id: String,
 	pub name: String,
@@ -87,6 +88,7 @@ impl<'a> Connection<'a> {
 	}
 }
 
+#[derive(Debug)]
 pub struct StopInfo {
 	pub scheduled: types::Mtime,
 	pub delay: Option<i16>,

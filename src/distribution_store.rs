@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::fs::File;
 use csv;
+use by_address::ByAddress;
 
 use crate::distribution;
 use crate::connection;
@@ -196,6 +197,17 @@ impl Store {
             Some(p) => *p,
             None => self.calculate_reachable_probability(arrival, arrival_product_type, departure, departure_product_type, now, key)
         }
+    }
+
+    pub fn reachable_probability_conn(&mut self, arr: &connection::Connection, dep: &connection::Connection, now: types::Mtime) -> f32 {
+        let p = self.reachable_probability(&arr.arrival, arr.product_type, &dep.departure, dep.product_type, now);
+        if arr.trip_id != dep.trip_id || ByAddress(arr.route) != ByAddress(dep.route) || arr.arrival.scheduled > dep.departure.scheduled {
+            return p
+        }
+        if p < 0.05 {
+            println!("unlikely safe transfer {} {:?} {:?} {:?} {:?}", p, arr.arrival, arr.route, dep.departure, dep.route);
+        }
+        1.0
     }
 }
 
