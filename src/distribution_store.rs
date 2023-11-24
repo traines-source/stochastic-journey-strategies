@@ -204,7 +204,7 @@ impl Store {
         if arr.trip_id != dep.trip_id || ByAddress(arr.route) != ByAddress(dep.route) || arr.arrival.scheduled > dep.departure.scheduled {
             return p
         }
-        if p < 0.05 {
+        if p < 0.04 {
             println!("unlikely safe transfer {} {:?} {:?} {:?} {:?}", p, arr.arrival, arr.route, dep.departure, dep.route);
         }
         1.0

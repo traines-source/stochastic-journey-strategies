@@ -64,15 +64,16 @@ impl Distribution {
         if !self.exists() {
             self.start = other.start;
         }
-        let self_start = self.start as usize;
-        let other_start = other.start as usize;
+        let self_start = self.start;
+        let other_start = other.start;
         let start = cmp::min(self_start, other_start);
-		let end = cmp::max(self_start+self.histogram.len(), other_start+other.histogram.len());
-		let self_offset = self_start-start;
-		let other_offset = other_start-start;
-		let mut h = vec![0.; end-start];
+		let end = cmp::max(self_start+self.histogram.len() as i32, other_start+other.histogram.len() as i32);
+		let self_offset = (self_start-start) as usize;
+		let other_offset = (other_start-start) as usize;
+        let new_len = (end-start) as usize;
+		let mut h = vec![0.; new_len];
 
-		for i in 0..(end-start) {
+		for i in 0..new_len {
 			if i >= self_offset && i-self_offset < self.histogram.len() {
 				h[i] += self.histogram[i-self_offset];
 			}
@@ -200,14 +201,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn add_negative() {
-        let mut a = Distribution::uniform(0, 1);
-        let b = Distribution::uniform(-5, 1);
-        a.add(&b, 1.0);
-    }
-
-    #[test]
     fn add_empty() {
         let mut a = Distribution::empty(0);
         let b = Distribution::empty(0);
@@ -257,6 +250,32 @@ mod tests {
         assert_eq!(a.histogram[2], 0.);
         assert_eq!(a.histogram[3], 0.25);
         assert_eq!(a.histogram[4], 0.25);
+    }
+
+    #[test]
+    fn add_negative() {
+        let mut a = Distribution::uniform(0, 1);
+        let b = Distribution::uniform(-4, 1);
+        a.add(&b, 1.0);
+        assert_eq!(a.histogram.len(), 5);
+        assert_eq!(a.start, -4);
+        assert_eq!(a.histogram[0], 1.0);
+        assert_eq!(a.histogram[4], 1.0);
+        assert_eq!(a.mean, a.mean());
+        assert_eq!(a.exists(), true);
+    }
+
+    #[test]
+    fn add_two_negative() {
+        let mut a = Distribution::uniform(-5, 2);
+        let b = Distribution::uniform(-4, 1);
+        a.add(&b, 1.0);
+        assert_eq!(a.histogram.len(), 2);
+        assert_eq!(a.start, -5);
+        assert_eq!(a.histogram[0], 0.5);
+        assert_eq!(a.histogram[1], 1.5);
+        assert_eq!(a.mean, a.mean());
+        assert_eq!(a.exists(), true);
     }
 
     #[test]
