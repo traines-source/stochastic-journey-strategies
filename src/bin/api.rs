@@ -31,7 +31,10 @@ fn main() {
 
         println!("receiving req...");
         let mut bytes: Vec<u8> = vec![];
-        request.data().unwrap().read_to_end(&mut bytes);
+        let result = request.data().unwrap().read_to_end(&mut bytes);
+        if result.is_err() {
+            panic!("{:?}", result);
+        }
         let mut reader = BytesReader::from_bytes(&bytes);
         let request_message = wire::Message::from_reader(&mut reader, &bytes).expect("Cannot read Timetable");
 
@@ -94,7 +97,7 @@ fn main() {
                     }),
                     arrival: None,
                     message: Cow::Borrowed(""),
-                    destination_arrival: if (da.is_none()) { None } else { let da = da.as_ref().unwrap(); Some(wire::Distribution {
+                    destination_arrival: if da.is_none() { None } else { let da = da.as_ref().unwrap(); Some(wire::Distribution {
                         histogram: Cow::Owned(da.histogram.clone()),
                         start: from_mtime(da.start, start_time),
                         mean: (da.mean*60.0) as i64 + start_time,
@@ -129,7 +132,10 @@ fn main() {
         };
         let mut bytes = Vec::new();
         let mut writer = Writer::new(&mut bytes);
-        response_message.write_message(&mut writer);        
+        let result = response_message.write_message(&mut writer);
+        if result.is_err() {
+            panic!("{:?}", result);
+        }
         Response::from_data("application/octet-stream", bytes)
     });
 }

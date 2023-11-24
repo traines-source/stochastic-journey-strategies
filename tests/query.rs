@@ -230,9 +230,6 @@ fn with_uniform() {
 
     let b1 = station1.departures.borrow();
     let c1 = b1.get(0).unwrap();
-    let b2 = station2.departures.borrow();
-    let c2 = b2.get(0).unwrap();    
-    let c3 = b2.get(1).unwrap();
 
     let binding = c1.destination_arrival.borrow();
     let a = binding.as_ref().unwrap();
@@ -465,8 +462,7 @@ fn with_cancelled() {
     let b1 = station1.departures.borrow();
     let c1 = b1.get(0).unwrap();
     let b2 = station2.departures.borrow();
-    let c2 = b2.get(0).unwrap();    
-    let c3 = b2.get(1).unwrap();
+    let c2 = b2.get(0).unwrap();
 
     let binding = c1.destination_arrival.borrow();
     let a = binding.as_ref().unwrap();

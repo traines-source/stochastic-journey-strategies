@@ -76,7 +76,7 @@ impl<'a, 'b> Query<'a> {
                     min_i = i;
                 }
             }
-            if (min_reachability > 0.2) {
+            if min_reachability > 0.2 {
                 println!("cutting high reachability {:?} {:?} {} {}", c.departure, c.route, min_reachability, reachable_p)
             }
             if min_i == self.trace.len() {
@@ -110,7 +110,7 @@ impl<'a, 'b> Query<'a> {
             }
         }
         assert_eq!(self.trace.pop().unwrap().0, my_address);
-        if (!self.visited.contains_key(&c.to.id as &str)) {
+        if !self.visited.contains_key(&c.to.id as &str) {
             println!("finished iterating {} {} len: {} cycles: {} cut: {} direct: {} conns: {} reachs: {}", c.to.name, c.to.id, self.visited.len(), self.cycles_found, self.cycles_cut, self.cycles_cut_direct, self.connections, self.store.reachability_len());
             self.visited.insert(&c.to.id as &str, self.visited.len());
         }
@@ -128,7 +128,7 @@ impl<'a, 'b> Query<'a> {
             if p < 0.001 {
                 continue;
             }
-            if (expect_float_absolute_eq!(dest.as_ref().unwrap().mean, 0.0, 1e-3).is_ok()) {
+            if expect_float_absolute_eq!(dest.as_ref().unwrap().mean, 0.0, 1e-3).is_ok() {
                 panic!("mean 0 with high feasibility");
             }
             assert_float_absolute_eq!(dest.as_ref().unwrap().mean, dest.as_ref().unwrap().mean(), 1e-3);
