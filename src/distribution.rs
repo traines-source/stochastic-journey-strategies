@@ -143,12 +143,14 @@ impl Distribution {
         }
         assert_eq!(sum, total_feasible_sample_count);
         assert_float_absolute_eq!(h.iter().sum::<f32>(), 1.0, 1e-3);
-        Distribution{
+        let d = Distribution{
             histogram: h,
             start: latest_sample_delays[0].0.start as i32,
             mean:  mean,
             feasible_probability: feasibility
-        }
+        };
+        assert_float_absolute_eq!(mean, d.mean());
+        d
     }
 }
 
