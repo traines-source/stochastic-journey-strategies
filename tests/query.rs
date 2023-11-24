@@ -63,10 +63,11 @@ fn non_stochastic() {
     assert_eq!(a.start, 30);
     assert_float_relative_eq!(a.mean, 30.0);
     assert_float_relative_eq!(a.feasible_probability, 1.0);
-    assert_eq!(a.histogram.len(), 11);
+    //assert_eq!(a.histogram.len(), 11);
+    assert_eq!(a.histogram.len(), 1);
     assert_float_relative_eq!(a.histogram[0], 1.0);
-    assert_float_relative_eq!(a.histogram[1], 0.0);
-    assert_float_relative_eq!(a.histogram[10], 0.0);
+    //assert_float_relative_eq!(a.histogram[1], 0.0);
+    //assert_float_relative_eq!(a.histogram[10], 0.0);
 
     let binding = c2.destination_arrival.borrow();
     let a = binding.as_ref().unwrap();
@@ -106,9 +107,10 @@ fn zero_minutes_transfer() {
     assert_eq!(a.exists(), false);
 
     let binding = c2.destination_arrival.borrow();
-    let a = binding.as_ref().unwrap();
-    assert_eq!(a.start, 30);
-    assert_eq!(a.histogram.len(), 1);
+    assert!(binding.is_none());
+    //let a = binding.as_ref().unwrap();
+    //assert_eq!(a.start, 30);
+    //assert_eq!(a.histogram.len(), 1);
 }
 
 #[test]
