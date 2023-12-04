@@ -5,4 +5,6 @@ COPY . .
 
 RUN cargo install --path .
 
-CMD ["stost"]
+EXPOSE 1234
+
+CMD ["api"]

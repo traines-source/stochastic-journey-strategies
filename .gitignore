@@ -2,3 +2,4 @@ conf.env
 .vscode
 working
 target
+*.ign.*
