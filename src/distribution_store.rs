@@ -49,6 +49,10 @@ impl Store {
         self.reachability.len()
     }
 
+    pub fn clear_reachability(&mut self) {
+        self.reachability.clear();
+    }
+
     fn delay_bucket(&self, delay: Option<i16>, ttl: (i16,i16)) -> (i16, i16) {
         if ttl == (0,0) {
             return (0,0)

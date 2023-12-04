@@ -29,6 +29,7 @@ pub fn query<'a>(store: &'a mut distribution_store::Store, origin: &'a connectio
         q.recursive(dep, 1.0);
         println!("main loop");
     }
+    q.store.clear_reachability();
 }
 
 struct Query<'a> {
