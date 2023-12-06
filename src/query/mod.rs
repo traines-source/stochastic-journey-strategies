@@ -1,10 +1,10 @@
 pub mod recursive;
-pub mod csa;
+pub mod topocsa;
 
 use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-pub fn query<'a>(store: &'a mut distribution_store::Store, origin: &'a connection::Station<'a>, destination: &'a connection::Station<'a>, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime) {
-    recursive::query(store, origin, destination, start_time, max_time, now);
+pub fn query<'a>(store: &'a mut distribution_store::Store, connections: &[connection::Connection<'a>], origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime) {
+    recursive::query(store, connections, origin, destination, start_time, max_time, now);
 }

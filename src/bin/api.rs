@@ -47,7 +47,7 @@ fn main() {
         for r in &timetable.routes {
             routes.insert(&r.id, connection::Route::new(r.id.to_string(), r.name.to_string(), r.product_type as i16));
         }
-        let mut connections = 0;
+        let mut connections = vec![];
         for r in &timetable.routes {
             let route = routes.get(&r.id).unwrap();
             let mut trip_id = 0;
@@ -55,12 +55,12 @@ fn main() {
                 for c in &t.connections {
                     let from = stations.get(c.from_id.borrow() as &str).unwrap();
                     let to = stations.get(c.to_id.borrow() as &str).unwrap();
-                    from.departures.borrow_mut().push(connection::Connection::new(
+                    connections.push(connection::Connection::new(
                         route, trip_id, c.cancelled,
                         from, to_mtime(c.departure.as_ref().unwrap().scheduled, timetable.start_time), if c.departure.as_ref().unwrap().is_live { Some(c.departure.as_ref().unwrap().delay_minutes as i16) } else { None },
                         to, to_mtime(c.arrival.as_ref().unwrap().scheduled, timetable.start_time), if c.arrival.as_ref().unwrap().is_live { Some(c.arrival.as_ref().unwrap().delay_minutes as i16) } else { None }
                     ));
-                    connections += 1;
+                    from.departures.borrow_mut().push(connections.len()-1);
                 }
                 trip_id += 1;
             }        
@@ -72,14 +72,15 @@ fn main() {
         let destination = query.destination.borrow() as &str;
         let o = stations.get(origin).unwrap();
         let d = stations.get(destination).unwrap();
-        println!("orig {} dest {} stations {} connections {}", o.id, d.id, stations.len(), connections);
+        println!("orig {} dest {} stations {} connections {}", o.id, d.id, stations.len(), connections.len());
         let mut s = store_mutex.lock().unwrap();
         println!("querying...");       
-        query::query(&mut s, o, d, 0, 100, to_mtime(query.now, start_time));
+        query::query(&mut s, &connections, o, d, 0, 100, to_mtime(query.now, start_time));
         println!("finished querying.");
         let mut trips: HashMap<&str, Vec<wire::Connection>> = HashMap::new();
         for (_, s) in &stations {
-            for c in &*s.departures.borrow() {
+            for c_id in &*s.departures.borrow() {
+                let c = connections.get(*c_id).unwrap();
                 if !trips.contains_key(&c.route.id as &str) {
                     trips.insert(&c.route.id as &str, vec![]);
                 }

@@ -24,16 +24,16 @@ impl Route {
 	}
 }
 
-pub struct Station<'a> {
+pub struct Station {
 	pub id: String,
 	pub name: String,
-	pub departures: RefCell<Vec<Connection<'a>>>,
+	pub departures: RefCell<Vec<usize>>,
 	lat: f32,
 	lon: f32
 }
 
-impl<'a> Station<'a> {
-	pub fn new(id: String, name: String, departures: Vec<Connection<'a>>) -> Station<'a> {
+impl<'a> Station {
+	pub fn new(id: String, name: String, departures: Vec<usize>) -> Station {
 		Station {
 			id: id,
 			name: name,
@@ -43,16 +43,16 @@ impl<'a> Station<'a> {
 		}
 	}
 
-	pub fn add_departure(&self, c: Connection<'a>) {
-		self.departures.borrow_mut().push(c);
+	pub fn add_departure(&self, c_id: usize) {
+		self.departures.borrow_mut().push(c_id);
 	}
 }
 
 pub struct Connection<'a> {
 	pub route: &'a Route,
 	pub trip_id: i32,
-	pub from: &'a Station<'a>,
-	pub to: &'a Station<'a>,
+	pub from: &'a Station,
+	pub to: &'a Station,
 	pub departure: StopInfo,
 	pub arrival: StopInfo,
 	message: String,
@@ -63,8 +63,8 @@ pub struct Connection<'a> {
 
 impl<'a> Connection<'a> {
 	pub fn new(route: &'a Route, trip_id: i32, cancelled: bool,
-	from: &'a Station<'a>, from_scheduled: types::Mtime, from_delay: Option<i16>,
-	to: &'a Station<'a>, to_scheduled: types::Mtime, to_delay: Option<i16>) -> Connection<'a> {
+	from: &'a Station, from_scheduled: types::Mtime, from_delay: Option<i16>,
+	to: &'a Station, to_scheduled: types::Mtime, to_delay: Option<i16>) -> Connection<'a> {
 		Connection {
 			route: route,
 			trip_id: trip_id,
