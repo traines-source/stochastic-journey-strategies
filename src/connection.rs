@@ -49,6 +49,7 @@ impl<'a> Station {
 }
 
 pub struct Connection<'a> {
+	pub id: usize,
 	pub route: &'a Route,
 	pub trip_id: i32,
 	pub from: &'a Station,
@@ -66,6 +67,7 @@ impl<'a> Connection<'a> {
 	from: &'a Station, from_scheduled: types::Mtime, from_delay: Option<i16>,
 	to: &'a Station, to_scheduled: types::Mtime, to_delay: Option<i16>) -> Connection<'a> {
 		Connection {
+			id: 0,
 			route: route,
 			trip_id: trip_id,
 			from: from,
