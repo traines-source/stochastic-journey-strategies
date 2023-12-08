@@ -57,13 +57,15 @@ impl<'a, 'b> Query<'a> {
                 if c_label.visited == 1 {
                     c_label.order = *topo_idx;
                     *topo_idx += 1;
+                    let p = trace.pop().unwrap();
+                    assert_eq!(p.0, c_id);
+                    assert_eq!(p.1, stack.len()-1);
+                } else {
+                    assert_eq!(c_label.visited, 2);
                 }
                 c_label.visited = 2;
                 stack.pop();
                 println!("{:?} {:?}", stack, trace);
-                let p = trace.pop().unwrap();
-                assert_eq!(p.0, c_id);
-                assert_eq!(p.1, stack.len());
                 continue;
             }
             let c = connections.get(c_id).unwrap();

@@ -17,7 +17,7 @@ struct DelayKey {
     is_departure: bool
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 struct ReachabilityKey {
     from_product_type: i16,
     to_product_type: i16,
@@ -197,7 +197,7 @@ impl Store {
             from_product_type: arrival_product_type,
             to_product_type: departure_product_type,
             from_prior_delay: self.delay_bucket(arrival.delay, ttl),
-            to_prior_delay: self.delay_bucket(arrival.delay, ttl),
+            to_prior_delay: self.delay_bucket(departure.delay, ttl),
             prior_ttl: ttl,
             diff: (departure.projected()-arrival.projected()) as i16
         };

@@ -127,7 +127,7 @@ impl<'a, 'b> Query<'a> {
         for dep_id in &departures_by_arrival {
             let dep = connections.get(**dep_id).unwrap();
             let dest = dep.destination_arrival.borrow();
-            let mut p = dest.as_ref().map(|da| da.feasible_probability).unwrap_or(0.0);
+            let mut p = dest.as_ref().map(|da| da.feasible_probability).unwrap_or(0.0);   
             if p < 0.001 {
                 continue;
             }
@@ -142,7 +142,7 @@ impl<'a, 'b> Query<'a> {
             }*/
             if last_departure.is_some() {
                 p *= last_departure.as_ref().unwrap().before_probability(&dep_dist, 1);
-            }           
+            }  
             if p > 0.0 && (c.trip_id != dep.trip_id || ByAddress(c.route) != ByAddress(dep.route)) {
                 p *= self.store.reachable_probability_conn(c, dep, self.now);
             }
