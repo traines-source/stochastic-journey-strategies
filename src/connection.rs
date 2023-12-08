@@ -48,6 +48,9 @@ impl<'a> Station {
 	}
 }
 
+
+#[derive(Clone)]
+
 pub struct Connection<'a> {
 	pub id: usize,
 	pub route: &'a Route,
@@ -92,7 +95,7 @@ impl<'a> Connection<'a> {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StopInfo {
 	pub scheduled: types::Mtime,
 	pub delay: Option<i16>,

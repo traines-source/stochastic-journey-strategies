@@ -1,17 +1,16 @@
+use std::collections::HashMap;
+use std::collections::HashSet;
+
+use by_address::ByAddress;
+use indexmap::IndexMap;
+
 use crate::distribution;
 use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-use std::collections::HashMap;
 
-use by_address::ByAddress;
-use indexmap::IndexMap;
-use std::collections::HashSet;
-
-
-
-pub fn query<'a>(store: &'a mut distribution_store::Store, connections: &mut Vec<connection::Connection<'a>>, origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime) {
+pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut Vec<connection::Connection<'a>>, origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime) {
     let mut q = Query {
         store: store,
         destination: destination,
@@ -47,7 +46,7 @@ impl<'a, 'b> Query<'a> {
 
         while !stack.is_empty() {
 
-            println!("loop {:?} {:?}", stack, trace);
+            //println!("loop {:?} {:?}", stack, trace);
             let c_id = *stack.last().unwrap();
             let c_label = labels.get_mut(&c_id).unwrap();
             if c_label.visited == 0 {
@@ -65,7 +64,7 @@ impl<'a, 'b> Query<'a> {
                 }
                 c_label.visited = 2;
                 stack.pop();
-                println!("{:?} {:?}", stack, trace);
+                //println!("{:?} {:?}", stack, trace);
                 continue;
             }
             let c = connections.get(c_id).unwrap();
@@ -109,7 +108,7 @@ impl<'a, 'b> Query<'a> {
                             let cut_after = trace.get_index(min_i-1).unwrap();
                             cut.insert((*cut_after.0, *cut_before.0));
                             stack.truncate(*cut_before.1);
-                            println!("{:?}", trace);
+                            //println!("{:?}", trace);
                             for _ in min_i..trace.len() {
                                 let l = labels.get_mut(&trace.pop().unwrap().0).unwrap();
                                 assert_eq!(l.visited, 1);
@@ -146,7 +145,7 @@ impl<'a, 'b> Query<'a> {
             labels.get(&a.id).unwrap().order.partial_cmp(&labels.get(&b.id).unwrap().order).unwrap()
         );
         println!("Done preprocessing.");
-        println!("{:?}", cut);
+        println!("{:?}", cut.len());
         cut
     }
 

@@ -2,7 +2,7 @@ use std::cmp;
 use std::ops::Range;
 
 use crate::types;
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Distribution {
 	pub histogram: Vec<f32>,
 	pub start: types::Mtime,
