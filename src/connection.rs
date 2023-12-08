@@ -63,11 +63,11 @@ pub struct Connection<'a> {
 }
 
 impl<'a> Connection<'a> {
-	pub fn new(route: &'a Route, trip_id: i32, cancelled: bool,
+	pub fn new(id: usize, route: &'a Route, trip_id: i32, cancelled: bool,
 	from: &'a Station, from_scheduled: types::Mtime, from_delay: Option<i16>,
 	to: &'a Station, to_scheduled: types::Mtime, to_delay: Option<i16>) -> Connection<'a> {
 		Connection {
-			id: 0,
+			id: id,
 			route: route,
 			trip_id: trip_id,
 			from: from,

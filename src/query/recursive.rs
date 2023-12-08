@@ -10,7 +10,7 @@ use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-pub fn query<'a>(store: &'a mut distribution_store::Store, connections: &[connection::Connection<'a>], origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime) {
+pub fn query<'a>(store: &'a mut distribution_store::Store, connections: &mut Vec<connection::Connection<'a>>, origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime) {
     let mut q = Query {
         store: store,
         destination: destination,
