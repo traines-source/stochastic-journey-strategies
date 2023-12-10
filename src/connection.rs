@@ -24,6 +24,7 @@ impl Route {
 	}
 }
 
+#[derive(Debug)]
 pub struct Station {
 	pub id: String,
 	pub name: String,
@@ -49,8 +50,7 @@ impl<'a> Station {
 }
 
 
-#[derive(Clone)]
-
+#[derive(Clone, Debug)]
 pub struct Connection<'a> {
 	pub id: usize,
 	pub route: &'a Route,

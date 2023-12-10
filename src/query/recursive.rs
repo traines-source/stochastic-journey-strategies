@@ -10,7 +10,7 @@ use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut Vec<connection::Connection<'a>>, origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime) {
+pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut Vec<connection::Connection<'a>>, origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, cut: HashSet<(usize, usize)> ) {
     let mut q = Query {
         store: store,
         destination: destination,
@@ -23,10 +23,11 @@ pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut
         cycles_cut: 0,
         cycles_cut_direct: 0,
         connections: 0,
-        cut: HashSet::new()
+        cut: cut//HashSet::new()
     };
-    for dep in &*origin.departures.borrow() {
-        q.recursive(*dep, connections, 1.0);
+    //for dep in &*origin.departures.borrow() {
+    for dep in connections.iter() {
+        q.recursive(dep.id, connections, 1.0);
         println!("main loop");
     }
     q.store.clear_reachability();
@@ -50,24 +51,28 @@ struct Query<'a> {
 impl<'a, 'b> Query<'a> {
     fn recursive(&mut self, c_id: usize, connections: &[connection::Connection<'a>], reachable_p: f32) -> Option<usize> {
         let c = connections.get(c_id).unwrap();
-        // TODO after cycle detection for reproducibility?
-        if c.destination_arrival.borrow().is_some() {
-            return None;
-        }
-        if c.cancelled {
-            c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled)));
-            self.connections += 1;
-            return None;
-        }
-        if c.to.id == self.destination.id {
-            c.destination_arrival.replace(Some(self.store.delay_distribution(&c.arrival, false, c.product_type, self.now)));
-            self.connections += 1;
-            return None;
-        }
+        
         let idx = self.trace.get_index_of(&c_id);
         if idx.is_some() {
             self.cycles_found += 1;
-            let mut min_reachability = reachable_p;
+
+            let test = self.trace.last().unwrap();
+            let transfer_time = c.departure.projected()-connections.get(*test.0).unwrap().arrival.projected();
+            let mut min_reachability = transfer_time;
+            let mut min_i = self.trace.len();
+            let start = idx.unwrap()+1 as usize;
+            for i in start..self.trace.len() {
+                let test = self.trace.get_index(i).unwrap();
+                let t = connections.get(*test.0).unwrap().departure.projected()-connections.get(*self.trace.get_index(i-1).unwrap().0).unwrap().arrival.projected();
+                if t < min_reachability {
+                    min_reachability = t;
+                    min_i = i;
+                }
+            }
+            if min_reachability > 0 {
+                println!("cutting high reachability {:?} {:?} {} {}", c.departure, c.route, min_reachability, reachable_p)
+            }
+            /*let mut min_reachability = reachable_p;
             let mut min_i = self.trace.len();
             let start = idx.unwrap()+1 as usize;
             for i in start..self.trace.len() {
@@ -79,7 +84,7 @@ impl<'a, 'b> Query<'a> {
             }
             if min_reachability > 0.2 {
                 println!("cutting high reachability {:?} {:?} {} {}", c.departure, c.route, min_reachability, reachable_p)
-            }
+            }*/
             if min_i == self.trace.len() {
                 self.cycles_cut += 1;
                 self.cycles_cut_direct += 1;
@@ -91,13 +96,26 @@ impl<'a, 'b> Query<'a> {
             self.cut.insert((*self.trace.get_index(min_i-1).unwrap().0, min_id));
             return Some(min_id);
         }
+        // TODO after cycle detection for reproducibility?
+        if c.destination_arrival.borrow().is_some() {
+            return None;
+        }
+        if c.cancelled {
+            c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled)));
+            self.connections += 1;
+            //return None;
+        } else if c.to.id == self.destination.id {
+            c.destination_arrival.replace(Some(self.store.delay_distribution(&c.arrival, false, c.product_type, self.now)));
+            self.connections += 1;
+            //return None;
+        }
         self.trace.insert(c_id, reachable_p);
         let binding = c.to.departures.borrow();
-        for dep_id in &*binding {
+        for dep_id in binding.iter().rev() {
             let dep = connections.get(*dep_id).unwrap();
             if dep.destination_arrival.borrow().is_none() && !self.cut.contains(&(c_id, *dep_id)) {
                 let p = self.store.reachable_probability_conn(c, dep, self.now);
-                if p < 0.001 {
+                if p <= 0.0 {
                     continue;
                 }
                 let cycle_found = self.recursive(*dep_id, connections, p);
@@ -113,8 +131,11 @@ impl<'a, 'b> Query<'a> {
         }
         assert_eq!(self.trace.pop().unwrap().0, c_id);
         if !self.visited.contains_key(&c.to.id as &str) {
-            println!("finished iterating {} {} len: {} cycles: {} cut: {} direct: {} conns: {} reachs: {}", c.to.name, c.to.id, self.visited.len(), self.cycles_found, self.cycles_cut, self.cycles_cut_direct, self.connections, self.store.reachability_len());
+            println!("finished iterating {} {} len: {} cycles: {} cut: {} direct: {} conns: {} reachs: {}", c.to.name, c.to.id, self.visited.len(), self.cycles_found, self.cut.len(), self.cycles_cut_direct, self.connections, self.store.reachability_len());
             self.visited.insert(&c.to.id as &str, self.visited.len());
+        }
+        if c.destination_arrival.borrow().is_some() {
+            return None;
         }
         
         let mut departures_by_arrival: Vec<&usize> = binding.iter().collect();
@@ -127,8 +148,11 @@ impl<'a, 'b> Query<'a> {
         for dep_id in &departures_by_arrival {
             let dep = connections.get(**dep_id).unwrap();
             let dest = dep.destination_arrival.borrow();
+            if self.cut.contains(&(c.id, dep.id)) {
+                continue;
+            }
             let mut p = dest.as_ref().map(|da| da.feasible_probability).unwrap_or(0.0);   
-            if p < 0.001 {
+            if p <= 0.0 {
                 continue;
             }
             if expect_float_absolute_eq!(dest.as_ref().unwrap().mean, 0.0, 1e-3).is_ok() {
@@ -150,7 +174,7 @@ impl<'a, 'b> Query<'a> {
                 new_distribution.add(dest.as_ref().unwrap(), (p*remaining_probability).clamp(0.0,1.0));
                 remaining_probability = ((1.0-p).clamp(0.0,1.0)*remaining_probability).clamp(0.0,1.0);
                 last_departure = Some(dep_dist);
-                if remaining_probability < 0.001 {
+                if remaining_probability <= 0.0 {
                     break;
                 }
             }

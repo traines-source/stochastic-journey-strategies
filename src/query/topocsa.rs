@@ -10,7 +10,7 @@ use crate::connection;
 use crate::types;
 
 
-pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut Vec<connection::Connection<'a>>, origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime) {
+pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut Vec<connection::Connection<'a>>, origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime) -> HashSet<(usize, usize)>  {
     let mut q = Query {
         store: store,
         destination: destination,
@@ -18,9 +18,10 @@ pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut
         max_time: max_time,
         now: now
     };
-    q.preprocess(connections);
-    q.csa(connections);
+    let cut = q.preprocess(connections);
+    q.csa(connections, &cut);
     q.store.clear_reachability();
+    cut
 }
 
 struct Query<'a> {
@@ -77,7 +78,7 @@ impl<'a, 'b> Query<'a> {
                 }
                 // TODO max reachability independent from now
                 let reachable = self.store.reachable_probability_conn(c, dep, self.now);
-                if reachable == 0.0 {
+                if reachable <= 0.0 {
                     continue;
                 }
                 if dep_label.is_some() {
@@ -149,7 +150,7 @@ impl<'a, 'b> Query<'a> {
         cut
     }
 
-    fn csa(&mut self, connections: &[connection::Connection]) {
+    fn csa(&mut self, connections: &[connection::Connection], cut: &HashSet<(usize, usize)>) {
         let mut station_labels: HashMap<&str, Vec<usize>> = HashMap::new();
         for i in 0..connections.len() {
             let c = connections.get(i).unwrap();
@@ -170,11 +171,17 @@ impl<'a, 'b> Query<'a> {
                 let mut remaining_probability = 1.0;
                 let mut last_departure: Option<distribution::Distribution> = None;
                 let departures = station_labels.get(&c.to.id as &str).unwrap();
-                for dep_id in  departures.iter().rev() {
+                if departures.len() == 0 {
+                    println!("warn empty {:?}", c.arrival);
+                }
+                for dep_id in departures.iter().rev() {
                     let dep = connections.get(*dep_id).unwrap();
+                    if cut.contains(&(c.id, dep.id)) {
+                        continue;
+                    }
                     let dest = dep.destination_arrival.borrow();
                     let mut p: f32 = dest.as_ref().map(|da| da.feasible_probability).unwrap_or(0.0);
-                    if p < 0.001 {
+                    if p <= 0.0 {
                         continue;
                     }
                     if expect_float_absolute_eq!(dest.as_ref().unwrap().mean, 0.0, 1e-3).is_ok() {
@@ -193,7 +200,7 @@ impl<'a, 'b> Query<'a> {
                         new_distribution.add(dest.as_ref().unwrap(), (p*remaining_probability).clamp(0.0,1.0));
                         remaining_probability = ((1.0-p).clamp(0.0,1.0)*remaining_probability).clamp(0.0,1.0);
                         last_departure = Some(dep_dist);
-                        if remaining_probability < 0.001 {
+                        if remaining_probability <= 0.0 {
                             break;
                         }
                     }
@@ -205,6 +212,7 @@ impl<'a, 'b> Query<'a> {
             }
             let station_label = station_labels.get_mut(&c.from.id as &str);
             let departures = station_label.unwrap();
+    
             let mut found = false;
             for j in (0..departures.len()).rev() {
                 let dom = connections.get(departures[j]).unwrap().destination_arrival.borrow();
@@ -219,6 +227,10 @@ impl<'a, 'b> Query<'a> {
                 departures.insert(0, i);
             }
             c.destination_arrival.replace(Some(new_distribution));
+            /*departures.push(i);
+            departures.sort_by(|a, b| connections.get(*b).unwrap().destination_arrival.borrow().as_ref().map(|da| da.mean).unwrap_or(0.0).partial_cmp(
+                &connections.get(*a).unwrap().destination_arrival.borrow().as_ref().map(|da| da.mean).unwrap_or(0.0)).unwrap());
+            */
         }
     }
 }

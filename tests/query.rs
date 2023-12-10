@@ -105,10 +105,10 @@ fn zero_minutes_transfer() {
     let a = binding.as_ref().unwrap();
     assert_eq!(a.exists(), false);
 
-    /*let binding = c1.destination_arrival.borrow();
+    let binding = c1.destination_arrival.borrow();
     let a = binding.as_ref().unwrap();
     assert_eq!(a.start, 30);
-    assert_eq!(a.histogram.len(), 1);*/
+    assert_eq!(a.histogram.len(), 1);
 }
 
 #[test]
