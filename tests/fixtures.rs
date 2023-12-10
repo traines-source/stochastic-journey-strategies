@@ -2,6 +2,7 @@
 extern crate assert_float_eq;
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use stost::connection;
 use stost::distribution_store;
@@ -22,7 +23,7 @@ fn topocsa_recursive_identical() {
     let mut connections = vec![];
     let (start_time, o, d, now) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections);
     let mut connections_clone = connections.clone();
-    let cut = topocsa::query(&mut store, &mut connections, o, d, 0, 100, serde::to_mtime(now, start_time), 0.0);
+    let cut = topocsa::prepare_and_query(&mut store, &mut connections, o, d, 0, 100, serde::to_mtime(now, start_time), 0.0);
     recursive::query(&mut store, &mut connections_clone, o, d, 0, 100, serde::to_mtime(now, start_time), cut);
 
     let mut i = 0;
@@ -51,5 +52,19 @@ fn topocsa_runs() {
     let mut routes = HashMap::new();
     let mut connections = vec![];
     let (start_time, o, d, now) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections);
-    let _ = topocsa::query(&mut store, &mut connections, o, d, 0, 100, serde::to_mtime(now, start_time), 0.0);
+    let _ = topocsa::prepare_and_query(&mut store, &mut connections, o, d, 0, 100, serde::to_mtime(now, start_time), 0.0);
+}
+
+#[test]
+#[ignore]
+fn recursive_runs() {
+    let mut store = distribution_store::Store::new();
+    store.load_distributions("./data/de_db.csv");
+
+    let bytes: Vec<u8> = serde::read_protobuf("./tests/fixtures/basic.pb");
+    let mut stations: HashMap<String, connection::Station> = HashMap::new();
+    let mut routes = HashMap::new();
+    let mut connections = vec![];
+    let (start_time, o, d, now) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections);
+    let _ = recursive::query(&mut store, &mut connections, o, d, 0, 100, serde::to_mtime(now, start_time), HashSet::new());
 }

@@ -9,31 +9,33 @@ use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-
-pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut Vec<connection::Connection<'a>>, origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: f32) -> HashSet<(usize, usize)>  {
-    let mut q = Query {
+pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection<'a>>, now: types::Mtime, epsilon: f32) -> Environment<'a, 'b> {
+    let mut e = Environment {
         store: store,
-        destination: destination,
-        start_time: start_time,
-        max_time: max_time,
+        connections: connections,
         now: now,
-        epsilon: epsilon
+        epsilon: epsilon,
+        cut: HashSet::new()
     };
     println!("Starting topocsa...");
-    let cut = q.preprocess(connections);
-    q.csa(connections, &cut);
-    q.store.clear_reachability();
-    println!("Done.");
-    cut
+    e.preprocess();
+    e
 }
 
-struct Query<'a> {
-    store: &'a mut distribution_store::Store,
-    destination: &'a connection::Station,
-    start_time: types::Mtime,
-    max_time: types::Mtime,
+pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection<'a>>, origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: f32) -> HashSet<(usize, usize)>  {
+    let mut e = prepare(store, connections, now, epsilon);
+    e.query(destination);
+    e.store.clear_reachability();
+    println!("Done.");
+    e.cut
+}
+
+pub struct Environment<'a, 'b> {
+    store: &'b mut distribution_store::Store,
+    connections: &'b mut Vec<connection::Connection<'a>>,
     now: types::Mtime,
-    epsilon: f32
+    epsilon: f32,
+    cut: HashSet<(usize, usize)>,
 }
 
 struct ConnectionLabel {
@@ -41,9 +43,9 @@ struct ConnectionLabel {
     order: i32
 }
 
-impl<'a, 'b> Query<'a> {
+impl<'a, 'b> Environment<'a, 'b> {
 
-    fn dfs(&mut self, anchor_id: usize, labels: &mut HashMap<usize, ConnectionLabel>, topo_idx: &mut i32, connections: &[connection::Connection], cut: &mut HashSet<(usize, usize)>) {
+    fn dfs(&mut self, anchor_id: usize, labels: &mut HashMap<usize, ConnectionLabel>, topo_idx: &mut i32) {
         let mut stack: Vec<usize> = vec![];
         let mut trace: IndexMap<usize, usize> = IndexMap::new();
         stack.push(anchor_id);
@@ -51,7 +53,7 @@ impl<'a, 'b> Query<'a> {
 
         while !stack.is_empty() {
             let c_id = *stack.last().unwrap();
-            let c = connections.get(c_id).unwrap();
+            let c = self.connections.get(c_id).unwrap();
             let c_label = labels.get_mut(&c_id).unwrap();
             if c_label.visited == 0 {
                 c_label.visited = 1;
@@ -72,9 +74,9 @@ impl<'a, 'b> Query<'a> {
             }
             let deps = c.to.departures.borrow();
             for dep_id in &*deps {
-                let dep = connections.get(*dep_id).unwrap();
+                let dep = self.connections.get(*dep_id).unwrap();
                 let dep_label = labels.get(dep_id);
-                if cut.contains(&(c_id, *dep_id)) {
+                if self.cut.contains(&(c_id, *dep_id)) {
                     continue;
                 }
                 // TODO max reachability independent from now
@@ -93,7 +95,7 @@ impl<'a, 'b> Query<'a> {
                             let start = trace_idx.unwrap()+1 as usize;
                             for i in start..trace.len() {
                                 let test = trace.get_index(i).unwrap();
-                                let t = connections.get(*test.0).unwrap().departure.projected()-connections.get(*trace.get_index(i-1).unwrap().0).unwrap().arrival.projected();
+                                let t = self.connections.get(*test.0).unwrap().departure.projected()-self.connections.get(*trace.get_index(i-1).unwrap().0).unwrap().arrival.projected();
                                 if t < min_transfer {
                                     min_transfer = t;
                                     min_i = i;
@@ -103,12 +105,12 @@ impl<'a, 'b> Query<'a> {
                                 panic!("cutting positive transfer {:?} {:?} {} {}", c.departure, c.route, min_transfer, transfer_time)
                             }
                             if min_i == trace.len() {
-                                cut.insert((c_id, *dep_id));
+                                self.cut.insert((c_id, *dep_id));
                                 continue;
                             }
                             let cut_before = trace.get_index(min_i).unwrap();
                             let cut_after = trace.get_index(min_i-1).unwrap();
-                            cut.insert((*cut_after.0, *cut_before.0));
+                            self.cut.insert((*cut_after.0, *cut_before.0));
                             stack.truncate(*cut_before.1);
                             for _ in min_i..trace.len() {
                                 let l = labels.get_mut(&trace.pop().unwrap().0).unwrap();
@@ -129,31 +131,29 @@ impl<'a, 'b> Query<'a> {
         }
     }
     
-    pub fn preprocess(&mut self, connections: &mut Vec<connection::Connection>) -> HashSet<(usize, usize)> {
+    pub fn preprocess(&mut self) {
         println!("Start preprocessing...");
-        let mut labels: HashMap<usize, ConnectionLabel> = HashMap::with_capacity(connections.len());
-        let mut cut: HashSet<(usize, usize)> = HashSet::new();
+        let mut labels: HashMap<usize, ConnectionLabel> = HashMap::with_capacity(self.connections.len());
         let mut topo_idx = 0;
         
-        for i in 0..connections.len() {
+        for i in 0..self.connections.len() {
             if !labels.contains_key(&i) || labels.get(&i).unwrap().visited != 2 {
-                self.dfs(i, &mut labels, &mut topo_idx, connections, &mut cut);
+                self.dfs(i, &mut labels, &mut topo_idx);
                 //println!("connections {} cycles found {} labels {} done {}", connections.len(), cut.len(), labels.len(), i);
             }
         }
         println!("Done DFSing.");
-        connections.sort_by(|a, b|
+        self.connections.sort_by(|a, b|
             labels.get(&a.id).unwrap().order.partial_cmp(&labels.get(&b.id).unwrap().order).unwrap()
         );
         println!("Done preprocessing.");
-        println!("cut: {}", cut.len());
-        cut
+        println!("cut: {}", self.cut.len());
     }
 
-    fn csa(&mut self, connections: &[connection::Connection], cut: &HashSet<(usize, usize)>) {
+    pub fn query(&mut self, destination: &'a connection::Station) {
         let mut station_labels: HashMap<&str, Vec<usize>> = HashMap::new();
-        for i in 0..connections.len() {
-            let c = connections.get(i).unwrap();
+        for i in 0..self.connections.len() {
+            let c = self.connections.get(i).unwrap();
             if c.cancelled {
                 c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled)));
                 continue;
@@ -165,7 +165,7 @@ impl<'a, 'b> Query<'a> {
                 station_labels.insert(&c.from.id, vec![]);
             }
             let mut new_distribution = distribution::Distribution::empty(c.arrival.scheduled);
-            if c.to.id == self.destination.id {
+            if c.to.id == destination.id {
                 new_distribution = self.store.delay_distribution(&c.arrival, false, c.product_type, self.now);
             } else {
                 let mut remaining_probability = 1.0;
@@ -173,8 +173,8 @@ impl<'a, 'b> Query<'a> {
                 let departures = station_labels.get(&c.to.id as &str).unwrap();
 
                 for dep_id in departures.iter().rev() {
-                    let dep = connections.get(*dep_id).unwrap();
-                    if cut.contains(&(c.id, dep.id)) {
+                    let dep = self.connections.get(*dep_id).unwrap();
+                    if self.cut.contains(&(c.id, dep.id)) {
                         continue;
                     }
                     let dest = dep.destination_arrival.borrow();
@@ -213,7 +213,7 @@ impl<'a, 'b> Query<'a> {
     
             let mut found = false;
             for j in (0..departures.len()).rev() {
-                let dom = connections.get(departures[j]).unwrap().destination_arrival.borrow();
+                let dom = self.connections.get(departures[j]).unwrap().destination_arrival.borrow();
                 let dom_dest_dist = dom.as_ref().unwrap();
                 if new_distribution.mean < dom_dest_dist.mean {
                     departures.insert(j+1, i);
@@ -238,16 +238,9 @@ mod tests {
     fn it_compiles() {
         let mut store = distribution_store::Store::new();
         let s = connection::Station::new("id".to_string(), "name".to_string(), vec![]);
-        let mut q = Query {
-            store: &mut store,
-            destination: &s,
-            start_time: 0,
-            max_time: 0,
-            now: 0,
-            epsilon: 0.0
-        };
         let mut connections: Vec<connection::Connection> = vec![];
-        let cut = q.preprocess(&mut connections);
+
+        let cut = prepare_and_query(&mut store, &mut connections, &s, &s, 0, 0, 0, 0.0);
         assert_eq!(cut.len(), 0);
     }
 }

@@ -424,12 +424,12 @@ fn infinite_loop_cut_and_revisit() {
 
     stost::query::query(&mut store, &mut connections, &station1, &station3, 0, 100, 5);
 
-    let c0 = connections.iter().filter(|c| c.id == 0).last().unwrap();
+    //let c0 = connections.iter().filter(|c| c.id == 0).last().unwrap();
     let c1 = connections.iter().filter(|c| c.id == 1).last().unwrap();    
     let c2 = connections.iter().filter(|c| c.id == 2).last().unwrap();
     let c3 = connections.iter().filter(|c| c.id == 3).last().unwrap();
-    let c4 = connections.iter().filter(|c| c.id == 4).last().unwrap();
-    let c5 = connections.iter().filter(|c| c.id == 5).last().unwrap();
+    //let c4 = connections.iter().filter(|c| c.id == 4).last().unwrap();
+    //let c5 = connections.iter().filter(|c| c.id == 5).last().unwrap();
 
     /*let binding = c0.destination_arrival.borrow();
     let a = binding.as_ref().unwrap();
