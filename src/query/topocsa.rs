@@ -46,8 +46,6 @@ impl<'a, 'b> Query<'a> {
         labels.insert(anchor_id, ConnectionLabel{visited: 0, order: 0});
 
         while !stack.is_empty() {
-
-            //println!("loop {:?} {:?}", stack, trace);
             let c_id = *stack.last().unwrap();
             let c = connections.get(c_id).unwrap();
             let c_label = labels.get_mut(&c_id).unwrap();
@@ -66,7 +64,6 @@ impl<'a, 'b> Query<'a> {
                 }
                 c_label.visited = 2;
                 stack.pop();
-                //println!("{:?} {:?}", stack, trace);
                 continue;
             }
             let deps = c.to.departures.borrow();
@@ -109,7 +106,6 @@ impl<'a, 'b> Query<'a> {
                             let cut_after = trace.get_index(min_i-1).unwrap();
                             cut.insert((*cut_after.0, *cut_before.0));
                             stack.truncate(*cut_before.1);
-                            //println!("{:?}", trace);
                             for _ in min_i..trace.len() {
                                 let l = labels.get_mut(&trace.pop().unwrap().0).unwrap();
                                 assert_eq!(l.visited, 1);
