@@ -49,6 +49,7 @@ impl<'a, 'b> Query<'a> {
 
             //println!("loop {:?} {:?}", stack, trace);
             let c_id = *stack.last().unwrap();
+            let c = connections.get(c_id).unwrap();
             let c_label = labels.get_mut(&c_id).unwrap();
             if c_label.visited == 0 {
                 c_label.visited = 1;
@@ -68,7 +69,6 @@ impl<'a, 'b> Query<'a> {
                 //println!("{:?} {:?}", stack, trace);
                 continue;
             }
-            let c = connections.get(c_id).unwrap();
             let deps = c.to.departures.borrow();
             for dep_id in &*deps {
                 let dep = connections.get(*dep_id).unwrap();
@@ -146,7 +146,7 @@ impl<'a, 'b> Query<'a> {
             labels.get(&a.id).unwrap().order.partial_cmp(&labels.get(&b.id).unwrap().order).unwrap()
         );
         println!("Done preprocessing.");
-        println!("{:?}", cut.len());
+        println!("cut: {}", cut.len());
         cut
     }
 
@@ -171,9 +171,7 @@ impl<'a, 'b> Query<'a> {
                 let mut remaining_probability = 1.0;
                 let mut last_departure: Option<distribution::Distribution> = None;
                 let departures = station_labels.get(&c.to.id as &str).unwrap();
-                if departures.len() == 0 {
-                    println!("warn empty {:?}", c.arrival);
-                }
+
                 for dep_id in departures.iter().rev() {
                     let dep = connections.get(*dep_id).unwrap();
                     if cut.contains(&(c.id, dep.id)) {
@@ -227,10 +225,6 @@ impl<'a, 'b> Query<'a> {
                 departures.insert(0, i);
             }
             c.destination_arrival.replace(Some(new_distribution));
-            /*departures.push(i);
-            departures.sort_by(|a, b| connections.get(*b).unwrap().destination_arrival.borrow().as_ref().map(|da| da.mean).unwrap_or(0.0).partial_cmp(
-                &connections.get(*a).unwrap().destination_arrival.borrow().as_ref().map(|da| da.mean).unwrap_or(0.0)).unwrap());
-            */
         }
     }
 }
