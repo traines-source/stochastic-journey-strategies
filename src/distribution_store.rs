@@ -99,7 +99,7 @@ impl Store {
         if latest_sample_delays.len() == 0
             || latest_sample_delays.len() <= 3 && latest_sample_delays.iter().fold(0, |acc, l| l.0.end-l.0.start+acc) == 0
             || total_feasible_sample_count < 100 {
-            println!("Skipping {:?} {:?}", delay_key, latest_sample_delays);
+            //println!("Skipping {:?} {:?}", delay_key, latest_sample_delays);
             return;
         }
         let d = distribution::Distribution::from_buckets(latest_sample_delays, total_feasible_sample_count);

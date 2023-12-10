@@ -10,17 +10,20 @@ use crate::connection;
 use crate::types;
 
 
-pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut Vec<connection::Connection<'a>>, origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime) -> HashSet<(usize, usize)>  {
+pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut Vec<connection::Connection<'a>>, origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: f32) -> HashSet<(usize, usize)>  {
     let mut q = Query {
         store: store,
         destination: destination,
         start_time: start_time,
         max_time: max_time,
-        now: now
+        now: now,
+        epsilon: epsilon
     };
+    println!("Starting topocsa...");
     let cut = q.preprocess(connections);
     q.csa(connections, &cut);
     q.store.clear_reachability();
+    println!("Done.");
     cut
 }
 
@@ -30,6 +33,7 @@ struct Query<'a> {
     start_time: types::Mtime,
     max_time: types::Mtime,
     now: types::Mtime,
+    epsilon: f32
 }
 
 struct ConnectionLabel {
@@ -75,7 +79,7 @@ impl<'a, 'b> Query<'a> {
                 }
                 // TODO max reachability independent from now
                 let reachable = self.store.reachable_probability_conn(c, dep, self.now);
-                if reachable <= 0.0 {
+                if reachable <= self.epsilon {
                     continue;
                 }
                 if dep_label.is_some() {
@@ -134,7 +138,7 @@ impl<'a, 'b> Query<'a> {
         for i in 0..connections.len() {
             if !labels.contains_key(&i) || labels.get(&i).unwrap().visited != 2 {
                 self.dfs(i, &mut labels, &mut topo_idx, connections, &mut cut);
-                println!("connections {} cycles found {} labels {} done {}", connections.len(), cut.len(), labels.len(), i);
+                //println!("connections {} cycles found {} labels {} done {}", connections.len(), cut.len(), labels.len(), i);
             }
         }
         println!("Done DFSing.");
@@ -175,7 +179,7 @@ impl<'a, 'b> Query<'a> {
                     }
                     let dest = dep.destination_arrival.borrow();
                     let mut p: f32 = dest.as_ref().map(|da| da.feasible_probability).unwrap_or(0.0);
-                    if p <= 0.0 {
+                    if p <= self.epsilon {
                         continue;
                     }
                     if expect_float_absolute_eq!(dest.as_ref().unwrap().mean, 0.0, 1e-3).is_ok() {
@@ -194,7 +198,7 @@ impl<'a, 'b> Query<'a> {
                         new_distribution.add(dest.as_ref().unwrap(), (p*remaining_probability).clamp(0.0,1.0));
                         remaining_probability = ((1.0-p).clamp(0.0,1.0)*remaining_probability).clamp(0.0,1.0);
                         last_departure = Some(dep_dist);
-                        if remaining_probability <= 0.0 {
+                        if remaining_probability <= self.epsilon {
                             break;
                         }
                     }
@@ -239,7 +243,8 @@ mod tests {
             destination: &s,
             start_time: 0,
             max_time: 0,
-            now: 0
+            now: 0,
+            epsilon: 0.0
         };
         let mut connections: Vec<connection::Connection> = vec![];
         let cut = q.preprocess(&mut connections);
