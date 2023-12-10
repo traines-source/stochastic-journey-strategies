@@ -96,7 +96,9 @@ impl Store {
     }
 
     fn insert_distribution_from_buckets(&mut self, delay_key: DelayKey, latest_sample_delays: Vec<(Range<i16>, i32)>, total_feasible_sample_count: i32) {
-        if latest_sample_delays.len() == 0 || latest_sample_delays.len() <= 3 && latest_sample_delays.iter().fold(0, |acc, l| l.0.end-l.0.start+acc) == 0 {
+        if latest_sample_delays.len() == 0
+            || latest_sample_delays.len() <= 3 && latest_sample_delays.iter().fold(0, |acc, l| l.0.end-l.0.start+acc) == 0
+            || total_feasible_sample_count < 100 {
             println!("Skipping {:?} {:?}", delay_key, latest_sample_delays);
             return;
         }
