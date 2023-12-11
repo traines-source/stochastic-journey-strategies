@@ -169,7 +169,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                 new_distribution = self.store.delay_distribution(&c.arrival, false, c.product_type, self.now);
             } else {
                 let mut remaining_probability = 1.0;
-                let mut last_departure: Option<distribution::Distribution> = None;
+                let mut last_departure: Option<&connection::Connection> = None;
                 let departures = station_labels.get(&c.to.id as &str).unwrap();
 
                 for dep_id in departures.iter().rev() {
@@ -187,9 +187,8 @@ impl<'a, 'b> Environment<'a, 'b> {
                     }
                     assert_float_absolute_eq!(dest.as_ref().unwrap().mean, dest.as_ref().unwrap().mean(), 1e-3);
 
-                    let dep_dist = self.store.delay_distribution(&dep.departure, true, dep.product_type, self.now);
                     if last_departure.is_some() {
-                        p *= last_departure.as_ref().unwrap().before_probability(&dep_dist, 1);
+                        p *= self.store.before_probability_conn(&last_departure.unwrap(), dep, self.now);
                     }           
                     if p > 0.0 && (c.trip_id != dep.trip_id || ByAddress(c.route) != ByAddress(dep.route)) {
                         p *= self.store.reachable_probability_conn(c, dep, self.now);
@@ -197,7 +196,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                     if p > 0.0 {
                         new_distribution.add(dest.as_ref().unwrap(), (p*remaining_probability).clamp(0.0,1.0));
                         remaining_probability = ((1.0-p).clamp(0.0,1.0)*remaining_probability).clamp(0.0,1.0);
-                        last_departure = Some(dep_dist);
+                        last_departure = Some(dep);
                         if remaining_probability <= self.epsilon {
                             break;
                         }
@@ -212,6 +211,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             let departures = station_label.unwrap();
     
             let mut found = false;
+            // TODO pareto? - sort incoming departures and connections by dep?
             for j in (0..departures.len()).rev() {
                 let dom = self.connections.get(departures[j]).unwrap().destination_arrival.borrow();
                 let dom_dest_dist = dom.as_ref().unwrap();

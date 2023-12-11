@@ -16,11 +16,11 @@ fn criterion_benchmark(c: &mut Criterion) {
     let mut stations: HashMap<String, connection::Station> = HashMap::new();
     let mut routes = HashMap::new();
     let mut connections = vec![];
-    let (start_time, o, d, now) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections);
-    let mut env = topocsa::prepare(&mut store, &mut connections, serde::to_mtime(start_time, start_time), 0.0);
+    let (start_time, o, d, now) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
+    let mut env = topocsa::prepare(&mut store, &mut connections, serde::to_mtime(now, start_time), 0.0);
 
     let mut group = c.benchmark_group("once");
-    group.measurement_time(Duration::from_secs(10)).sample_size(10);
+    group.sample_size(10); //measurement_time(Duration::from_secs(10))
     group.bench_function("basic", |b| b.iter(|| env.query(black_box(d))));
     group.finish();
 }
