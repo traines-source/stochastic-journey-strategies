@@ -50,14 +50,12 @@ impl Distribution {
     }
 
     pub fn normalize(&mut self) {
+        // TODO performance vs accuracy
         let sum = self.histogram.iter().sum::<f32>();
-        let mut mean = 0.0;
         for i in 0..self.histogram.len() {
             self.histogram[i] /= sum;
-            mean += (self.start as f32+i as f32)*self.histogram[i];
         }
-        self.mean = mean;
-       
+        self.mean /= sum;       
     }
     
     pub fn add(&mut self, other: &Distribution, weight: f32) {
