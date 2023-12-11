@@ -29,8 +29,8 @@ pub struct Station {
 	pub id: String,
 	pub name: String,
 	pub departures: RefCell<Vec<usize>>,
-	lat: f32,
-	lon: f32
+	pub lat: f32,
+	pub lon: f32
 }
 
 impl<'a> Station {

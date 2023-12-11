@@ -3,12 +3,15 @@ use std::fs;
 use std::borrow::Cow;
 use std::borrow::Borrow;
 use std::collections::HashMap;
+use indexmap::IndexMap;
+
 
 use quick_protobuf::{MessageRead, MessageWrite, BytesReader, Writer};
 
 use crate::types;
 use crate::wire::wire;
 use crate::connection;
+use crate::distribution;
 
 
 pub fn write_protobuf(bytes: &Vec<u8>, filepath: &str) {
@@ -31,7 +34,7 @@ pub fn from_mtime(mtime: types::Mtime, reference: i64) -> i64 {
     (mtime*60) as i64 + reference
 }
 
-pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut HashMap<String, connection::Station>, routes: &'a mut HashMap<String, connection::Route>, connections: &'b mut Vec<connection::Connection<'a>>) -> (i64, &'a connection::Station, &'a connection::Station, i64) {
+pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut HashMap<String, connection::Station>, routes: &'a mut HashMap<String, connection::Route>, connections: &'b mut Vec<connection::Connection<'a>>, load_distributions: bool) -> (i64, &'a connection::Station, &'a connection::Station, i64) {
     let mut reader = BytesReader::from_bytes(&bytes);
     let request_message = wire::Message::from_reader(&mut reader, &bytes).expect("Cannot read Timetable");
         
@@ -51,11 +54,18 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut HashMap<St
                 let from = stations.get(c.from_id.borrow() as &str).unwrap();
                 let to = stations.get(c.to_id.borrow() as &str).unwrap();
                 let id = connections.len();
-                connections.push(connection::Connection::new(
+                let nc = connection::Connection::new(
                     id, route, trip_id, c.cancelled,
                     from, to_mtime(c.departure.as_ref().unwrap().scheduled, timetable.start_time), if c.departure.as_ref().unwrap().is_live { Some(c.departure.as_ref().unwrap().delay_minutes as i16) } else { None },
                     to, to_mtime(c.arrival.as_ref().unwrap().scheduled, timetable.start_time), if c.arrival.as_ref().unwrap().is_live { Some(c.arrival.as_ref().unwrap().delay_minutes as i16) } else { None }
-                ));
+                );
+                nc.destination_arrival.replace(if !load_distributions || c.destination_arrival.is_none() { None } else { let da = c.destination_arrival.as_ref().unwrap(); Some(distribution::Distribution {
+                    histogram: da.histogram.to_vec(),
+                    start: to_mtime(da.start, timetable.start_time),
+                    mean: (da.mean as f32/60.0) - timetable.start_time as f32,
+                    feasible_probability: da.feasible_probability
+                }) });
+                connections.push(nc);
                 from.departures.borrow_mut().push(id);
             }
             trip_id += 1;
@@ -73,8 +83,9 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut HashMap<St
     (start_time, o, d, now)
 }
 
-pub fn serialize_protobuf(connections: &[connection::Connection], start_time: i64) -> Vec<u8> {
-    let mut trips: HashMap<&str, Vec<wire::Connection>> = HashMap::new();
+pub fn serialize_protobuf(connections: &[connection::Connection], origin: &connection::Station, destination: &connection::Station, start_time: i64) -> Vec<u8> {
+    let mut wire_stations: HashMap<String, wire::Station> = HashMap::new();
+    let mut trips: IndexMap<&str, Vec<wire::Connection>> = IndexMap::new();
     for c in connections {
         if !trips.contains_key(&c.route.id as &str) {
             trips.insert(&c.route.id as &str, vec![]);
@@ -91,7 +102,13 @@ pub fn serialize_protobuf(connections: &[connection::Connection], start_time: i6
                 scheduled_track: Cow::Borrowed(""),
                 projected_track: Cow::Borrowed("")
             }),
-            arrival: None,
+            arrival: Some(wire::StopInfo{
+                scheduled: from_mtime(c.arrival.scheduled, start_time),
+                delay_minutes: c.arrival.delay.unwrap_or(0) as i32,
+                is_live: c.arrival.delay.is_some(),
+                scheduled_track: Cow::Borrowed(""),
+                projected_track: Cow::Borrowed("")
+            }),
             message: Cow::Borrowed(""),
             destination_arrival: if da.is_none() { None } else { let da = da.as_ref().unwrap(); Some(wire::Distribution {
                 histogram: Cow::Owned(da.histogram.clone()),
@@ -99,10 +116,16 @@ pub fn serialize_protobuf(connections: &[connection::Connection], start_time: i6
                 mean: (da.mean*60.0) as i64 + start_time,
                 feasible_probability: da.feasible_probability
             }) }
-        })
+        });
+        wire_stations.insert(c.from.id.to_string(), wire::Station{
+            id: Cow::Borrowed(&c.from.id),
+            name: Cow::Borrowed(&c.from.name),
+            lat: c.from.lat,
+            lon: c.from.lon
+        });
     }
     let mut routes = Vec::new();
-    for (key, mut connections) in trips {
+    for (key, mut connections) in trips.into_iter() {
         connections.sort_by(|a, b| a.departure.as_ref().unwrap().scheduled.partial_cmp(&b.departure.as_ref().unwrap().scheduled).unwrap());
         routes.push(wire::Route {
             id: Cow::Borrowed(key),
@@ -118,11 +141,15 @@ pub fn serialize_protobuf(connections: &[connection::Connection], start_time: i6
 
     let response_message = wire::Message{
         timetable: Some(wire::Timetable{
-            stations: vec![],
+            stations: wire_stations.into_values().collect(),
             routes: routes,
             start_time: start_time
         }),
-        query: None,
+        query: Some(wire::Query{
+            origin: Cow::Borrowed(&origin.id),
+            destination: Cow::Borrowed(&destination.id),
+            now: 0
+        }),
         system: Cow::Borrowed("")
     };
     let mut bytes = Vec::new();

@@ -10,6 +10,21 @@ use stost::wire::serde;
 use stost::query::topocsa;
 use stost::query::recursive;
 
+fn compare_connections(original: &[connection::Connection], new: &[connection::Connection]) {
+    let mut i = 0;
+    for c in new {
+        i+= 1;
+        
+        let orig = original.get(c.id).unwrap();
+        let a = orig.destination_arrival.borrow();
+        let b = c.destination_arrival.borrow();
+        println!("{} {} {} {} {} {:?}", i, orig.id, orig.route.name, orig.from.name, orig.departure.scheduled, orig.departure.delay);
+        if a.is_some() && a.as_ref().unwrap().exists() || b.is_some() && b.as_ref().unwrap().exists() {
+            assert_float_absolute_eq!(a.as_ref().unwrap().mean(), b.as_ref().unwrap().mean(), 1.0);
+            assert_float_absolute_eq!(a.as_ref().unwrap().feasible_probability, b.as_ref().unwrap().feasible_probability, 0.01);
+        }
+    }
+}
 
 #[test]
 #[ignore]
@@ -21,23 +36,12 @@ fn topocsa_recursive_identical() {
     let mut stations: HashMap<String, connection::Station> = HashMap::new();
     let mut routes = HashMap::new();
     let mut connections = vec![];
-    let (start_time, o, d, now) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections);
+    let (start_time, o, d, now) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
     let mut connections_clone = connections.clone();
     let cut = topocsa::prepare_and_query(&mut store, &mut connections, o, d, 0, 100, serde::to_mtime(now, start_time), 0.0);
     recursive::query(&mut store, &mut connections_clone, o, d, 0, 100, serde::to_mtime(now, start_time), cut);
 
-    let mut i = 0;
-    for c in connections {
-        i+= 1;
-        
-        let rc = connections_clone.get(c.id).unwrap();
-        let a = rc.destination_arrival.borrow();
-        let b = c.destination_arrival.borrow();
-        println!("{} {} {} {} {} {:?}", i, rc.id, rc.route.name, rc.from.name, rc.departure.scheduled, rc.departure.delay);
-        if a.is_some() && a.as_ref().unwrap().exists() || b.is_some() && b.as_ref().unwrap().exists() {
-            assert_float_absolute_eq!(a.as_ref().unwrap().mean(), b.as_ref().unwrap().mean(), 1.0);
-        }
-    }
+    compare_connections(&connections_clone, &connections);
 }
 
 
@@ -51,8 +55,16 @@ fn topocsa_runs() {
     let mut stations: HashMap<String, connection::Station> = HashMap::new();
     let mut routes = HashMap::new();
     let mut connections = vec![];
-    let (start_time, o, d, now) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections);
+    let (start_time, o, d, now) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
     let _ = topocsa::prepare_and_query(&mut store, &mut connections, o, d, 0, 100, serde::to_mtime(now, start_time), 0.0);
+
+    let bytes: Vec<u8> = serde::read_protobuf("./tests/fixtures/basic_out.pb");
+    let mut _stations: HashMap<String, connection::Station> = HashMap::new();
+    let mut _routes = HashMap::new();
+    let mut original_connections = vec![];
+    let _ = serde::deserialize_protobuf(bytes, &mut _stations, &mut _routes, &mut original_connections, true);
+
+    compare_connections(&original_connections, &connections);
 }
 
 #[test]
@@ -65,6 +77,8 @@ fn recursive_runs() {
     let mut stations: HashMap<String, connection::Station> = HashMap::new();
     let mut routes = HashMap::new();
     let mut connections = vec![];
-    let (start_time, o, d, now) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections);
-    let _ = recursive::query(&mut store, &mut connections, o, d, 0, 100, serde::to_mtime(now, start_time), HashSet::new());
+    let (start_time, o, d, now) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false); 
+    recursive::query(&mut store, &mut connections, o, d, 0, 100, serde::to_mtime(now, start_time), HashSet::new());
+    let bytes = serde::serialize_protobuf(&connections, o, d, start_time);
+    serde::write_protobuf(&bytes, "./tests/fixtures/basic_out.pb");
 }

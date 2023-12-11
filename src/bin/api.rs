@@ -26,12 +26,12 @@ fn main() {
         let mut stations: HashMap<String, connection::Station> = HashMap::new();
         let mut routes = HashMap::new();
         let mut connections = vec![];
-        let (start_time, o, d, now) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections);
+        let (start_time, o, d, now) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
         let mut s = store_mutex.lock().unwrap();
         println!("querying...");       
         query::query(&mut s, &mut connections, o, d, 0, 100, serde::to_mtime(now, start_time));
         println!("finished querying.");
-        let bytes = serde::serialize_protobuf(&connections, start_time);
+        let bytes = serde::serialize_protobuf(&connections, o, d, start_time);
         Response::from_data("application/octet-stream", bytes)
     });
 }
