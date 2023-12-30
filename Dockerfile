@@ -1,9 +1,11 @@
-FROM rust:1
+FROM traines-source/stost-build-env
 
-WORKDIR /usr/src/app
+WORKDIR /app
 COPY . .
 
-RUN cargo install --path .
+RUN cargo build
+
+RUN cargo test
 
 EXPOSE 1234
 

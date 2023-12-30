@@ -940,6 +940,7 @@ version = "0.1.0"
 dependencies = [
  "assert_float_eq",
  "by_address",
+ "chrono",
  "criterion",
  "csv",
  "indexmap",

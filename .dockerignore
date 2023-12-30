@@ -2,4 +2,8 @@ deployments
 .vscode
 working
 target
+*/target
+*/*/target
+motis-nigiri-rust/nigiri-sys/motis
+.git
 __debug_bin
