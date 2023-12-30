@@ -51,12 +51,12 @@ impl<'a> Station {
 
 
 #[derive(Clone, Debug)]
-pub struct Connection<'a> {
+pub struct Connection {
 	pub id: usize,
-	pub route: &'a Route,
+	pub route_idx: usize,
 	pub trip_id: i32,
-	pub from: &'a Station,
-	pub to: &'a Station,
+	pub from_idx: usize,
+	pub to_idx: usize,
 	pub departure: StopInfo,
 	pub arrival: StopInfo,
 	message: String,
@@ -65,16 +65,16 @@ pub struct Connection<'a> {
 	pub destination_arrival: RefCell<Option<distribution::Distribution>>	
 }
 
-impl<'a> Connection<'a> {
-	pub fn new(id: usize, route: &'a Route, trip_id: i32, cancelled: bool,
-	from: &'a Station, from_scheduled: types::Mtime, from_delay: Option<i16>,
-	to: &'a Station, to_scheduled: types::Mtime, to_delay: Option<i16>) -> Connection<'a> {
+impl<'a> Connection {
+	pub fn new(id: usize, route_idx: usize, product_type: i16, trip_id: i32, cancelled: bool,
+	from_idx: usize, from_scheduled: types::Mtime, from_delay: Option<i16>,
+	to_idx: usize, to_scheduled: types::Mtime, to_delay: Option<i16>) -> Connection {
 		Connection {
 			id: id,
-			route: route,
+			route_idx: route_idx,
 			trip_id: trip_id,
-			from: from,
-			to: to,
+			from_idx: from_idx,
+			to_idx: to_idx,
 			departure: StopInfo {
 				scheduled: from_scheduled,
 				delay: from_delay,
@@ -89,7 +89,7 @@ impl<'a> Connection<'a> {
 			},
 			message: "".to_string(),
 			cancelled: cancelled,
-			product_type: route.product_type,
+			product_type: product_type,
 			destination_arrival: RefCell::new(None)
 		}	
 	}

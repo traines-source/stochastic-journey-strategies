@@ -34,30 +34,29 @@ pub fn from_mtime(mtime: types::Mtime, reference: i64) -> i64 {
     (mtime*60) as i64 + reference
 }
 
-pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut HashMap<String, connection::Station>, routes: &'a mut HashMap<String, connection::Route>, connections: &'b mut Vec<connection::Connection<'a>>, load_distributions: bool) -> (i64, &'a connection::Station, &'a connection::Station, i64) {
+pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connection::Station>, routes: &'b mut Vec<connection::Route>, connections: &'b mut Vec<connection::Connection>, load_distributions: bool) -> (i64, usize, usize, i64, String) {
     let mut reader = BytesReader::from_bytes(&bytes);
     let request_message = wire::Message::from_reader(&mut reader, &bytes).expect("Cannot read Timetable");
         
     let timetable = request_message.timetable.as_ref().unwrap();
+    let mut stations_idx: HashMap<&str, usize> = HashMap::new(); 
     for s in &timetable.stations {
-        stations.insert(s.id.to_string(), connection::Station::new(s.id.to_string(), s.name.to_string(), vec![]));
+        stations_idx.insert(s.id.borrow(), stations.len());
+        stations.push(connection::Station::new(s.id.to_string(), s.name.to_string(), vec![]));
     }
+    let mut route_idx = 0;
     for r in &timetable.routes {
-        routes.insert(r.id.to_string(), connection::Route::new(r.id.to_string(), r.name.to_string(), r.product_type as i16));
-    }
-        
-    for r in &timetable.routes {
-        let route = routes.get(&r.id.to_string()).unwrap();
+        routes.push(connection::Route::new(r.id.to_string(), r.name.to_string(), r.product_type as i16));
         let mut trip_id = 0;
         for t in &r.trips {
             for c in &t.connections {
-                let from = stations.get(c.from_id.borrow() as &str).unwrap();
-                let to = stations.get(c.to_id.borrow() as &str).unwrap();
+                let from_idx = stations_idx[&c.from_id as &str];
+                let to_idx = stations_idx[&c.to_id as &str];
                 let id = connections.len();
                 let nc = connection::Connection::new(
-                    id, route, trip_id, c.cancelled,
-                    from, to_mtime(c.departure.as_ref().unwrap().scheduled, timetable.start_time), if c.departure.as_ref().unwrap().is_live { Some(c.departure.as_ref().unwrap().delay_minutes as i16) } else { None },
-                    to, to_mtime(c.arrival.as_ref().unwrap().scheduled, timetable.start_time), if c.arrival.as_ref().unwrap().is_live { Some(c.arrival.as_ref().unwrap().delay_minutes as i16) } else { None }
+                    id, route_idx, r.product_type as i16, trip_id, c.cancelled,
+                    from_idx, to_mtime(c.departure.as_ref().unwrap().scheduled, timetable.start_time), if c.departure.as_ref().unwrap().is_live { Some(c.departure.as_ref().unwrap().delay_minutes as i16) } else { None },
+                    to_idx, to_mtime(c.arrival.as_ref().unwrap().scheduled, timetable.start_time), if c.arrival.as_ref().unwrap().is_live { Some(c.arrival.as_ref().unwrap().delay_minutes as i16) } else { None }
                 );
                 nc.destination_arrival.replace(if !load_distributions || c.destination_arrival.is_none() { None } else { let da = c.destination_arrival.as_ref().unwrap(); Some(distribution::Distribution {
                     histogram: da.histogram.to_vec(),
@@ -66,34 +65,43 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut HashMap<St
                     feasible_probability: da.feasible_probability
                 }) });
                 connections.push(nc);
-                from.departures.borrow_mut().push(id);
+                stations[from_idx].departures.borrow_mut().push(id);
             }
             trip_id += 1;
-        }        
+        }
+        route_idx += 1;
     }
     let query = request_message.query.as_ref().unwrap();
     let start_time = request_message.timetable.as_ref().unwrap().start_time;
 
     let origin = query.origin.borrow() as &str;
     let destination = query.destination.borrow() as &str;
-    let o = stations.get(origin).unwrap();
-    let d = stations.get(destination).unwrap();
+    let o = stations_idx[origin];
+    let d = stations_idx[destination];
     let now = query.now;
-    println!("orig {} dest {} stations {} connections {}", o.id, d.id, stations.len(), connections.len());
-    (start_time, o, d, now)
+    println!("orig {} dest {} stations {} connections {}", o, d, stations.len(), connections.len());
+    (start_time, o, d, now, request_message.system.to_string())
 }
 
-pub fn serialize_protobuf(connections: &[connection::Connection], origin: &connection::Station, destination: &connection::Station, start_time: i64) -> Vec<u8> {
-    let mut wire_stations: HashMap<String, wire::Station> = HashMap::new();
-    let mut trips: IndexMap<&str, Vec<wire::Connection>> = IndexMap::new();
+pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection::Route], connections: &[connection::Connection], origin: &connection::Station, destination: &connection::Station, start_time: i64) -> Vec<u8> {
+    let mut wire_stations: Vec<wire::Station> = Vec::new();
+    let mut trips: IndexMap<usize, Vec<wire::Connection>> = IndexMap::new();
+    for s in stations {
+        wire_stations.push(wire::Station{
+            id: Cow::Borrowed(&s.id),
+            name: Cow::Borrowed(&s.name),
+            lat: s.lat,
+            lon: s.lon
+        });
+    }
     for c in connections {
-        if !trips.contains_key(&c.route.id as &str) {
-            trips.insert(&c.route.id as &str, vec![]);
+        if !trips.contains_key(&c.route_idx) {
+            trips.insert(c.route_idx, vec![]);
         }
         let da = c.destination_arrival.borrow();
-        trips.get_mut(&c.route.id as &str).unwrap().push(wire::Connection{
-            from_id: Cow::Borrowed(&c.from.id),
-            to_id: Cow::Borrowed(&c.to.id),
+        trips.get_mut(&c.route_idx).unwrap().push(wire::Connection{
+            from_id: Cow::Borrowed(&stations.get(c.from_idx).unwrap().id),
+            to_id: Cow::Borrowed(&stations.get(c.to_idx).unwrap().id),
             cancelled: false,
             departure: Some(wire::StopInfo{
                 scheduled: from_mtime(c.departure.scheduled, start_time),
@@ -117,18 +125,12 @@ pub fn serialize_protobuf(connections: &[connection::Connection], origin: &conne
                 feasible_probability: da.feasible_probability
             }) }
         });
-        wire_stations.insert(c.from.id.to_string(), wire::Station{
-            id: Cow::Borrowed(&c.from.id),
-            name: Cow::Borrowed(&c.from.name),
-            lat: c.from.lat,
-            lon: c.from.lon
-        });
     }
-    let mut routes = Vec::new();
+    let mut wire_routes = Vec::new();
     for (key, mut connections) in trips.into_iter() {
         connections.sort_by(|a, b| a.departure.as_ref().unwrap().scheduled.partial_cmp(&b.departure.as_ref().unwrap().scheduled).unwrap());
-        routes.push(wire::Route {
-            id: Cow::Borrowed(key),
+        wire_routes.push(wire::Route {
+            id: Cow::Borrowed(&routes[key].id),
             name: Cow::Borrowed(""),
             product_type: 0,
             message: Cow::Borrowed(""),
@@ -141,8 +143,8 @@ pub fn serialize_protobuf(connections: &[connection::Connection], origin: &conne
 
     let response_message = wire::Message{
         timetable: Some(wire::Timetable{
-            stations: wire_stations.into_values().collect(),
-            routes: routes,
+            stations: wire_stations,
+            routes: wire_routes,
             start_time: start_time
         }),
         query: Some(wire::Query{

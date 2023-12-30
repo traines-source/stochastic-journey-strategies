@@ -10,7 +10,7 @@ use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut Vec<connection::Connection<'a>>, origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, cut: HashSet<(usize, usize)> ) {
+pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut Vec<connection::Connection>, stations: &[connection::Station], origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, cut: HashSet<(usize, usize)> ) {
     let mut q = Query {
         store: store,
         destination: destination,
@@ -27,7 +27,7 @@ pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut
     };
     //for dep in &*origin.departures.borrow() {
     for dep in connections.iter() {
-        q.recursive(dep.id, connections);
+        q.recursive(dep.id, connections, stations);
     }
     println!("cut: {}", q.cut.len());
     if cut.len() > 0 {
@@ -43,7 +43,7 @@ struct Query<'a> {
     max_time: types::Mtime,
     now: types::Mtime,
     trace: IndexMap<usize, f32>,
-    visited: HashMap<&'a str, usize>,
+    visited: HashMap<usize, usize>,
     cycles_found: i32,
     cycles_cut: i32,
     cycles_cut_direct: i32,
@@ -52,14 +52,14 @@ struct Query<'a> {
 }
 
 impl<'a, 'b> Query<'a> {
-    fn recursive(&mut self, c_id: usize, connections: &[connection::Connection<'a>]) -> Option<usize> {
+    fn recursive(&mut self, c_id: usize, connections: &[connection::Connection], stations: &[connection::Station]) -> Option<usize> {
         let c = connections.get(c_id).unwrap();
         if c.destination_arrival.borrow().is_some() {
             return None;
         }
         
         self.trace.insert(c_id, 1.0);
-        let binding = c.to.departures.borrow();
+        let binding = stations[c.to_idx].departures.borrow();
         for dep_id in &*binding {
             let dep = connections.get(*dep_id).unwrap();
             if self.cut.contains(&(c_id, *dep_id)) {
@@ -89,7 +89,7 @@ impl<'a, 'b> Query<'a> {
                     }
                 }
                 if min_transfer > 0 {
-                    panic!("cutting positive transfer {:?} {:?} {} {}", dep.departure, dep.route, min_transfer, transfer_time);
+                    panic!("cutting positive transfer {:?} {:?} {} {}", dep.departure, dep.route_idx, min_transfer, transfer_time);
                 }
                 if min_i == self.trace.len() {
                     self.cycles_cut += 1;
@@ -116,7 +116,7 @@ impl<'a, 'b> Query<'a> {
             if p <= 0.0 {
                 continue;
             }
-            let cycle_found = self.recursive(*dep_id, connections);
+            let cycle_found = self.recursive(*dep_id, connections, stations);
             if cycle_found.is_some() {
                 if *dep_id == cycle_found.unwrap() {
                     self.cycles_cut += 1;
@@ -127,15 +127,15 @@ impl<'a, 'b> Query<'a> {
             }
         }
         assert_eq!(self.trace.pop().unwrap().0, c_id);
-        if !self.visited.contains_key(&c.to.id as &str) {
-            println!("finished iterating {} {} len: {} cycles: {} cut: {} direct: {} conns: {} reachs: {}", c.to.name, c.to.id, self.visited.len(), self.cycles_found, self.cut.len(), self.cycles_cut_direct, self.connections, self.store.reachability_len());
-            self.visited.insert(&c.to.id as &str, self.visited.len());
+        if !self.visited.contains_key(&c.to_idx) {
+            println!("finished iterating {} {} len: {} cycles: {} cut: {} direct: {} conns: {} reachs: {}", stations[c.to_idx].name, stations[c.to_idx].id, self.visited.len(), self.cycles_found, self.cut.len(), self.cycles_cut_direct, self.connections, self.store.reachability_len());
+            self.visited.insert(c.to_idx, self.visited.len());
         }
         if c.cancelled {
             c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled)));
             self.connections += 1;
             return None;
-        } else if c.to.id == self.destination.id {
+        } else if stations[c.to_idx].id == self.destination.id {
             c.destination_arrival.replace(Some(self.store.delay_distribution(&c.arrival, false, c.product_type, self.now)));
             self.connections += 1;
             return None;
@@ -170,7 +170,7 @@ impl<'a, 'b> Query<'a> {
             if last_departure.is_some() {
                 p *= last_departure.as_ref().unwrap().before_probability(&dep_dist, 1);
             }  
-            if p > 0.0 && (c.trip_id != dep.trip_id || ByAddress(c.route) != ByAddress(dep.route)) {
+            if p > 0.0 && (c.trip_id != dep.trip_id || c.route_idx != dep.route_idx) {
                 p *= self.store.reachable_probability_conn(c, dep, self.now);
             }
             if p > 0.0 {

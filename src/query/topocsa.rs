@@ -9,10 +9,11 @@ use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection<'a>>, now: types::Mtime, epsilon: f32) -> Environment<'a, 'b> {
+pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], now: types::Mtime, epsilon: f32) -> Environment<'b> {
     let mut e = Environment {
         store: store,
         connections: connections,
+        stations: stations,
         now: now,
         epsilon: epsilon,
         cut: HashSet::new()
@@ -22,17 +23,18 @@ pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'
     e
 }
 
-pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection<'a>>, origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: f32) -> HashSet<(usize, usize)>  {
-    let mut e = prepare(store, connections, now, epsilon);
+pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: f32) -> HashSet<(usize, usize)>  {
+    let mut e = prepare(store, connections, stations, now, epsilon);
     e.query(destination);
     e.store.clear_reachability();
     println!("Done.");
     e.cut
 }
 
-pub struct Environment<'a, 'b> {
+pub struct Environment<'b> {
     store: &'b mut distribution_store::Store,
-    connections: &'b mut Vec<connection::Connection<'a>>,
+    connections: &'b mut Vec<connection::Connection>,
+    stations: &'b [connection::Station],
     now: types::Mtime,
     epsilon: f32,
     cut: HashSet<(usize, usize)>,
@@ -43,7 +45,7 @@ struct ConnectionLabel {
     order: i32
 }
 
-impl<'a, 'b> Environment<'a, 'b> {
+impl<'a, 'b> Environment<'b> {
 
     fn dfs(&mut self, anchor_id: usize, labels: &mut HashMap<usize, ConnectionLabel>, topo_idx: &mut i32) {
         let mut stack: Vec<usize> = vec![];
@@ -72,7 +74,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                 stack.pop();
                 continue;
             }
-            let deps = c.to.departures.borrow();
+            let deps = self.stations[c.to_idx].departures.borrow();
             for dep_id in &*deps {
                 let dep = self.connections.get(*dep_id).unwrap();
                 let dep_label = labels.get(dep_id);
@@ -102,7 +104,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                                 }
                             }
                             if min_transfer > 0 {
-                                panic!("cutting positive transfer {:?} {:?} {} {}", c.departure, c.route, min_transfer, transfer_time)
+                                panic!("cutting positive transfer {:?} {:?} {} {}", c.departure, c.route_idx, min_transfer, transfer_time)
                             }
                             if min_i == trace.len() {
                                 self.cut.insert((c_id, *dep_id));
@@ -151,29 +153,29 @@ impl<'a, 'b> Environment<'a, 'b> {
     }
 
     pub fn query(&mut self, destination: &'a connection::Station) {
-        let mut station_labels: HashMap<&str, Vec<usize>> = HashMap::new();
+        let mut station_labels: HashMap<usize, Vec<usize>> = HashMap::new();
         for i in 0..self.connections.len() {
             let c = self.connections.get(i).unwrap();
             if c.cancelled {
                 c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled)));
                 continue;
             }
-            if !station_labels.contains_key(&c.to.id as &str) {
-                station_labels.insert(&c.to.id, vec![]);
+            if !station_labels.contains_key(&c.to_idx) {
+                station_labels.insert(c.to_idx, vec![]);
             }
-            if !station_labels.contains_key(&c.from.id as &str) {
-                station_labels.insert(&c.from.id, vec![]);
+            if !station_labels.contains_key(&c.from_idx) {
+                station_labels.insert(c.from_idx, vec![]);
             }
             let mut new_distribution = distribution::Distribution::empty(c.arrival.scheduled);
-            if c.to.id == destination.id {
+            if self.stations[c.to_idx].id == destination.id {
                 new_distribution = self.store.delay_distribution(&c.arrival, false, c.product_type, self.now);
             } else {
                 let mut remaining_probability = 1.0;
                 let mut last_departure: Option<&connection::Connection> = None;
-                let departures = station_labels.get(&c.to.id as &str).unwrap();
+                let departures = station_labels.get(&c.to_idx).unwrap();
 
-                for dep_id in departures.iter().rev() {
-                    let dep = self.connections.get(*dep_id).unwrap();
+                for dep_idx in departures.iter().rev() {
+                    let dep = self.connections.get(*dep_idx).unwrap();
                     if self.cut.contains(&(c.id, dep.id)) {
                         continue;
                     }
@@ -190,7 +192,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                     if last_departure.is_some() {
                         p *= self.store.before_probability_conn(&last_departure.unwrap(), dep, self.now);
                     }           
-                    if p > 0.0 && (c.trip_id != dep.trip_id || ByAddress(c.route) != ByAddress(dep.route)) {
+                    if p > 0.0 && (c.trip_id != dep.trip_id || c.route_idx != dep.route_idx) {
                         p *= self.store.reachable_probability_conn(c, dep, self.now);
                     }
                     if p > 0.0 {
@@ -207,7 +209,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                     new_distribution.normalize();
                 }   
             }
-            let station_label = station_labels.get_mut(&c.from.id as &str);
+            let station_label = station_labels.get_mut(&c.from_idx);
             let departures = station_label.unwrap();
     
             let mut found = false;
@@ -238,9 +240,10 @@ mod tests {
     fn it_compiles() {
         let mut store = distribution_store::Store::new();
         let s = connection::Station::new("id".to_string(), "name".to_string(), vec![]);
+        let stations = vec![s];
         let mut connections: Vec<connection::Connection> = vec![];
 
-        let cut = prepare_and_query(&mut store, &mut connections, &s, &s, 0, 0, 0, 0.0);
+        let cut = prepare_and_query(&mut store, &mut connections, &stations, &stations[0], &stations[0], 0, 0, 0, 0.0);
         assert_eq!(cut.len(), 0);
     }
 }

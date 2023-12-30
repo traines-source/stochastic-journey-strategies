@@ -13,15 +13,15 @@ fn criterion_benchmark(c: &mut Criterion) {
     store.load_distributions("./data/de_db.csv");
 
     let bytes: Vec<u8> = serde::read_protobuf("./tests/fixtures/basic.pb");
-    let mut stations: HashMap<String, connection::Station> = HashMap::new();
-    let mut routes = HashMap::new();
+    let mut stations = vec![];
+    let mut routes = vec![];
     let mut connections = vec![];
-    let (start_time, o, d, now) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
-    let mut env = topocsa::prepare(&mut store, &mut connections, serde::to_mtime(now, start_time), 0.0);
+    let (start_time, o, d, now, _) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
+    let mut env = topocsa::prepare(&mut store, &mut connections, &stations, serde::to_mtime(now, start_time), 0.0);
 
     let mut group = c.benchmark_group("once");
     group.sample_size(10); //measurement_time(Duration::from_secs(10))
-    group.bench_function("basic", |b| b.iter(|| env.query(black_box(d))));
+    group.bench_function("basic", |b| b.iter(|| env.query(black_box(&stations[d]))));
     group.finish();
 }
 
