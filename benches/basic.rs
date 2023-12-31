@@ -21,7 +21,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("once");
     group.sample_size(10); //measurement_time(Duration::from_secs(10))
-    group.bench_function("basic", |b| b.iter(|| env.query(black_box(&stations[d]))));
+    group.bench_function("basic", |b| b.iter(|| env.query(black_box(&stations[o]), black_box(&stations[d]))));
     group.finish();
 }
 

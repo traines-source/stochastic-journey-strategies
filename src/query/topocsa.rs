@@ -25,7 +25,7 @@ pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'
 
 pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: f32) -> HashSet<(usize, usize)>  {
     let mut e = prepare(store, connections, stations, now, epsilon);
-    e.query(destination);
+    e.query(origin, destination);
     e.store.clear_reachability();
     println!("Done.");
     e.cut
@@ -141,7 +141,7 @@ impl<'a, 'b> Environment<'b> {
         for i in 0..self.connections.len() {
             if !labels.contains_key(&i) || labels.get(&i).unwrap().visited != 2 {
                 self.dfs(i, &mut labels, &mut topo_idx);
-                //println!("connections {} cycles found {} labels {} done {}", connections.len(), cut.len(), labels.len(), i);
+                println!("connections {} cycles found {} labels {} done {}", self.connections.len(), self.cut.len(), labels.len(), i);
             }
         }
         println!("Done DFSing.");
@@ -152,7 +152,7 @@ impl<'a, 'b> Environment<'b> {
         println!("cut: {}", self.cut.len());
     }
 
-    pub fn query(&mut self, destination: &'a connection::Station) {
+    pub fn query(&mut self, origin: &'a connection::Station, destination: &'a connection::Station) -> HashMap<usize, Vec<usize>> {
         let mut station_labels: HashMap<usize, Vec<usize>> = HashMap::new();
         for i in 0..self.connections.len() {
             let c = self.connections.get(i).unwrap();
@@ -211,23 +211,25 @@ impl<'a, 'b> Environment<'b> {
             }
             let station_label = station_labels.get_mut(&c.from_idx);
             let departures = station_label.unwrap();
-    
-            let mut found = false;
-            // TODO pareto? - sort incoming departures and connections by dep?
-            for j in (0..departures.len()).rev() {
-                let dom = self.connections.get(departures[j]).unwrap().destination_arrival.borrow();
-                let dom_dest_dist = dom.as_ref().unwrap();
-                if new_distribution.mean < dom_dest_dist.mean {
-                    departures.insert(j+1, i);
-                    found = true;
-                    break;
-                } 
-            }
-            if !found {
-                departures.insert(0, i);
+            if new_distribution.feasible_probability > 0.0 {
+                let mut found = false;
+                // TODO pareto? - sort incoming departures and connections by dep?
+                for j in (0..departures.len()).rev() {
+                    let dom = self.connections.get(departures[j]).unwrap().destination_arrival.borrow();
+                    let dom_dest_dist = dom.as_ref().unwrap();
+                    if new_distribution.mean < dom_dest_dist.mean {
+                        departures.insert(j+1, i);
+                        found = true;
+                        break;
+                    } 
+                }
+                if !found {
+                    departures.insert(0, i);
+                }
             }
             c.destination_arrival.replace(Some(new_distribution));
         }
+        station_labels
     }
 }
 

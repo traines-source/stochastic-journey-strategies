@@ -243,7 +243,7 @@ impl Store {
             return p
         }
         if p < 0.04 {
-            println!("unlikely safe transfer {} {:?} {:?} {:?} {:?}", p, arr.arrival, arr.route_idx, dep.departure, dep.route_idx);
+            println!("unlikely safe transfer {} {:?} {:?} {:?} {:?} {:?}", p, arr.arrival, arr.product_type, arr.route_idx, dep.departure, dep.route_idx);
         }
         1.0
     }

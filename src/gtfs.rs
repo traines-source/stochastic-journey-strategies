@@ -13,7 +13,6 @@ pub fn load<'a, 'b>(gtfs_path: &str, start_date: chrono::NaiveDate, end_date: ch
         stations.push(connection::Station::new(s.id.to_string(), s.name.to_string(), vec![]));
     }
     let gtfs_connections = t.get_connections();
-    let mut i = 0;
     for c in gtfs_connections {
         let id = connections.len();
         // TODO routes
@@ -29,11 +28,10 @@ pub fn load<'a, 'b>(gtfs_path: &str, start_date: chrono::NaiveDate, end_date: ch
         let from_idx = c.from_idx.try_into().unwrap();
         let to_idx = c.to_idx.try_into().unwrap();
         connections.push(connection::Connection::new(
-            id, c.route_idx.try_into().unwrap(), 30, c.trip_id.try_into().unwrap(), false,
+            id, c.route_idx.try_into().unwrap(), r.clasz.try_into().unwrap(), c.trip_id.try_into().unwrap(), false,
             from_idx, c.departure.try_into().unwrap(), None,
             to_idx, c.arrival.try_into().unwrap(), None
         ));
-        stations[from_idx].departures.borrow_mut().push(i);
-        i += 1;
+        stations[from_idx].departures.borrow_mut().push(id);
     }
 }
