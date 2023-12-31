@@ -1,0 +1,5 @@
+This directory contains delay distribution data. This repo's licensing does not apply to them. They are derived from historical realtime data from different sources:
+ch_sbb.csv: https://opentransportdata.swiss/de/dataset/gtfsrt
+de_db.csv: (proprietary)
+
+For more information on how this data is obtained and processed, see https://github.com/traines-source/public-transport-statistics
