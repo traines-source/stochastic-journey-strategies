@@ -47,12 +47,11 @@ struct ConnectionLabel {
 
 impl<'a, 'b> Environment<'b> {
 
-    fn dfs(&mut self, anchor_id: usize, labels: &mut HashMap<usize, ConnectionLabel>, topo_idx: &mut i32) {
-        let mut stack: Vec<usize> = vec![];
-        let mut trace: IndexMap<usize, usize> = IndexMap::new();
+    fn dfs(&mut self, anchor_id: usize, labels: &mut HashMap<usize, ConnectionLabel>, topo_idx: &mut i32, max_stack: &mut usize, max_trace: &mut usize) {
+        let mut stack: Vec<usize> = Vec::with_capacity(self.connections.len());
+        let mut trace: IndexMap<usize, usize> = IndexMap::with_capacity(self.connections.len());
         stack.push(anchor_id);
         labels.insert(anchor_id, ConnectionLabel{visited: 0, order: 0});
-
         while !stack.is_empty() {
             let c_id = *stack.last().unwrap();
             let c = self.connections.get(c_id).unwrap();
@@ -130,7 +129,14 @@ impl<'a, 'b> Environment<'b> {
                 stack.push(*dep_id);
                 labels.insert(*dep_id, ConnectionLabel { visited: 0, order: 0 });
             }
+            if stack.len() > *max_stack {
+                *max_stack = stack.len();
+            }
+            if trace.len() > *max_trace {
+                *max_trace = trace.len();
+            }
         }
+        println!("max stack {} trace {}", max_stack, max_trace);
     }
     
     pub fn preprocess(&mut self) {
@@ -138,9 +144,11 @@ impl<'a, 'b> Environment<'b> {
         let mut labels: HashMap<usize, ConnectionLabel> = HashMap::with_capacity(self.connections.len());
         let mut topo_idx = 0;
         
+        let mut max_stack = 0;
+        let mut max_trace = 0;
         for i in 0..self.connections.len() {
             if !labels.contains_key(&i) || labels.get(&i).unwrap().visited != 2 {
-                self.dfs(i, &mut labels, &mut topo_idx);
+                self.dfs(i, &mut labels, &mut topo_idx, &mut max_stack, &mut max_trace);
                 println!("connections {} cycles found {} labels {} done {}", self.connections.len(), self.cut.len(), labels.len(), i);
             }
         }
