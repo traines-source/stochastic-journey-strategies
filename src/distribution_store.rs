@@ -384,7 +384,7 @@ mod tests {
     #[test]
     fn load_distributions_file() {
         let mut s = Store::new();
-        s.load_distributions("./data/de_db.csv");
+        s.load_distributions("./tests/fixtures/de_db.csv");
         //assert_eq!(s.delay.len(), 5830);
         assert_eq!(s.delay_upper, (91,91));
         //assert_eq!(s.delay_buckets.len(), 106);
@@ -396,6 +396,7 @@ mod tests {
             projected_track: "".to_string()
         }, true, 4, 15);
         assert_eq!(d.start, 45);
+        assert_float_absolute_eq!(d.mean, 133.21875);
         assert_eq!(d.histogram.len(), 136);
     }
    

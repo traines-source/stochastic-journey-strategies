@@ -30,7 +30,7 @@ fn compare_connections(original: &[connection::Connection], new: &[connection::C
 #[ignore]
 fn topocsa_recursive_identical() {
     let mut store = distribution_store::Store::new();
-    store.load_distributions("./data/de_db.csv");
+    store.load_distributions("./tests/fixtures/de_db.csv");
 
     let bytes: Vec<u8> = serde::read_protobuf("./tests/fixtures/basic.pb");
     let mut stations = vec![];
@@ -49,7 +49,7 @@ fn topocsa_recursive_identical() {
 #[ignore]
 fn topocsa_runs() {
     let mut store = distribution_store::Store::new();
-    store.load_distributions("./data/de_db.csv");
+    store.load_distributions("./tests/fixtures/de_db.csv");
 
     let bytes: Vec<u8> = serde::read_protobuf("./tests/fixtures/basic.pb");
     let mut stations = vec![];
@@ -71,7 +71,7 @@ fn topocsa_runs() {
 #[ignore]
 fn recursive_runs() {
     let mut store = distribution_store::Store::new();
-    store.load_distributions("./data/de_db.csv");
+    store.load_distributions("./tests/fixtures/de_db.csv");
 
     let bytes: Vec<u8> = serde::read_protobuf("./tests/fixtures/basic.pb");
     let mut stations = vec![];
