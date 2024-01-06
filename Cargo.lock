@@ -616,6 +616,9 @@ dependencies = [
 [[package]]
 name = "nigiri-sys"
 version = "0.1.0"
+dependencies = [
+ "regex",
+]
 
 [[package]]
 name = "num-traits"

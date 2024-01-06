@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::fs::File;
 use csv;
-use by_address::ByAddress;
 
 use crate::distribution;
 use crate::connection;
@@ -209,10 +208,10 @@ impl Store {
         self.raw_delay_distribution(stop_info, is_departure, product_type, now).shift(stop_info.projected())
     }
 
-    fn calculate_reachable_probability(&mut self, from: &connection::StopInfo, from_product_type: i16, from_is_departure: bool, to: &connection::StopInfo, to_product_type: i16, now: types::Mtime, key: ReachabilityKey) -> f32 {
+    fn calculate_before_probability(&mut self, from: &connection::StopInfo, from_product_type: i16, from_is_departure: bool, to: &connection::StopInfo, to_product_type: i16, now: types::Mtime, key: ReachabilityKey) -> f32 {
         let a = self.raw_delay_distribution(from, from_is_departure, from_product_type, now);
         let d = self.raw_delay_distribution(to, true, to_product_type, now);
-        let mut p = a.before_probability(d, from.projected()-to.projected()+1);
+        let mut p = a.before_probability(d, -key.diff as i32);
         if !from_is_departure {
             p *= d.feasible_probability;
         }
@@ -220,7 +219,7 @@ impl Store {
         p
     }
 
-    fn reachable_probability(&mut self, from: &connection::StopInfo, from_product_type: i16, from_is_departure: bool, to: &connection::StopInfo, to_product_type: i16, now: types::Mtime) -> f32 {
+    pub fn before_probability(&mut self, from: &connection::StopInfo, from_product_type: i16, from_is_departure: bool, to: &connection::StopInfo, to_product_type: i16, transfer_time: i32, now: types::Mtime) -> f32 {
         let ttl = self.ttl_bucket((from.projected()-now) as i32);
         let key = ReachabilityKey{
             from_product_type,
@@ -228,17 +227,17 @@ impl Store {
             from_prior_delay: self.delay_bucket(from.delay, ttl),
             to_prior_delay: self.delay_bucket(to.delay, ttl),
             prior_ttl: ttl,
-            diff: (to.projected()-from.projected()) as i16,
+            diff: (to.projected()-from.projected()-transfer_time) as i16,
             from_is_departure: from_is_departure
         };
         match self.reachability.get(&key) {
             Some(p) => *p,
-            None => self.calculate_reachable_probability(from, from_product_type, from_is_departure, to, to_product_type, now, key)
+            None => self.calculate_before_probability(from, from_product_type, from_is_departure, to, to_product_type, now, key)
         }
     }
 
     pub fn reachable_probability_conn(&mut self, arr: &connection::Connection, dep: &connection::Connection, now: types::Mtime) -> f32 {
-        let p = self.reachable_probability(&arr.arrival, arr.product_type, false, &dep.departure, dep.product_type, now);
+        let p = self.before_probability(&arr.arrival, arr.product_type, false, &dep.departure, dep.product_type, 1, now);
         if arr.trip_id != dep.trip_id || arr.route_idx != dep.route_idx || arr.arrival.scheduled > dep.departure.scheduled {
             return p
         }
@@ -249,7 +248,7 @@ impl Store {
     }
 
     pub fn before_probability_conn(&mut self, before: &connection::Connection, after: &connection::Connection, now: types::Mtime) -> f32 {
-        self.reachable_probability(&before.departure, before.product_type, true, &after.departure, after.product_type, now)
+        self.before_probability(&before.departure, before.product_type, true, &after.departure, after.product_type, 1, now)
     } 
 }
 

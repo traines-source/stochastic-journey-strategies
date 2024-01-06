@@ -30,7 +30,9 @@ pub struct Station {
 	pub name: String,
 	pub departures: RefCell<Vec<usize>>,
 	pub lat: f32,
-	pub lon: f32
+	pub lon: f32,
+	pub transfer_time: u16,
+	pub footpaths: Vec<motis_nigiri::Footpath>
 }
 
 impl<'a> Station {
@@ -40,7 +42,9 @@ impl<'a> Station {
 			name: name,
 			departures: RefCell::new(departures),
 			lat: 0.,
-			lon: 0.
+			lon: 0.,
+			transfer_time: 0,
+			footpaths: vec![]
 		}
 	}
 

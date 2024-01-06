@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use chrono;
 
 use motis_nigiri::Timetable;
@@ -8,9 +6,11 @@ use crate::connection;
 
 pub fn load<'a, 'b>(gtfs_path: &str, start_date: chrono::NaiveDate, end_date: chrono::NaiveDate, stations: &'a mut Vec<connection::Station>, routes: &'a mut Vec<connection::Route>, connections: &'b mut Vec<connection::Connection>) {
     let t = Timetable::load(gtfs_path, start_date, end_date);
-    let gtfs_stops = t.get_stops();
-    for s in gtfs_stops {
-        stations.push(connection::Station::new(s.id.to_string(), s.name.to_string(), vec![]));
+    let gtfs_locations = t.get_locations();
+    for mut l in gtfs_locations {
+        let mut station = connection::Station::new(l.id.to_string(), l.name.to_string(), vec![]);
+        station.footpaths.append(&mut l.footpaths);
+        stations.push(station);
     }
     let gtfs_connections = t.get_connections();
     for c in gtfs_connections {
