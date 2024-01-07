@@ -81,14 +81,17 @@ impl<'a, 'b> Environment<'b> {
                 let deps = self.stations[station_idx].departures.borrow();
                 for dep_id in &*deps {
                     let dep = self.connections.get(*dep_id).unwrap();
+                    let is_continuing = if i == footpaths.len() { c.trip_id == dep.trip_id && c.route_idx == dep.route_idx && c.arrival.scheduled <= dep.departure.scheduled } else { false };
                     let dep_label = labels.get(dep_id);
                     if self.cut.contains(&(c_id, *dep_id)) {
                         continue;
                     }
                     // TODO max reachability independent from now
-                    let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
-                    if reachable <= self.epsilon {
-                        continue;
+                    if !is_continuing {
+                        let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
+                        if reachable <= self.epsilon {
+                            continue;
+                        }
                     }
                     if dep_label.is_some() {
                         let dep_label = dep_label.unwrap();
