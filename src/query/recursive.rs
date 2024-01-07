@@ -3,14 +3,13 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use indexmap::IndexMap;
-use by_address::ByAddress;
 
 use crate::distribution;
 use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut Vec<connection::Connection>, stations: &[connection::Station], origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, cut: HashSet<(usize, usize)> ) {
+pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut Vec<connection::Connection>, stations: &[connection::Station], _origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, cut: HashSet<(usize, usize)> ) {
     let mut q = Query {
         store: store,
         destination: destination,

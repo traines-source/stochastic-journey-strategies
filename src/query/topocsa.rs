@@ -28,7 +28,7 @@ pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'
     e
 }
 
-pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: f32, mean_only: bool) -> HashSet<(usize, usize)>  {
+pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], origin: &'a connection::Station, destination: &'a connection::Station, _start_time: types::Mtime, _max_time: types::Mtime, now: types::Mtime, epsilon: f32, mean_only: bool) -> HashSet<(usize, usize)>  {
     let mut e = prepare(store, connections, stations, now, epsilon, mean_only);
     e.query(origin, destination);
     e.store.borrow_mut().clear_reachability();
@@ -163,7 +163,7 @@ impl<'a, 'b> Environment<'b> {
         
         let mut max_stack = 0;
         let mut max_trace = 0;
-        for i in (0..self.connections.len()) {
+        for i in 0..self.connections.len() {
             if !labels.contains_key(&i) || labels.get(&i).unwrap().visited != 2 {
                 self.dfs(i, &mut labels, &mut topo_idx, &mut max_stack, &mut max_trace);
                 println!("connections {} cycles found {} labels {} done {}", self.connections.len(), self.cut.len(), labels.len(), i);
@@ -177,9 +177,9 @@ impl<'a, 'b> Environment<'b> {
         println!("cut: {}", self.cut.len());
     }
 
-    pub fn query(&mut self, origin: &'a connection::Station, destination: &'a connection::Station) -> HashMap<usize, Vec<usize>> {
+    pub fn query(&mut self, _origin: &'a connection::Station, destination: &'a connection::Station) -> HashMap<usize, Vec<usize>> {
         let mut station_labels: HashMap<usize, Vec<usize>> = HashMap::new();
-        let mut empty_vec = vec![];
+        let empty_vec = vec![];
         for i in 0..self.connections.len() {
             let c = self.connections.get(i).unwrap();
             if c.cancelled {

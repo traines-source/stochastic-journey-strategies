@@ -4,7 +4,7 @@ use motis_nigiri::Timetable;
 
 use crate::connection;
 
-pub fn load<'a, 'b>(gtfs_path: &str, start_date: chrono::NaiveDate, end_date: chrono::NaiveDate, stations: &'a mut Vec<connection::Station>, routes: &'a mut Vec<connection::Route>, connections: &'b mut Vec<connection::Connection>) {
+pub fn load<'a, 'b>(gtfs_path: &str, start_date: chrono::NaiveDate, end_date: chrono::NaiveDate, stations: &'a mut Vec<connection::Station>, _routes: &'a mut Vec<connection::Route>, connections: &'b mut Vec<connection::Connection>) {
     let t = Timetable::load(gtfs_path, start_date, end_date);
     let gtfs_locations = t.get_locations();
     for mut l in gtfs_locations {

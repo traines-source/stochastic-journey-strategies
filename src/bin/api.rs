@@ -1,6 +1,5 @@
 use rouille::Response;
 use std::io::Read;
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 use stost::distribution_store;

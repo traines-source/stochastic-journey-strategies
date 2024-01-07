@@ -4,7 +4,7 @@ extern crate rmp_serde as rmps;
 
 use std::collections::HashSet;
 use serde::{Serialize, Deserialize};
-use rmps::{Deserializer, Serializer};
+use rmps::Serializer;
 use std::io::Write;
 use std::fs;
 
@@ -60,8 +60,9 @@ fn gtfs() {
     let mut tt = load_gtfs_cache();
     let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, 0, 0.01, true);
 
-    let o = 100;
-    let d = 1000;
+    let o = 10000;
+    let d = 20000;
+    println!("querying...");
     let station_labels = env.query(&tt.stations[o], &tt.stations[d]);
     let origin_deps = &station_labels[&o];
     let best_conn = &tt.connections[*origin_deps.last().unwrap()];
