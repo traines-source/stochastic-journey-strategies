@@ -73,61 +73,68 @@ impl<'a, 'b> Environment<'b> {
                 stack.pop();
                 continue;
             }
-            let deps = self.stations[c.to_idx].departures.borrow();
-            for dep_id in &*deps {
-                let dep = self.connections.get(*dep_id).unwrap();
-                let dep_label = labels.get(dep_id);
-                if self.cut.contains(&(c_id, *dep_id)) {
-                    continue;
-                }
-                // TODO max reachability independent from now
-                let reachable = self.store.borrow_mut().reachable_probability_conn(c, dep, self.now);
-                if reachable <= self.epsilon {
-                    continue;
-                }
-                if dep_label.is_some() {
-                    let dep_label = dep_label.unwrap();
-                    if dep_label.visited == 1 {
-                        let trace_idx = trace.get_index_of(dep_id);
-                        if trace_idx.is_some() {
-                            let transfer_time = dep.departure.projected()-c.arrival.projected();
-                            let mut min_transfer = transfer_time;
-                            let mut min_i = trace.len();
-                            let start = trace_idx.unwrap()+1 as usize;
-                            for i in start..trace.len() {
-                                let test = trace.get_index(i).unwrap();
-                                let t = self.connections.get(*test.0).unwrap().departure.projected()-self.connections.get(*trace.get_index(i-1).unwrap().0).unwrap().arrival.projected();
-                                if t < min_transfer {
-                                    min_transfer = t;
-                                    min_i = i;
-                                }
-                            }
-                            if min_transfer > 0 {
-                                panic!("cutting positive transfer {:?} {:?} {} {}", c.departure, c.route_idx, min_transfer, transfer_time)
-                            }
-                            if min_i == trace.len() {
-                                self.cut.insert((c_id, *dep_id));
-                                continue;
-                            }
-                            let cut_before = trace.get_index(min_i).unwrap();
-                            let cut_after = trace.get_index(min_i-1).unwrap();
-                            self.cut.insert((*cut_after.0, *cut_before.0));
-                            stack.truncate(*cut_before.1);
-                            for _ in min_i..trace.len() {
-                                let l = labels.get_mut(&trace.pop().unwrap().0).unwrap();
-                                assert_eq!(l.visited, 1);
-                                l.visited = 0;
-                            }
-                            break;
-                        } else {
-                            panic!("marked as visited but not in trace {:?} {:?}", *dep_id, trace);
-                        }
-                    } else if dep_label.visited == 2 {
+            let mut i = 0;
+            let footpaths = &self.stations[c.to_idx].footpaths;
+            'outer: while i <= footpaths.len() {
+                let station_idx = if i == footpaths.len() { c.to_idx } else { footpaths[i].target_location_idx };
+                let transfer_time = if i == footpaths.len() { 1 } else { 1+footpaths[i].duration as i32 };
+                let deps = self.stations[station_idx].departures.borrow();
+                for dep_id in &*deps {
+                    let dep = self.connections.get(*dep_id).unwrap();
+                    let dep_label = labels.get(dep_id);
+                    if self.cut.contains(&(c_id, *dep_id)) {
                         continue;
                     }
+                    // TODO max reachability independent from now
+                    let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
+                    if reachable <= self.epsilon {
+                        continue;
+                    }
+                    if dep_label.is_some() {
+                        let dep_label = dep_label.unwrap();
+                        if dep_label.visited == 1 {
+                            let trace_idx = trace.get_index_of(dep_id);
+                            if trace_idx.is_some() {
+                                let transfer_time = dep.departure.projected()-c.arrival.projected();
+                                let mut min_transfer = transfer_time;
+                                let mut min_i = trace.len();
+                                let start = trace_idx.unwrap()+1 as usize;
+                                for i in start..trace.len() {
+                                    let test = trace.get_index(i).unwrap();
+                                    let t = self.connections.get(*test.0).unwrap().departure.projected()-self.connections.get(*trace.get_index(i-1).unwrap().0).unwrap().arrival.projected();
+                                    if t < min_transfer {
+                                        min_transfer = t;
+                                        min_i = i;
+                                    }
+                                }
+                                if min_transfer > 0 {
+                                    panic!("cutting positive transfer {:?} {:?} {} {}", c.departure, c.route_idx, min_transfer, transfer_time)
+                                }
+                                if min_i == trace.len() {
+                                    self.cut.insert((c_id, *dep_id));
+                                    continue;
+                                }
+                                let cut_before = trace.get_index(min_i).unwrap();
+                                let cut_after = trace.get_index(min_i-1).unwrap();
+                                self.cut.insert((*cut_after.0, *cut_before.0));
+                                stack.truncate(*cut_before.1);
+                                for _ in min_i..trace.len() {
+                                    let l = labels.get_mut(&trace.pop().unwrap().0).unwrap();
+                                    assert_eq!(l.visited, 1);
+                                    l.visited = 0;
+                                }
+                                break 'outer;
+                            } else {
+                                panic!("marked as visited but not in trace {:?} {:?}", *dep_id, trace);
+                            }
+                        } else if dep_label.visited == 2 {
+                            continue;
+                        }
+                    }
+                    stack.push(*dep_id);
+                    labels.insert(*dep_id, ConnectionLabel { visited: 0, order: 0 });
                 }
-                stack.push(*dep_id);
-                labels.insert(*dep_id, ConnectionLabel { visited: 0, order: 0 });
+                i += 1;
             }
             if stack.len() > *max_stack {
                 *max_stack = stack.len();
@@ -184,17 +191,14 @@ impl<'a, 'b> Environment<'b> {
                 for f in footpaths {
                     if !station_labels.contains_key(&f.target_location_idx) {
                         station_labels.insert(f.target_location_idx, vec![]);
-                        println!("weird");
-                    } else {
-                        println!("yey {:?}", station_labels.get(&f.target_location_idx).unwrap().len());
                     }
                     let mut footpath_dest_arr = distribution::Distribution::empty(0);
                     self.new_destination_arrival(f.target_location_idx, 0, -1, 0, c.product_type, &c.arrival, 1+f.duration as i32, &station_labels, &empty_vec, &mut footpath_dest_arr);   
-                    if footpath_dest_arr.feasible_probability > 2.0 {
+                    if footpath_dest_arr.feasible_probability > 0.0 {
                         footpath_distributions.push(footpath_dest_arr);
                     }
                 }
-                println!("{:?} {:?}", footpath_distributions.len(), footpaths.len());
+                //println!("{:?} {:?}", footpath_distributions.len(), footpaths.len());
                 footpath_distributions.sort_by(|a, b| a.mean.partial_cmp(&b.mean).unwrap());
                 self.new_destination_arrival(c.to_idx, c.id, c.trip_id, c.route_idx, c.product_type, &c.arrival, 1, &station_labels, &footpath_distributions, &mut new_distribution);   
             }
