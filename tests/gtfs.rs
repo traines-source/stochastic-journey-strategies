@@ -17,7 +17,7 @@ fn gtfs() {
     let mut routes = vec![];
     let mut connections = vec![];
     gtfs::load("/gtfs/swiss-gtfs/2023-11-06/", chrono::NaiveDate::from_ymd_opt(2023, 11, 1).unwrap(), chrono::NaiveDate::from_ymd_opt(2023, 11, 2).unwrap(), &mut stations, &mut routes, &mut connections);
-    let mut env = topocsa::prepare(&mut store, &mut connections, &stations, 0, 0.1);
+    let mut env = topocsa::prepare(&mut store, &mut connections, &stations, 0, 0.1, true);
 
     let o = 100;
     let d = 1000;
@@ -39,7 +39,7 @@ fn gtfs_small() {
     let mut connections = vec![];
     gtfs::load("./tests/fixtures/gtfs_minimal_swiss/", chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(), chrono::NaiveDate::from_ymd_opt(2024, 1, 10).unwrap(), &mut stations, &mut routes, &mut connections);
 
-    let mut env = topocsa::prepare(&mut store, &mut connections, &stations, 0, 0.1);
+    let mut env = topocsa::prepare(&mut store, &mut connections, &stations, 0, 0.1, false);
 
     let o = 11;
     let d = 69;

@@ -13,7 +13,7 @@ pub struct Distribution {
 impl Distribution {
 
 	pub fn exists(&self) -> bool {
-        self.histogram.len() > 0
+        self.histogram.len() > 0 || self.mean != 0.0
     }
 
     pub fn assert(&self) {
@@ -50,39 +50,56 @@ impl Distribution {
     }
 
     pub fn normalize(&mut self) {
+        self.normalize_with(false);    
+    }
+    
+    pub fn normalize_with(&mut self, mean_only: bool) {
         // TODO performance vs accuracy  
-        if self.histogram.len() == 0 {
-            return;
+        if !mean_only {
+            if self.histogram.len() == 0 {
+                return;
+            }
+            let sum = self.histogram.iter().sum::<f32>();
+            for i in 0..self.histogram.len() {
+                self.histogram[i] /= sum;
+            }
+            self.mean /= sum;
+        } else {
+            if self.feasible_probability == 0.0 {
+                return;
+            }
+            self.mean /= self.feasible_probability;
         }
-        let sum = self.histogram.iter().sum::<f32>();
-        for i in 0..self.histogram.len() {
-            self.histogram[i] /= sum;
-        }
-        self.mean /= sum;
     }
     
     pub fn add(&mut self, other: &Distribution, weight: f32) {
+        self.add_with(other, weight, false);    
+    }
+
+    pub fn add_with(&mut self, other: &Distribution, weight: f32, mean_only: bool) {
         if !self.exists() {
             self.start = other.start;
         }
         let self_start = self.start;
         let other_start = other.start;
         let start = cmp::min(self_start, other_start);
-		let end = cmp::max(self_start+self.histogram.len() as i32, other_start+other.histogram.len() as i32);
-		let self_offset = (self_start-start) as usize;
-		let other_offset = (other_start-start) as usize;
-        let new_len = (end-start) as usize;
-		let mut h = vec![0.; new_len];
+        if !mean_only {
+            let end = cmp::max(self_start+self.histogram.len() as i32, other_start+other.histogram.len() as i32);
+            let self_offset = (self_start-start) as usize;
+            let other_offset = (other_start-start) as usize;
+            let new_len = (end-start) as usize;
+            let mut h = vec![0.; new_len];
 
-		for i in 0..new_len {
-			if i >= self_offset && i-self_offset < self.histogram.len() {
-				h[i] += self.histogram[i-self_offset];
-			}
-			if i >= other_offset && i-other_offset < other.histogram.len() {
-				h[i] += other.histogram[i-other_offset]*weight;
-			}
-		}
-        self.histogram = h;
+            for i in 0..new_len {
+                if i >= self_offset && i-self_offset < self.histogram.len() {
+                    h[i] += self.histogram[i-self_offset];
+                }
+                if i >= other_offset && i-other_offset < other.histogram.len() {
+                    h[i] += other.histogram[i-other_offset]*weight;
+                }
+            }
+            self.histogram = h;
+        }
 		self.start = start as types::Mtime;
         self.mean = self.mean + other.mean*weight;
     }

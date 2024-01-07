@@ -9,13 +9,14 @@ use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], now: types::Mtime, epsilon: f32) -> Environment<'b> {
+pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
     let mut e = Environment {
         store: RefCell::new(store),
         connections: connections,
         stations: stations,
         now: now,
         epsilon: epsilon,
+        mean_only: mean_only,
         cut: HashSet::new()
     };
     println!("Starting topocsa...");
@@ -23,8 +24,8 @@ pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'
     e
 }
 
-pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: f32) -> HashSet<(usize, usize)>  {
-    let mut e = prepare(store, connections, stations, now, epsilon);
+pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: f32, mean_only: bool) -> HashSet<(usize, usize)>  {
+    let mut e = prepare(store, connections, stations, now, epsilon, mean_only);
     e.query(origin, destination);
     e.store.borrow_mut().clear_reachability();
     println!("Done.");
@@ -37,6 +38,7 @@ pub struct Environment<'b> {
     stations: &'b [connection::Station],
     now: types::Mtime,
     epsilon: f32,
+    mean_only: bool,
     cut: HashSet<(usize, usize)>,
 }
 
@@ -231,6 +233,7 @@ impl<'a, 'b> Environment<'b> {
     fn new_destination_arrival<'c>(&'c self, station_idx: usize, c_id: usize, from_trip_id: i32, from_route_idx: usize, from_product_type: i16, from_arrival: &connection::StopInfo, transfer_time: i32, station_labels: &HashMap<usize, Vec<usize>>, footpath_distributions: &[distribution::Distribution], new_distribution: &mut distribution::Distribution) {
         let mut remaining_probability = 1.0;
         let mut last_departure: Option<&connection::StopInfo> = None;
+        let mut last_mean = None;
         let mut last_product_type: i16 = 0;
         let departures = station_labels.get(&station_idx).unwrap();
 
@@ -285,9 +288,10 @@ impl<'a, 'b> Environment<'b> {
                 p *= self.store.borrow_mut().before_probability(from_arrival, from_product_type, false, departure.unwrap(), departure_product_type, transfer_time, self.now);
             }
             if p > 0.0 {
-                new_distribution.add(dest_arr_dist.as_ref().unwrap(), p*remaining_probability);
+                new_distribution.add_with(dest_arr_dist.as_ref().unwrap(), p*remaining_probability, self.mean_only);
                 remaining_probability = (1.0-p).clamp(0.0,1.0)*remaining_probability;
                 last_departure = departure;
+                last_mean = Some(new_distribution.mean);
                 last_product_type = departure_product_type;
                 if remaining_probability <= self.epsilon {
                     break;
@@ -296,7 +300,7 @@ impl<'a, 'b> Environment<'b> {
         }
         new_distribution.feasible_probability = (1.0-remaining_probability).clamp(0.0,1.0);
         if new_distribution.feasible_probability < 1.0 {
-            new_distribution.normalize();
+            new_distribution.normalize_with(self.mean_only);
         }
     }
 }
@@ -313,7 +317,7 @@ mod tests {
         let stations = vec![s];
         let mut connections: Vec<connection::Connection> = vec![];
 
-        let cut = prepare_and_query(&mut store, &mut connections, &stations, &stations[0], &stations[0], 0, 0, 0, 0.0);
+        let cut = prepare_and_query(&mut store, &mut connections, &stations, &stations[0], &stations[0], 0, 0, 0, 0.0, false);
         assert_eq!(cut.len(), 0);
     }
 }
