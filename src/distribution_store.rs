@@ -2,13 +2,14 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::fs::File;
 use csv;
+use serde::{Serialize, Deserialize};
 
 use crate::distribution;
 use crate::connection;
 use crate::types;
 
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Debug)]
 struct DelayKey {
     product_type: i16,
     prior_delay: (i16, i16),
@@ -16,7 +17,7 @@ struct DelayKey {
     is_departure: bool
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Debug)]
 struct ReachabilityKey {
     from_product_type: i16,
     to_product_type: i16,
@@ -26,6 +27,8 @@ struct ReachabilityKey {
     diff: i16,
     from_is_departure: bool
 }
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Store {
     delay: HashMap<DelayKey, distribution::Distribution>,
     delay_buckets: HashMap<i16, (i16, i16)>,

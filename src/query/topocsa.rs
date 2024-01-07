@@ -9,16 +9,20 @@ use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
-    let mut e = Environment {
+pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], cut: HashSet<(usize, usize)>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
+    Environment {
         store: RefCell::new(store),
         connections: connections,
         stations: stations,
         now: now,
         epsilon: epsilon,
         mean_only: mean_only,
-        cut: HashSet::new()
-    };
+        cut: cut
+    }
+}
+
+pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
+    let mut e = new(store, connections, stations, HashSet::new(), now, epsilon, mean_only);
     println!("Starting topocsa...");
     e.preprocess();
     e
@@ -32,6 +36,7 @@ pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, conne
     e.cut
 }
 
+#[derive(Debug)]
 pub struct Environment<'b> {
     store: RefCell<&'b mut distribution_store::Store>,
     connections: &'b mut Vec<connection::Connection>,
@@ -39,7 +44,7 @@ pub struct Environment<'b> {
     now: types::Mtime,
     epsilon: f32,
     mean_only: bool,
-    cut: HashSet<(usize, usize)>,
+    pub cut: HashSet<(usize, usize)>,
 }
 
 struct ConnectionLabel {
@@ -233,7 +238,6 @@ impl<'a, 'b> Environment<'b> {
     fn new_destination_arrival<'c>(&'c self, station_idx: usize, c_id: usize, from_trip_id: i32, from_route_idx: usize, from_product_type: i16, from_arrival: &connection::StopInfo, transfer_time: i32, station_labels: &HashMap<usize, Vec<usize>>, footpath_distributions: &[distribution::Distribution], new_distribution: &mut distribution::Distribution) {
         let mut remaining_probability = 1.0;
         let mut last_departure: Option<&connection::StopInfo> = None;
-        let mut last_mean = None;
         let mut last_product_type: i16 = 0;
         let departures = station_labels.get(&station_idx).unwrap();
 
@@ -291,7 +295,6 @@ impl<'a, 'b> Environment<'b> {
                 new_distribution.add_with(dest_arr_dist.as_ref().unwrap(), p*remaining_probability, self.mean_only);
                 remaining_probability = (1.0-p).clamp(0.0,1.0)*remaining_probability;
                 last_departure = departure;
-                last_mean = Some(new_distribution.mean);
                 last_product_type = departure_product_type;
                 if remaining_probability <= self.epsilon {
                     break;

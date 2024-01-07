@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use serde::{Serialize, Deserialize};
 
 use crate::distribution;
 use crate::types;
@@ -24,7 +25,7 @@ impl Route {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Station {
 	pub id: String,
 	pub name: String,
@@ -54,7 +55,7 @@ impl<'a> Station {
 }
 
 
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Connection {
 	pub id: usize,
 	pub route_idx: usize,
@@ -99,7 +100,7 @@ impl<'a> Connection {
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StopInfo {
 	pub scheduled: types::Mtime,
 	pub delay: Option<i16>,
