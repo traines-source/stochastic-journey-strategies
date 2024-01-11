@@ -13,7 +13,7 @@ rouille = "3.6.2"
 indexmap = "2"
 chrono = "0.4.31"
 motis-nigiri = { path = "motis-nigiri-rust", version = "0.1.0" }
-serde = "1.0.195"
+serde = { version = "1.0.195", features = ["derive"] }
 rmp-serde = "1.1.2"
 
 

@@ -3,13 +3,16 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use indexmap::IndexMap;
+use motis_nigiri::EventChange;
+use serde::Deserialize;
+use serde::Serialize;
 
 use crate::distribution;
 use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], cut: HashSet<(usize, usize)>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
+pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], cut: HashSet<(usize, usize)>, labels: HashMap<usize, ConnectionLabel>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
     Environment {
         store: RefCell::new(store),
         connections: connections,
@@ -17,12 +20,13 @@ pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mu
         now: now,
         epsilon: epsilon,
         mean_only: mean_only,
-        cut: cut
+        cut: cut,
+        labels: labels
     }
 }
 
 pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
-    let mut e = new(store, connections, stations, HashSet::new(), now, epsilon, mean_only);
+    let mut e = new(store, connections, stations, HashSet::new(), HashMap::with_capacity(connections.len()), now, epsilon, mean_only);
     println!("Starting topocsa...");
     e.preprocess();
     e
@@ -45,24 +49,26 @@ pub struct Environment<'b> {
     epsilon: f32,
     mean_only: bool,
     pub cut: HashSet<(usize, usize)>,
+    pub labels: HashMap<usize, ConnectionLabel>
 }
 
-struct ConnectionLabel {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConnectionLabel {
     visited: i16,
-    order: i32
+    pub order: usize
 }
 
 impl<'a, 'b> Environment<'b> {
 
-    fn dfs(&mut self, anchor_id: usize, labels: &mut HashMap<usize, ConnectionLabel>, topo_idx: &mut i32, max_stack: &mut usize, max_trace: &mut usize) {
+    fn dfs(&mut self, anchor_id: usize, topo_idx: &mut usize, max_stack: &mut usize, max_trace: &mut usize) {
         let mut stack: Vec<usize> = Vec::with_capacity(self.connections.len());
         let mut trace: IndexMap<usize, usize> = IndexMap::with_capacity(self.connections.len());
         stack.push(anchor_id);
-        labels.insert(anchor_id, ConnectionLabel{visited: 0, order: 0});
+        self.labels.insert(anchor_id, ConnectionLabel{visited: 0, order: 0});
         while !stack.is_empty() {
             let c_id = *stack.last().unwrap();
             let c = self.connections.get(c_id).unwrap();
-            let c_label = labels.get_mut(&c_id).unwrap();
+            let c_label = self.labels.get_mut(&c_id).unwrap();
             if c_label.visited == 0 {
                 c_label.visited = 1;
                 trace.insert(c_id, stack.len()-1);
@@ -89,7 +95,7 @@ impl<'a, 'b> Environment<'b> {
                 for dep_id in &*deps {
                     let dep = self.connections.get(*dep_id).unwrap();
                     let is_continuing = if i == footpaths.len() { c.trip_id == dep.trip_id && c.route_idx == dep.route_idx && c.arrival.scheduled <= dep.departure.scheduled } else { false };
-                    let dep_label = labels.get(dep_id);
+                    let dep_label = self.labels.get(dep_id);
                     if self.cut.contains(&(c_id, *dep_id)) {
                         continue;
                     }
@@ -129,7 +135,7 @@ impl<'a, 'b> Environment<'b> {
                                 self.cut.insert((*cut_after.0, *cut_before.0));
                                 stack.truncate(*cut_before.1);
                                 for _ in min_i..trace.len() {
-                                    let l = labels.get_mut(&trace.pop().unwrap().0).unwrap();
+                                    let l = self.labels.get_mut(&trace.pop().unwrap().0).unwrap();
                                     assert_eq!(l.visited, 1);
                                     l.visited = 0;
                                 }
@@ -142,7 +148,7 @@ impl<'a, 'b> Environment<'b> {
                         }
                     }
                     stack.push(*dep_id);
-                    labels.insert(*dep_id, ConnectionLabel { visited: 0, order: 0 });
+                    self.labels.insert(*dep_id, ConnectionLabel { visited: 0, order: 0 });
                 }
                 i += 1;
             }
@@ -158,23 +164,33 @@ impl<'a, 'b> Environment<'b> {
     
     pub fn preprocess(&mut self) {
         println!("Start preprocessing...");
-        let mut labels: HashMap<usize, ConnectionLabel> = HashMap::with_capacity(self.connections.len());
         let mut topo_idx = 0;
         
         let mut max_stack = 0;
         let mut max_trace = 0;
         for i in 0..self.connections.len() {
-            if !labels.contains_key(&i) || labels.get(&i).unwrap().visited != 2 {
-                self.dfs(i, &mut labels, &mut topo_idx, &mut max_stack, &mut max_trace);
-                println!("connections {} cycles found {} labels {} done {}", self.connections.len(), self.cut.len(), labels.len(), i);
+            if !self.labels.contains_key(&i) || self.labels.get(&i).unwrap().visited != 2 {
+                self.dfs(i, &mut topo_idx, &mut max_stack, &mut max_trace);
+                println!("connections {} cycles found {} labels {} done {}", self.connections.len(), self.cut.len(), self.labels.len(), i);
             }
         }
         println!("Done DFSing.");
         self.connections.sort_by(|a, b|
-            labels.get(&a.id).unwrap().order.partial_cmp(&labels.get(&b.id).unwrap().order).unwrap()
+            self.labels.get(&a.id).unwrap().order.partial_cmp(&self.labels.get(&b.id).unwrap().order).unwrap()
         );
         println!("Done preprocessing.");
         println!("cut: {}", self.cut.len());
+    }
+
+    pub fn update(&mut self, connection_id: usize, is_departure: bool, delay: i16, cancelled: bool) {
+        let c = &mut self.connections[self.labels[&connection_id].order];
+        if cancelled {
+            c.cancelled = true;            
+        } else if is_departure {
+            c.departure.delay = Some(delay);
+        } else {
+            c.arrival.delay = Some(delay);
+        }
     }
 
     pub fn query(&mut self, _origin: &'a connection::Station, destination: &'a connection::Station) -> HashMap<usize, Vec<usize>> {
@@ -194,6 +210,7 @@ impl<'a, 'b> Environment<'b> {
             }
             let mut new_distribution = distribution::Distribution::empty(c.arrival.scheduled);
             if self.stations[c.to_idx].id == destination.id {
+                // TODO cancelled prob twice??
                 new_distribution = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now);
             } else {
                 let mut footpath_distributions = vec![];

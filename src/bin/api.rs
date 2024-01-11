@@ -14,10 +14,10 @@ fn main() {
     store.load_distributions("./data/de_db.csv");
     let store_mutex = Mutex::new(store);
 
-    let mut ch_stations: Vec<connection::Station> = vec![];
-    let mut ch_routes = vec![];
-    let mut ch_connections = vec![];    
-    gtfs::load("", chrono::NaiveDate::from_ymd_opt(2018, 12, 9).unwrap(), chrono::NaiveDate::from_ymd_opt(2019, 12, 9).unwrap(), &mut ch_stations, &mut ch_routes, &mut ch_connections);
+    //let mut ch_stations: Vec<connection::Station> = vec![];
+    //let mut ch_routes = vec![];
+    //let mut ch_connections = vec![];    
+    //gtfs::retrieve("", chrono::NaiveDate::from_ymd_opt(2018, 12, 9).unwrap(), chrono::NaiveDate::from_ymd_opt(2019, 12, 9).unwrap(), &mut ch_stations, &mut ch_routes, &mut ch_connections);
 
     println!("starting...");
     rouille::start_server("0.0.0.0:1234", move |request| {
