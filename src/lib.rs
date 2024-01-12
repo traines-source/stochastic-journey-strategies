@@ -8,3 +8,4 @@ pub mod gtfs;
 
 #[macro_use]
 extern crate assert_float_eq;
+extern crate rmp_serde as rmps;

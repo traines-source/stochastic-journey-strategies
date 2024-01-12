@@ -15,11 +15,13 @@ chrono = "0.4.31"
 motis-nigiri = { path = "motis-nigiri-rust", version = "0.1.0" }
 serde = { version = "1.0.195", features = ["derive"] }
 rmp-serde = "1.1.2"
+serde_json = "1.0.111"
+glob = "0.3.1"
 
 
 [dev-dependencies]
 criterion = { version = "0.5", features = [] }
 
 [[bench]]
-name = "basic"
+name = "simulation"
 harness = false

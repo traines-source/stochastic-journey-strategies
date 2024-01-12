@@ -6,6 +6,24 @@ use motis_nigiri::Timetable;
 
 use crate::connection;
 
+use std::collections::HashSet;
+use serde::{Serialize, Deserialize};
+use rmps::Serializer;
+use std::io::Write;
+use std::fs;
+
+use crate::distribution_store;
+use crate::query::topocsa;
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GtfsTimetable {
+    pub stations: Vec<connection::Station>,
+    pub connections: Vec<connection::Connection>,
+    pub cut: HashSet<(usize, usize)>,
+    pub labels: HashMap<usize, topocsa::ConnectionLabel>,
+    pub transport_and_day_to_connection_id: HashMap<(usize, u16), usize>
+}
+
 pub fn load_timetable<'a, 'b>(gtfs_path: &str, start_date: chrono::NaiveDate, end_date: chrono::NaiveDate) -> Timetable {
     Timetable::load(gtfs_path, start_date, end_date)
 }
@@ -43,6 +61,11 @@ pub fn retrieve<'a, 'b>(t: &Timetable, stations: &'a mut Vec<connection::Station
     gtfs_connections.into()
 }
 
-pub fn load_realtime<F: FnMut(usize, bool, i16, bool)>(gtfsrt_path: &str, t: &Timetable, transport_and_day_to_connection_id: HashMap<(usize, u16), usize>, mut callback: F) {
-    t.update_with_rt(gtfsrt_path, |e| callback(transport_and_day_to_connection_id[&(e.transport_idx, e.day_idx)]+e.stop_idx, e.is_departure, e.delay, e.cancelled));
+pub fn load_realtime<F: FnMut(usize, bool, i16, bool)>(gtfsrt_path: &str, t: &Timetable, transport_and_day_to_connection_id: &HashMap<(usize, u16), usize>, mut callback: F) {
+    t.update_with_rt(gtfsrt_path, |e| callback(transport_and_day_to_connection_id[&(e.transport_idx, e.day_idx)]+e.stop_idx as usize, e.is_departure, e.delay, e.cancelled));
+}
+
+pub fn load_gtfs_cache(cache_path: &str) -> GtfsTimetable {
+    let buf = std::fs::read(cache_path).unwrap();
+    rmp_serde::from_slice(&buf).unwrap()
 }
