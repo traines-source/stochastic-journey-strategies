@@ -23,5 +23,5 @@ glob = "0.3.1"
 criterion = { version = "0.5", features = [] }
 
 [[bench]]
-name = "simulation"
+name = "bench_main"
 harness = false

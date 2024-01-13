@@ -1,22 +1,13 @@
-#[macro_use]
-extern crate rmp_serde as rmps;
-
+use criterion::{black_box, criterion_group, Criterion};
+use glob::glob;
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::fs;
 use std::time::SystemTime;
-
-use stost::connection;
 use stost::distribution_store;
 use stost::gtfs;
 use stost::query::topocsa;
-use stost::wire::serde;
-
-use rmps::Serializer;
-use std::fs;
-
-use glob::glob;
-
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct SimulationConfig {
@@ -201,11 +192,7 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
     Ok(5)
 }
 
-fn dummy(i: i32) -> i32 {
-    //println!("dummy");
-    i * 2
-}
-
+#[ignore]
 pub fn simulation(c: &mut Criterion) {
     let r = setup().unwrap();
     /*let mut group = c.benchmark_group("once");
@@ -215,4 +202,3 @@ pub fn simulation(c: &mut Criterion) {
 }
 
 criterion_group!(benches, simulation);
-criterion_main!(benches);

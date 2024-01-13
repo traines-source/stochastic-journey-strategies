@@ -3,12 +3,13 @@ use std::time::Duration;
 
 use stost::connection;
 use stost::distribution_store;
+use stost::gtfs;
 use stost::wire::serde;
 use stost::query::topocsa;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-fn criterion_benchmark(c: &mut Criterion) {
+fn from_relevant(c: &mut Criterion) {
     let mut store = distribution_store::Store::new();
     store.load_distributions("./data/de_db.csv");
 
@@ -25,5 +26,20 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, criterion_benchmark);
-criterion_main!(benches);
+fn from_gtfs(c: &mut Criterion) {
+    let mut store = distribution_store::Store::new();
+    store.load_distributions("./data/ch_sbb.csv");
+
+    let mut tt = gtfs::load_gtfs_cache("./tests/fixtures/timetable.ign.cache");
+    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, tt.labels, 0, 0.01, true);
+    let o = 10000;
+    let d = 20000;
+    println!("querying...");
+    let mut group = c.benchmark_group("once");
+    group.sample_size(10);
+    group.bench_function("basic", |b| b.iter(|| env.query(black_box(&tt.stations[o]), black_box(&tt.stations[d]))));
+    group.finish();
+}
+
+criterion_group!(benches, from_relevant, from_gtfs);
+
