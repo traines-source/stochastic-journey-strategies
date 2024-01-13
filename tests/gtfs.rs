@@ -38,7 +38,7 @@ fn create_gtfs_cache() {
     tt.transport_and_day_to_connection_id = gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);
     let env = topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, 0, 0.01, true);
     tt.cut = env.cut;
-    tt.labels = env.labels;
+    tt.labels = env.order;
     let mut buf = vec![];
     tt.serialize(&mut Serializer::new(&mut buf)).unwrap();
     let mut file = fs::OpenOptions::new()
@@ -63,9 +63,9 @@ fn gtfs() {
     println!("querying...");
     let station_labels = env.query(&tt.stations[o], &tt.stations[d]);
     let origin_deps = &station_labels[&o];
-    let best_conn = &tt.connections[*origin_deps.last().unwrap()];
-    let second_best_conn = &tt.connections[origin_deps[origin_deps.len()/3]];
-    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, best_conn.departure, best_conn.destination_arrival, second_best_conn.departure, second_best_conn.destination_arrival);
+    let best_conn = origin_deps.last().unwrap();
+    let second_best_conn = &origin_deps[origin_deps.len()/3];
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
 }
 
 #[test]
@@ -87,9 +87,9 @@ fn gtfs_with_rt() {
     println!("querying...");
     let station_labels = env.query(&tt.stations[o], &tt.stations[d]);
     let origin_deps = &station_labels[&o];
-    let best_conn = &tt.connections[*origin_deps.last().unwrap()];
-    let second_best_conn = &tt.connections[origin_deps[origin_deps.len()/3]];
-    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, best_conn.departure, best_conn.destination_arrival, second_best_conn.departure, second_best_conn.destination_arrival);
+    let best_conn = origin_deps.last().unwrap();
+    let second_best_conn = &origin_deps[origin_deps.len()/3];
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
 }
 //7932, delay: None, scheduled_track: "", projected_track: "" }RefCell { value: Some(Distribution { histogram: [], start: 7844, mean: 8114.22
 
@@ -116,9 +116,9 @@ fn gtfs_small() {
 
     let station_labels = env.query(&stations[o], &stations[d]);
     let origin_deps = &station_labels[&o];
-    let best_conn = &connections[*origin_deps.last().unwrap()];
-    let second_best_conn = &connections[origin_deps[origin_deps.len()-2]];
-    println!("{:?} {:?} {:?} {:?} {:?}{:?}", stations[o].name, stations[d].name, best_conn.departure, best_conn.destination_arrival, second_best_conn.departure, second_best_conn.destination_arrival);
+    let best_conn = origin_deps.last().unwrap();
+    let second_best_conn = &origin_deps[origin_deps.len()/3];
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", stations[o].name, stations[d].name, &connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
     
 }
 

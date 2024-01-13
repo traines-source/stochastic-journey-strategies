@@ -12,7 +12,7 @@ use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], cut: HashSet<(usize, usize)>, labels: HashMap<usize, ConnectionLabel>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
+pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], cut: HashSet<(usize, usize)>, labels: HashMap<usize, ConnectionOrder>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
     Environment {
         store: RefCell::new(store),
         connections: connections,
@@ -21,7 +21,7 @@ pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mu
         epsilon: epsilon,
         mean_only: mean_only,
         cut: cut,
-        labels: labels
+        order: labels
     }
 }
 
@@ -49,13 +49,18 @@ pub struct Environment<'b> {
     epsilon: f32,
     mean_only: bool,
     pub cut: HashSet<(usize, usize)>,
-    pub labels: HashMap<usize, ConnectionLabel>
+    pub order: HashMap<usize, ConnectionOrder>
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ConnectionLabel {
+pub struct ConnectionOrder {
     visited: i16,
     pub order: usize
+}
+
+pub struct ConnectionLabel {
+    pub connection_idx: usize,
+    pub destination_arrival: distribution::Distribution
 }
 
 impl<'a, 'b> Environment<'b> {
@@ -64,11 +69,11 @@ impl<'a, 'b> Environment<'b> {
         let mut stack: Vec<usize> = Vec::with_capacity(self.connections.len());
         let mut trace: IndexMap<usize, usize> = IndexMap::with_capacity(self.connections.len());
         stack.push(anchor_id);
-        self.labels.insert(anchor_id, ConnectionLabel{visited: 0, order: 0});
+        self.order.insert(anchor_id, ConnectionOrder{visited: 0, order: 0});
         while !stack.is_empty() {
             let c_id = *stack.last().unwrap();
             let c = self.connections.get(c_id).unwrap();
-            let c_label = self.labels.get_mut(&c_id).unwrap();
+            let c_label = self.order.get_mut(&c_id).unwrap();
             if c_label.visited == 0 {
                 c_label.visited = 1;
                 trace.insert(c_id, stack.len()-1);
@@ -95,7 +100,7 @@ impl<'a, 'b> Environment<'b> {
                 for dep_id in &*deps {
                     let dep = self.connections.get(*dep_id).unwrap();
                     let is_continuing = if i == footpaths.len() { c.trip_id == dep.trip_id && c.route_idx == dep.route_idx && c.arrival.scheduled <= dep.departure.scheduled } else { false };
-                    let dep_label = self.labels.get(dep_id);
+                    let dep_label = self.order.get(dep_id);
                     if self.cut.contains(&(c_id, *dep_id)) {
                         continue;
                     }
@@ -135,7 +140,7 @@ impl<'a, 'b> Environment<'b> {
                                 self.cut.insert((*cut_after.0, *cut_before.0));
                                 stack.truncate(*cut_before.1);
                                 for _ in min_i..trace.len() {
-                                    let l = self.labels.get_mut(&trace.pop().unwrap().0).unwrap();
+                                    let l = self.order.get_mut(&trace.pop().unwrap().0).unwrap();
                                     assert_eq!(l.visited, 1);
                                     l.visited = 0;
                                 }
@@ -148,7 +153,7 @@ impl<'a, 'b> Environment<'b> {
                         }
                     }
                     stack.push(*dep_id);
-                    self.labels.insert(*dep_id, ConnectionLabel { visited: 0, order: 0 });
+                    self.order.insert(*dep_id, ConnectionOrder { visited: 0, order: 0 });
                 }
                 i += 1;
             }
@@ -169,21 +174,21 @@ impl<'a, 'b> Environment<'b> {
         let mut max_stack = 0;
         let mut max_trace = 0;
         for i in 0..self.connections.len() {
-            if !self.labels.contains_key(&i) || self.labels.get(&i).unwrap().visited != 2 {
+            if !self.order.contains_key(&i) || self.order.get(&i).unwrap().visited != 2 {
                 self.dfs(i, &mut topo_idx, &mut max_stack, &mut max_trace);
-                println!("connections {} cycles found {} labels {} done {}", self.connections.len(), self.cut.len(), self.labels.len(), i);
+                println!("connections {} cycles found {} labels {} done {}", self.connections.len(), self.cut.len(), self.order.len(), i);
             }
         }
         println!("Done DFSing.");
         self.connections.sort_by(|a, b|
-            self.labels.get(&a.id).unwrap().order.partial_cmp(&self.labels.get(&b.id).unwrap().order).unwrap()
+            self.order.get(&a.id).unwrap().order.partial_cmp(&self.order.get(&b.id).unwrap().order).unwrap()
         );
         println!("Done preprocessing.");
         println!("cut: {}", self.cut.len());
     }
 
     pub fn update(&mut self, connection_id: usize, is_departure: bool, delay: i16, cancelled: bool) {
-        let c = &mut self.connections[self.labels[&connection_id].order];
+        let c = &mut self.connections[self.order[&connection_id].order];
         if cancelled {
             c.cancelled = true;            
         } else if is_departure {
@@ -193,21 +198,21 @@ impl<'a, 'b> Environment<'b> {
         }
     }
 
-    pub fn query(&mut self, _origin: &'a connection::Station, destination: &'a connection::Station) -> HashMap<usize, Vec<usize>> {
-        let mut station_labels: HashMap<usize, Vec<usize>> = HashMap::new();
+    pub fn query(&mut self, _origin: &'a connection::Station, destination: &'a connection::Station) -> HashMap<usize, Vec<ConnectionLabel>> {
+        let mut station_labels: HashMap<usize, Vec<ConnectionLabel>> = HashMap::new();
         let empty_vec = vec![];
         for i in 0..self.connections.len() {
             let c = self.connections.get(i).unwrap();
-            if c.cancelled {
-                c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled)));
-                continue;
-            }
             if !station_labels.contains_key(&c.to_idx) {
                 station_labels.insert(c.to_idx, vec![]);
             }
             if !station_labels.contains_key(&c.from_idx) {
                 station_labels.insert(c.from_idx, vec![]);
             }
+            if c.cancelled {
+                c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
+                continue;
+            }            
             let mut new_distribution = distribution::Distribution::empty(c.arrival.scheduled);
             if self.stations[c.to_idx].id == destination.id {
                 // TODO cancelled prob twice??
@@ -231,28 +236,24 @@ impl<'a, 'b> Environment<'b> {
             }
             let station_label = station_labels.get_mut(&c.from_idx);
             let departures = station_label.unwrap();
+            c.destination_arrival.replace(Some(new_distribution.clone())); // TODO remove
             if new_distribution.feasible_probability > 0.0 {
-                let mut found = false;
                 // TODO pareto? - sort incoming departures and connections by dep?
-                for j in (0..departures.len()).rev() {
-                    let dom = self.connections.get(departures[j]).unwrap().destination_arrival.borrow();
-                    let dom_dest_dist = dom.as_ref().unwrap();
+                let mut j = departures.len() as i32-1;
+                while j >= 0 {
+                    let dom_dest_dist = &departures[j as usize].destination_arrival;
                     if new_distribution.mean < dom_dest_dist.mean {
-                        departures.insert(j+1, i);
-                        found = true;
                         break;
-                    } 
+                    }
+                    j -= 1;
                 }
-                if !found {
-                    departures.insert(0, i);
-                }
+                departures.insert(j as usize+1, ConnectionLabel{connection_idx: i, destination_arrival: new_distribution});
             }
-            c.destination_arrival.replace(Some(new_distribution));
         }
         station_labels
     }
 
-    fn new_destination_arrival<'c>(&'c self, station_idx: usize, c_id: usize, from_trip_id: i32, from_route_idx: usize, from_product_type: i16, from_arrival: &connection::StopInfo, transfer_time: i32, station_labels: &HashMap<usize, Vec<usize>>, footpath_distributions: &[distribution::Distribution], new_distribution: &mut distribution::Distribution) {
+    fn new_destination_arrival<'c>(&'c self, station_idx: usize, c_id: usize, from_trip_id: i32, from_route_idx: usize, from_product_type: i16, from_arrival: &connection::StopInfo, transfer_time: i32, station_labels: &HashMap<usize, Vec<ConnectionLabel>>, footpath_distributions: &[distribution::Distribution], new_distribution: &mut distribution::Distribution) {
         let mut remaining_probability = 1.0;
         let mut last_departure: Option<&connection::StopInfo> = None;
         let mut last_product_type: i16 = 0;
@@ -275,13 +276,13 @@ impl<'a, 'b> Environment<'b> {
             let mut dest = None; // TODO ugly
             if departures_i < departures.len() {
                 let dep_i = departures.len()-1-departures_i;
-                let dep = self.connections.get(departures[dep_i]).unwrap();
+                let dep = self.connections.get(departures[dep_i].connection_idx).unwrap();
                 if self.cut.contains(&(c_id, dep.id)) {
                     departures_i += 1;
                     continue;
                 }
-                dest = Some(dep.destination_arrival.borrow());
-                let candidate = dest.as_ref().unwrap().as_ref().unwrap();
+                dest = Some(&departures[dep_i].destination_arrival);
+                let candidate = dest.unwrap();
                 if dest_arr_dist.is_some_and(|d| candidate.mean > d.mean) {
                     footpaths_i += 1;
                 } else {

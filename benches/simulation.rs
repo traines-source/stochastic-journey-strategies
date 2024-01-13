@@ -47,7 +47,7 @@ fn resolve_connection_idx(
     leg_idx: usize,
     to: bool,
     mapping: &HashMap<(usize, u16), usize>,
-    labels: &HashMap<usize, topocsa::ConnectionLabel>,
+    order: &HashMap<usize, topocsa::ConnectionOrder>,
 ) -> usize {
     let leg = &pareto_set.journeys[journex_idx].legs[leg_idx];
     let connid = mapping[&(leg.transport_idx, leg.day_idx)]
@@ -56,7 +56,7 @@ fn resolve_connection_idx(
         } else {
             leg.from_stop_idx
         } as usize;
-    labels[&connid].order
+    order[&connid].order
 }
 
 fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
@@ -93,7 +93,6 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
             .as_secs()
             - start_ts)
             / 60) as i32;
-        println!("{}", minutes);
         if minutes < start_time {
             continue;
         }
@@ -105,7 +104,7 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
                 env.update(connection_id, is_departure, delay, cancelled)
             },
         );
-        for pair in stop_pairs {
+        for pair in &stop_pairs {
             if is_first {
                 let station_labels = env.query(&tt.stations[pair.0], &tt.stations[pair.1]);
                 let deterministic = t.get_journeys(pair.0, pair.1, minutes, false);
@@ -116,7 +115,7 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
                     deterministic.journeys[0].legs.len() - 2,
                     true,
                     &tt.transport_and_day_to_connection_id,
-                    &env.labels,
+                    &env.order,
                 );
                 let connidx_dest1 = resolve_connection_idx(
                     &deterministic,
@@ -124,7 +123,7 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
                     deterministic.journeys[1].legs.len() - 2,
                     true,
                     &tt.transport_and_day_to_connection_id,
-                    &env.labels,
+                    &env.order,
                 );
                 let connidx_dest2 = resolve_connection_idx(
                     &deterministic,
@@ -132,7 +131,7 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
                     deterministic.journeys[2].legs.len() - 2,
                     true,
                     &tt.transport_and_day_to_connection_id,
-                    &env.labels,
+                    &env.order,
                 );
                 let connidx_dep0 = resolve_connection_idx(
                     &deterministic,
@@ -140,7 +139,7 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
                     0,
                     false,
                     &tt.transport_and_day_to_connection_id,
-                    &env.labels,
+                    &env.order,
                 );
                 let connidx_dep1 = resolve_connection_idx(
                     &deterministic,
@@ -148,7 +147,7 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
                     0,
                     false,
                     &tt.transport_and_day_to_connection_id,
-                    &env.labels,
+                    &env.order,
                 );
                 let connidx_dep2 = resolve_connection_idx(
                     &deterministic,
@@ -156,7 +155,7 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
                     0,
                     false,
                     &tt.transport_and_day_to_connection_id,
-                    &env.labels,
+                    &env.order,
                 );
 
                 println!(
@@ -179,11 +178,11 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
                 let origin_deps = &station_labels[&pair.0];
                 let mut i = 0;
                 for dep in origin_deps.iter().rev() {
-                    let c = &tt.connections[*dep];
+                    let c = &tt.connections[dep.connection_idx];
                     let cc = &tt.connections[connidx_dep1];
                     i += 1;
                     if c.departure.projected() >= minutes {
-                        panic!(
+                        println!(
                             "dest prediction: raptor: {} {} topocsa: {} {} i: {}",
                             cc.departure.projected(),
                             deterministic.journeys[0].dest_time,
@@ -191,7 +190,6 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
                             c.destination_arrival.borrow().as_ref().unwrap().mean,
                             i
                         );
-                        break;
                     }
                 }
             }

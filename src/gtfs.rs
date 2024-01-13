@@ -20,7 +20,7 @@ pub struct GtfsTimetable {
     pub stations: Vec<connection::Station>,
     pub connections: Vec<connection::Connection>,
     pub cut: HashSet<(usize, usize)>,
-    pub labels: HashMap<usize, topocsa::ConnectionLabel>,
+    pub labels: HashMap<usize, topocsa::ConnectionOrder>, // TODO rename
     pub transport_and_day_to_connection_id: HashMap<(usize, u16), usize>
 }
 
