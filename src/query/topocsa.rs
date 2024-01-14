@@ -12,7 +12,7 @@ use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], cut: HashSet<(usize, usize)>, labels: HashMap<usize, ConnectionOrder>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
+pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], cut: HashSet<(usize, usize)>, order: &'b mut HashMap<usize, ConnectionOrder>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
     Environment {
         store: RefCell::new(store),
         connections: connections,
@@ -21,19 +21,20 @@ pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mu
         epsilon: epsilon,
         mean_only: mean_only,
         cut: cut,
-        order: labels
+        order: order
     }
 }
 
-pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
-    let mut e = new(store, connections, stations, HashSet::new(), HashMap::with_capacity(connections.len()), now, epsilon, mean_only);
+pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], order: &'b mut HashMap<usize, ConnectionOrder>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
+    let mut e = new(store, connections, stations, HashSet::new(), order, now, epsilon, mean_only);
     println!("Starting topocsa...");
     e.preprocess();
     e
 }
 
 pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], origin: &'a connection::Station, destination: &'a connection::Station, _start_time: types::Mtime, _max_time: types::Mtime, now: types::Mtime, epsilon: f32, mean_only: bool) -> HashSet<(usize, usize)>  {
-    let mut e = prepare(store, connections, stations, now, epsilon, mean_only);
+    let mut order = HashMap::with_capacity(connections.len());
+    let mut e = prepare(store, connections, stations, &mut order, now, epsilon, mean_only);
     e.query(origin, destination);
     e.store.borrow_mut().clear_reachability();
     println!("Done.");
@@ -49,7 +50,7 @@ pub struct Environment<'b> {
     epsilon: f32,
     mean_only: bool,
     pub cut: HashSet<(usize, usize)>,
-    pub order: HashMap<usize, ConnectionOrder>
+    order: &'b mut HashMap<usize, ConnectionOrder>
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -188,13 +189,18 @@ impl<'a, 'b> Environment<'b> {
     }
 
     pub fn update(&mut self, connection_id: usize, is_departure: bool, delay: i16, cancelled: bool) {
-        let c = &mut self.connections[self.order[&connection_id].order];
-        if cancelled {
-            c.cancelled = true;            
-        } else if is_departure {
-            c.departure.delay = Some(delay);
-        } else {
-            c.arrival.delay = Some(delay);
+        match self.order.get(&connection_id) {
+            Some(order) => {
+                let c = &mut self.connections[order.order];
+                if cancelled {
+                    c.cancelled = true;            
+                } else if is_departure {
+                    c.departure.delay = Some(delay);
+                } else {
+                    c.arrival.delay = Some(delay);
+                }
+            },
+            None => println!("Failed to find matching connection for update.")
         }
     }
 
@@ -247,7 +253,7 @@ impl<'a, 'b> Environment<'b> {
                     }
                     j -= 1;
                 }
-                departures.insert(j as usize+1, ConnectionLabel{connection_idx: i, destination_arrival: new_distribution});
+                departures.insert((j+1) as usize, ConnectionLabel{connection_idx: i, destination_arrival: new_distribution});
             }
         }
         station_labels

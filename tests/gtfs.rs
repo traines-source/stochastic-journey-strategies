@@ -36,9 +36,8 @@ fn create_gtfs_cache() {
     let mut routes = vec![];
     let t = gtfs::load_timetable(GTFS_PATH, day(2023, 11, 1), day(2023, 11, 2));
     tt.transport_and_day_to_connection_id = gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);
-    let env = topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, 0, 0.01, true);
+    let env = topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, &mut tt.labels, 0, 0.01, true);
     tt.cut = env.cut;
-    tt.labels = env.order;
     let mut buf = vec![];
     tt.serialize(&mut Serializer::new(&mut buf)).unwrap();
     let mut file = fs::OpenOptions::new()
@@ -57,7 +56,7 @@ fn gtfs() {
     store.load_distributions("./data/ch_sbb.csv");
 
     let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
-    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, tt.labels, 0, 0.01, true);
+    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.labels, 0, 0.01, true);
     let o = 10000;
     let d = 20000;
     println!("querying...");
@@ -76,7 +75,7 @@ fn gtfs_with_rt() {
 
     let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
     let t = gtfs::load_timetable(GTFS_PATH, day(2023, 11, 1), day(2023, 11, 2));
-    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, tt.labels, 0, 0.01, true);
+    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.labels, 0, 0.01, true);
     let path = format!("{}2023-11-01T16:00:02+01:00.gtfsrt", GTFSRT_PATH);
     gtfs::load_realtime(&path, &t, &tt.transport_and_day_to_connection_id,
         |connection_id: usize, is_departure: bool, delay: i16, cancelled: bool| env.update(connection_id, is_departure, delay, cancelled)
@@ -101,10 +100,11 @@ fn gtfs_small() {
     let mut stations = vec![];
     let mut routes = vec![];
     let mut connections = vec![];
+    let mut order = HashMap::new();
     let t = gtfs::load_timetable("./tests/fixtures/gtfs_minimal_swiss/", day(2024, 1, 1), day(2024, 1, 10));
     let map = gtfs::retrieve(&t, &mut stations, &mut routes, &mut connections);
 
-    let mut env = topocsa::prepare(&mut store, &mut connections, &stations, 0, 0.01, false);
+    let mut env = topocsa::prepare(&mut store, &mut connections, &stations, &mut order, 0, 0.01, false);
     gtfs::load_realtime("./tests/fixtures/2024-01-02T01_48_02+01_00.gtfsrt", &t, &map, 
         |connection_id: usize, is_departure: bool, delay: i16, cancelled: bool| env.update(connection_id, is_departure, delay, cancelled)
     );

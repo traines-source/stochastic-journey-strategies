@@ -59,18 +59,9 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
     let mut tt = gtfs::load_gtfs_cache(&conf.gtfs_cache_path);
     let t = gtfs::load_timetable(&conf.gtfs_path, day(2023, 11, 1), day(2023, 11, 2));
     let start_ts = t.get_start_day_ts() as u64;
-    let mut env = topocsa::new(
-        &mut store,
-        &mut tt.connections,
-        &tt.stations,
-        tt.cut,
-        tt.labels,
-        0,
-        0.01,
-        true,
-    );
+    
 
-    let start_time = 8100;
+    let start_time = 8140;
     let stop_pairs: Vec<(usize, usize)> = vec![(10000, 20000)];
     //let mut det_results = vec![];
     //let mut stoch_results = vec![];
@@ -87,6 +78,16 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
         if minutes < start_time {
             continue;
         }
+        let mut env = topocsa::new(
+            &mut store,
+            &mut tt.connections,
+            &tt.stations,
+            tt.cut.clone(),
+            &mut tt.labels,
+            0,
+            0.01,
+            true,
+        );
         gtfs::load_realtime(
             &path,
             &t,
@@ -100,86 +101,69 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
                 let station_labels = env.query(&tt.stations[pair.0], &tt.stations[pair.1]);
                 let deterministic = t.get_journeys(pair.0, pair.1, minutes, false);
 
-                let connidx_dest0 = resolve_connection_idx(
-                    &deterministic,
-                    0,
-                    deterministic.journeys[0].legs.len() - 2,
-                    true,
-                    &tt.transport_and_day_to_connection_id,
-                    &env.order,
-                );
-                let connidx_dest1 = resolve_connection_idx(
-                    &deterministic,
-                    1,
-                    deterministic.journeys[1].legs.len() - 2,
-                    true,
-                    &tt.transport_and_day_to_connection_id,
-                    &env.order,
-                );
-                let connidx_dest2 = resolve_connection_idx(
-                    &deterministic,
-                    2,
-                    deterministic.journeys[2].legs.len() - 2,
-                    true,
-                    &tt.transport_and_day_to_connection_id,
-                    &env.order,
-                );
-                let connidx_dep0 = resolve_connection_idx(
-                    &deterministic,
-                    0,
-                    0,
-                    false,
-                    &tt.transport_and_day_to_connection_id,
-                    &env.order,
-                );
-                let connidx_dep1 = resolve_connection_idx(
-                    &deterministic,
-                    1,
-                    0,
-                    false,
-                    &tt.transport_and_day_to_connection_id,
-                    &env.order,
-                );
-                let connidx_dep2 = resolve_connection_idx(
-                    &deterministic,
-                    2,
-                    0,
-                    false,
-                    &tt.transport_and_day_to_connection_id,
-                    &env.order,
-                );
-
-                println!(
-                    "debgu start:{} dd: {} {} dd: {} {} dd: {} {}",
-                    deterministic.journeys[0].start_time,
-                    tt.connections[connidx_dep0].departure.projected(),
-                    tt.connections[connidx_dest0].arrival.projected(),
-                    tt.connections[connidx_dep1].departure.projected(),
-                    tt.connections[connidx_dest1].arrival.projected(),
-                    tt.connections[connidx_dep2].departure.projected(),
-                    tt.connections[connidx_dest2].arrival.projected(),
-                );
-
-                assert_eq!(
-                    tt.connections[connidx_dest0].arrival.scheduled,
-                    deterministic.journeys[0].dest_time
-                );
-                assert_eq!(tt.connections[connidx_dest0].to_idx, pair.1);
-
+                let mut i = 0;
+                for j in &deterministic.journeys {
+                    let connidx_dep0 = resolve_connection_idx(
+                        &deterministic,
+                        i,
+                        0,
+                        false,
+                        &tt.transport_and_day_to_connection_id,
+                        &tt.labels,
+                    );
+                    let connidx_dest0 = resolve_connection_idx(
+                        &deterministic,
+                        i,
+                        deterministic.journeys[0].legs.len() - 2,
+                        true,
+                        &tt.transport_and_day_to_connection_id,
+                        &tt.labels,
+                    );
+                    let mut last_connid = 0;
+                    for k in 0..j.legs.len() {
+                        let leg = &j.legs[k];
+                        if !leg.is_footpath {
+                            println!("leg {} {} {}", leg.from_location_idx, leg.to_location_idx, leg.transport_idx);
+                            println!("route {:?}", t.get_route(t.get_transport(leg.transport_idx).route_idx));
+                            for l in leg.from_stop_idx..(leg.to_stop_idx+1) {
+                                let connid = tt.transport_and_day_to_connection_id[&(leg.transport_idx, leg.day_idx)]+l as usize-1;
+                                let connidx_dep0 = tt.labels[&connid].order;
+                                println!(
+                                    "debgu start:{} {} {} frm dd: frmcon {} {} {} tocon {} {} {} trip: {} {} {} mean {} cut: {} fp: {}",
+                                    deterministic.journeys[0].start_time, i, connid,
+                                    tt.connections[connidx_dep0].from_idx,
+                                    tt.stations[tt.connections[connidx_dep0].from_idx].name,
+                                    tt.connections[connidx_dep0].departure.projected(),
+                                    tt.connections[connidx_dep0].to_idx,
+                                    tt.stations[tt.connections[connidx_dep0].to_idx].name,
+                                    tt.connections[connidx_dep0].arrival.projected(),
+                                    tt.connections[connidx_dep0].route_idx,
+                                    tt.connections[connidx_dep0].trip_id,
+                                    connidx_dep0, tt.connections[connidx_dep0].destination_arrival.borrow().as_ref().unwrap().mean,
+                                    tt.cut.contains(&(last_connid, connid)),
+                                    tt.stations[tt.connections[connidx_dep0].from_idx].footpaths.len()
+                                );
+                                last_connid = connid;
+                            }
+                        } else {
+                            println!("footpath");
+                        }
+                    }
+                    i += 1;
+                }
                 let origin_deps = &station_labels[&pair.0];
                 let mut i = 0;
                 for dep in origin_deps.iter().rev() {
                     let c = &tt.connections[dep.connection_idx];
-                    let cc = &tt.connections[connidx_dep1];
                     i += 1;
                     if c.departure.projected() >= minutes {
                         println!(
-                            "dest prediction: raptor: {} {} topocsa: {} {} i: {}",
-                            cc.departure.projected(),
-                            deterministic.journeys[0].dest_time,
+                            "dest prediction:topocsa: {} {} {} {} i: {} {}",
                             c.departure.projected(),
+                            start_ts+c.departure.projected() as u64*60,
                             c.destination_arrival.borrow().as_ref().unwrap().mean,
-                            i
+                            start_ts+c.destination_arrival.borrow().as_ref().unwrap().mean as u64*60,
+                            i, dep.connection_idx
                         );
                     }
                 }
