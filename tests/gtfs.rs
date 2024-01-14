@@ -30,13 +30,13 @@ fn create_gtfs_cache() {
         stations: vec![],
         connections: vec![],
         cut: HashSet::new(),
-        labels: HashMap::new(),
+        order: HashMap::new(),
         transport_and_day_to_connection_id: HashMap::new()
     };
     let mut routes = vec![];
     let t = gtfs::load_timetable(GTFS_PATH, day(2023, 11, 1), day(2023, 11, 2));
     tt.transport_and_day_to_connection_id = gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);
-    let env = topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, &mut tt.labels, 0, 0.01, true);
+    let env = topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, &mut tt.order, 0, 0.01, true);
     tt.cut = env.cut;
     let mut buf = vec![];
     tt.serialize(&mut Serializer::new(&mut buf)).unwrap();
@@ -56,7 +56,7 @@ fn gtfs() {
     store.load_distributions("./data/ch_sbb.csv");
 
     let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
-    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.labels, 0, 0.01, true);
+    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.order, 0, 0.01, true);
     let o = 10000;
     let d = 20000;
     println!("querying...");
@@ -75,7 +75,7 @@ fn gtfs_with_rt() {
 
     let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
     let t = gtfs::load_timetable(GTFS_PATH, day(2023, 11, 1), day(2023, 11, 2));
-    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.labels, 0, 0.01, true);
+    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.order, 0, 0.01, true);
     let path = format!("{}2023-11-01T16:00:02+01:00.gtfsrt", GTFSRT_PATH);
     gtfs::load_realtime(&path, &t, &tt.transport_and_day_to_connection_id,
         |connection_id: usize, is_departure: bool, delay: i16, cancelled: bool| env.update(connection_id, is_departure, delay, cancelled)

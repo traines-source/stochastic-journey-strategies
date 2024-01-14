@@ -83,7 +83,7 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
             &mut tt.connections,
             &tt.stations,
             tt.cut.clone(),
-            &mut tt.labels,
+            &mut tt.order,
             0,
             0.01,
             true,
@@ -109,7 +109,7 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
                         0,
                         false,
                         &tt.transport_and_day_to_connection_id,
-                        &tt.labels,
+                        &tt.order,
                     );
                     let connidx_dest0 = resolve_connection_idx(
                         &deterministic,
@@ -117,7 +117,7 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
                         deterministic.journeys[0].legs.len() - 2,
                         true,
                         &tt.transport_and_day_to_connection_id,
-                        &tt.labels,
+                        &tt.order,
                     );
                     let mut last_connid = 0;
                     for k in 0..j.legs.len() {
@@ -127,7 +127,7 @@ fn setup() -> Result<(i32), Box<dyn std::error::Error>> {
                             println!("route {:?}", t.get_route(t.get_transport(leg.transport_idx).route_idx));
                             for l in leg.from_stop_idx..(leg.to_stop_idx+1) {
                                 let connid = tt.transport_and_day_to_connection_id[&(leg.transport_idx, leg.day_idx)]+l as usize-1;
-                                let connidx_dep0 = tt.labels[&connid].order;
+                                let connidx_dep0 = tt.order[&connid].order;
                                 println!(
                                     "debgu start:{} {} {} frm dd: frmcon {} {} {} tocon {} {} {} trip: {} {} {} mean {} cut: {} fp: {}",
                                     deterministic.journeys[0].start_time, i, connid,

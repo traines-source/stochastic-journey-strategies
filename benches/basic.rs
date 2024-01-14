@@ -32,7 +32,7 @@ fn from_gtfs(c: &mut Criterion) {
     store.load_distributions("./data/ch_sbb.csv");
 
     let mut tt = gtfs::load_gtfs_cache("./tests/fixtures/timetable.ign.cache");
-    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.labels, 0, 0.01, true);
+    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.order, 0, 0.01, true);
     let o = 10000;
     let d = 20000;
     println!("querying...");
