@@ -5,9 +5,11 @@ use serde::Deserialize;
 use serde::Serialize;
 use stost::connection;
 use stost::gtfs::GtfsTimetable;
+use stost::gtfs::OriginDestinationSample;
 use std::collections::HashMap;
 use std::io::Write;
 use std::fs;
+use std::time::Instant;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 use stost::distribution_store;
@@ -22,11 +24,17 @@ struct SimulationConfig {
     gtfsrt_glob: String,
     det_simulation: String,
     stoch_simulation: String,
-    transfer: String
+    transfer: String,
+    samples: usize
 }
 
 fn load_config(path: &str) -> SimulationConfig {
     let buf = std::fs::read(path).unwrap();
+    serde_json::from_slice(&buf).unwrap()
+}
+
+fn load_samples() -> Vec<OriginDestinationSample> {
+    let buf = std::fs::read("./benches/samples/samples.json").unwrap();
     serde_json::from_slice(&buf).unwrap()
 }
 
@@ -177,6 +185,7 @@ struct SimulationResult {
     original_dest_arrival_prediction: f32,
     actual_dest_arrival: i32,
     broken: bool,
+    algo_elapsed_ms: Vec<u128>,
     connections_taken: Vec<connection::Connection>
 }
 
@@ -221,7 +230,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
     let start_ts = t.get_start_day_ts() as u64;
 
     let start_time = 8100;
-    let stop_pairs: Vec<(usize, usize, i32)> = vec![(10000, 20000, start_time)];
+    let stop_pairs: Vec<(usize, usize, i32)> = load_samples().into_iter().take(conf.samples).map(|s| (s.from_idx, s.to_idx, start_time)).collect();
     let mut det_actions: HashMap<(usize, usize, i32), motis_nigiri::Journey> = HashMap::new();
     let mut stoch_actions: HashMap<(usize, usize, i32), HashMap<usize, Vec<topocsa::ConnectionLabel>>> = HashMap::new();
     let mut det_log: HashMap<(usize, usize, i32), Vec<LogEntry>> = HashMap::new();
@@ -272,10 +281,14 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                     0.01,
                     true,
                 );
+                let start = Instant::now();
                 let stoch = env.query(&tt.stations[pair.0], &tt.stations[pair.1]);
+                let timing_stoch = start.elapsed().as_millis();
+                let start = Instant::now();
                 let min_journey = t.get_journeys(pair.0, pair.1, current_time, false).journeys.into_iter().reduce(|a, b| if a.dest_time < b.dest_time {a} else {b});
+                let timing_det = start.elapsed().as_millis();
                 if min_journey.is_none() || stoch[&pair.0].len() == 0 {
-                    println!("Infeasible for either dest or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch[&pair.0].len());
+                    println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch[&pair.0].len());
                 } else {
                     det_actions.insert(*pair, min_journey.unwrap());
                     stoch_actions.insert(*pair, stoch);
@@ -285,13 +298,14 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                 results.insert(*pair, SimulationJourney {
                     pair: *pair,
                     start_time: start_ts+pair.2 as u64*60,
-                    from_station: tt.stations[pair.0].name.clone(),
-                    to_station: tt.stations[pair.1].name.clone(),
+                    from_station: tt.stations[pair.0].id.clone(),
+                    to_station: tt.stations[pair.1].id.clone(),
                     det: SimulationResult {
                         departure: 0,
                         original_dest_arrival_prediction: 0.0,
                         actual_dest_arrival: 0,
                         connections_taken: vec![],
+                        algo_elapsed_ms: vec![timing_det],
                         broken: false
                     },
                     stoch: SimulationResult {
@@ -299,6 +313,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                         original_dest_arrival_prediction: 0.0,
                         actual_dest_arrival: 0,
                         connections_taken: vec![],
+                        algo_elapsed_ms: vec![timing_stoch],
                         broken: false
                     }
                 });
@@ -326,7 +341,6 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
             break;
         }
     }
-    println!("{:?}", results);
     let filename = format!("./benches/runs/{}.{}.{}.{}.json", simulation_run_at, conf.det_simulation, conf.stoch_simulation, conf.transfer);
     let run = SimulationRun {
         simulation_run_at: simulation_run_at,
@@ -337,6 +351,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
     let mut file = fs::OpenOptions::new()
         .create(true)
         .write(true)
+        .truncate(true)
         .open(filename).expect("file not openable");
     file.write_all(&buf).expect("error writing file");
     Ok(0)

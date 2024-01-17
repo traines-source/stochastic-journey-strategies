@@ -7,7 +7,6 @@ use serde::Serialize;
 use rmps::Serializer;
 use std::io::Write;
 use std::fs;
-
 use stost::distribution_store;
 use stost::query::topocsa;
 use stost::gtfs;
@@ -43,11 +42,23 @@ fn create_gtfs_cache() {
     let mut file = fs::OpenOptions::new()
         .create(true)
         .write(true)
+        .truncate(true)
         .open(CACHE_PATH).expect("file not openable");
     file.write_all(&buf).expect("error writing file");
 }
 
-
+#[test]
+#[ignore]
+fn create_simulation_samples() {
+    let samples = gtfs::create_simulation_samples(GTFS_PATH, day(2023, 11, 2), day(2023, 11, 9));
+    let buf = serde_json::to_vec(&samples).unwrap();
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open("./benches/samples/samples.ign.json").expect("file not openable");
+    file.write_all(&buf).expect("error writing file");
+}
 
 #[test]
 #[ignore]

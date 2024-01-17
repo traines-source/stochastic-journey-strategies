@@ -8,11 +8,7 @@ use crate::connection;
 
 use std::collections::HashSet;
 use serde::{Serialize, Deserialize};
-use rmps::Serializer;
-use std::io::Write;
-use std::fs;
-
-use crate::distribution_store;
+use rand::Rng;
 use crate::query::topocsa;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -68,4 +64,38 @@ pub fn load_realtime<F: FnMut(usize, bool, i16, bool)>(gtfsrt_path: &str, t: &Ti
 pub fn load_gtfs_cache(cache_path: &str) -> GtfsTimetable {
     let buf = std::fs::read(cache_path).unwrap();
     rmp_serde::from_slice(&buf).unwrap()
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct OriginDestinationSample {
+    pub from_idx: usize,
+    pub from_id: String,
+    pub to_idx: usize,
+    pub to_id: String
+}
+
+fn get_rand_conn_idx(connection_count: usize) -> usize {
+    let mut rng = rand::thread_rng();
+    rng.gen_range(0..connection_count)
+}
+
+pub fn create_simulation_samples(gtfs_path: &str, start_date: chrono::NaiveDate, end_date: chrono::NaiveDate) -> Vec<OriginDestinationSample> {
+    let t = load_timetable(gtfs_path, start_date, end_date);
+    let mut tt = GtfsTimetable {
+        stations: vec![],
+        connections: vec![],
+        cut: HashSet::new(),
+        order: HashMap::new(),
+        transport_and_day_to_connection_id: HashMap::new()
+    };
+    let mut routes = vec![];
+    retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);
+    let sample_count = 10000;
+    let mut samples = vec![];
+    for _i in 0..sample_count {
+        let origin = tt.connections[get_rand_conn_idx(tt.connections.len())].from_idx;
+        let destination = tt.connections[get_rand_conn_idx(tt.connections.len())].to_idx;
+        samples.push(OriginDestinationSample {from_idx: origin, from_id: tt.stations[origin].id.clone(), to_idx: destination, to_id: tt.stations[destination].id.clone()});
+    }
+    samples
 }
