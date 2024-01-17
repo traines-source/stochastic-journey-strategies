@@ -100,7 +100,7 @@ impl<'a, 'b> Environment<'b> {
                 let deps = self.stations[station_idx].departures.borrow();
                 for dep_id in &*deps {
                     let dep = self.connections.get(*dep_id).unwrap();
-                    let is_continuing = if i == footpaths.len() { c.trip_id == dep.trip_id && c.route_idx == dep.route_idx && c.arrival.scheduled <= dep.departure.scheduled } else { false };
+                    let is_continuing = if i == footpaths.len() { c.is_consecutive(dep) } else { false };
                     let dep_label = self.order.get(dep_id);
                     if self.cut.contains(&(c_id, *dep_id)) {
                         continue;
@@ -227,11 +227,16 @@ impl<'a, 'b> Environment<'b> {
                 let mut footpath_distributions = vec![];
                 let footpaths = &self.stations[c.to_idx].footpaths;
                 for f in footpaths {
-                    if !station_labels.contains_key(&f.target_location_idx) {
-                        station_labels.insert(f.target_location_idx, vec![]);
-                    }
                     let mut footpath_dest_arr = distribution::Distribution::empty(0);
-                    self.new_destination_arrival(f.target_location_idx, 0, -1, 0, c.product_type, &c.arrival, 1+f.duration as i32, &station_labels, &empty_vec, &mut footpath_dest_arr);   
+                    if self.stations[f.target_location_idx].id == destination.id {
+                        // TODO cancelled prob twice??
+                        footpath_dest_arr = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now).shift(f.duration as i32);
+                    } else {
+                        if !station_labels.contains_key(&f.target_location_idx) {
+                            station_labels.insert(f.target_location_idx, vec![]);
+                        }
+                        self.new_destination_arrival(f.target_location_idx, 0, -1, 0, c.product_type, &c.arrival, f.duration as i32, &station_labels, &empty_vec, &mut footpath_dest_arr);   
+                    }
                     if footpath_dest_arr.feasible_probability > 0.0 {
                         footpath_distributions.push(footpath_dest_arr);
                     }

@@ -98,6 +98,10 @@ impl<'a> Connection {
 			destination_arrival: RefCell::new(None)
 		}	
 	}
+
+	pub fn is_consecutive(&self, next: &Connection) -> bool {
+		self.trip_id == next.trip_id && self.route_idx == next.route_idx && self.arrival.scheduled <= next.departure.scheduled
+	}
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
