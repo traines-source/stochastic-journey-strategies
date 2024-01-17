@@ -1,0 +1,10 @@
+{
+    "distributions_path": "./data/ch_sbb.csv",
+    "gtfs_path": "/gtfs/swiss-gtfs/2023-11-06/",
+    "gtfs_cache_path": "./tests/fixtures/timetable.ign.cache",
+    "gtfsrt_glob": "/gtfs/swiss-gtfs-rt/2023-11-01/*.gtfsrt",
+    "det_simulation": "priori_offline",
+    "stoch_simulation": "adaptive_offline",
+    "transfer": "default",
+    "samples": 1
+}
