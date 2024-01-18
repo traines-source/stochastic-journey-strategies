@@ -100,7 +100,7 @@ impl<'a> Connection {
 	}
 
 	pub fn is_consecutive(&self, next: &Connection) -> bool {
-		self.trip_id == next.trip_id && self.route_idx == next.route_idx && self.arrival.scheduled <= next.departure.scheduled
+		self.trip_id == next.trip_id && self.route_idx == next.route_idx && self.arrival.scheduled <= next.departure.scheduled && self.id != next.id
 	}
 }
 

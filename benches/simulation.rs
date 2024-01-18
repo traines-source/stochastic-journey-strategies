@@ -14,6 +14,7 @@ use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 use stost::distribution_store;
 use stost::gtfs;
+use stost::distribution;
 use stost::query::topocsa;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -171,7 +172,8 @@ fn manual_test() -> Result<i32, Box<dyn std::error::Error>> {
 }
 
 struct LogEntry {
-    conn_idx: usize
+    conn_idx: usize,
+    proj_dest_arr: f32
 }
 struct Alternative {
     from_conn_idx: usize,
@@ -183,15 +185,16 @@ struct Alternative {
 struct SimulationResult {
     departure: i32,
     original_dest_arrival_prediction: f32,
-    actual_dest_arrival: i32,
+    actual_dest_arrival: Option<i32>,
     broken: bool,
     algo_elapsed_ms: Vec<u128>,
-    connections_taken: Vec<connection::Connection>
+    connections_taken: Vec<connection::Connection>,
+    connection_missed: Option<connection::Connection>
 }
 
 impl SimulationResult {
     fn is_completed(&self) -> bool {
-        self.broken || self.actual_dest_arrival != 0
+        self.broken || self.actual_dest_arrival.is_some()
     }
 }
 
@@ -287,7 +290,9 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                 let start = Instant::now();
                 let min_journey = t.get_journeys(pair.0, pair.1, current_time, false).journeys.into_iter().reduce(|a, b| if a.dest_time < b.dest_time {a} else {b});
                 let timing_det = start.elapsed().as_millis();
-                if min_journey.is_none() || stoch[&pair.0].len() == 0 {
+                if min_journey.is_none() && stoch[&pair.0].len() == 0 {
+                    println!("Infeasible for both det and stoch, skipping. pair: {:?}", pair);
+                } else if min_journey.is_none() || stoch[&pair.0].len() == 0 {
                     println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch[&pair.0].len());
                 } else {
                     det_actions.insert(*pair, min_journey.unwrap());
@@ -303,18 +308,20 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                     det: SimulationResult {
                         departure: 0,
                         original_dest_arrival_prediction: 0.0,
-                        actual_dest_arrival: 0,
-                        connections_taken: vec![],
+                        actual_dest_arrival: None,
                         algo_elapsed_ms: vec![timing_det],
-                        broken: false
+                        broken: false,
+                        connections_taken: vec![],
+                        connection_missed: None
                     },
                     stoch: SimulationResult {
                         departure: 0,
                         original_dest_arrival_prediction: 0.0,
-                        actual_dest_arrival: 0,
-                        connections_taken: vec![],
+                        actual_dest_arrival: None,
                         algo_elapsed_ms: vec![timing_stoch],
-                        broken: false
+                        broken: false,
+                        connections_taken: vec![],
+                        connection_missed: None                        
                     }
                 });
             }
@@ -324,12 +331,12 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
             let current_stop_idx = get_current_stop_idx(current_time, *pair, stoch_log.get_mut(pair).unwrap(), &mut results.get_mut(pair).unwrap().stoch, &tt);
             if current_stop_idx.is_some() {
                 let alternatives = get_stoch_alternatives(current_stop_idx.unwrap(), &tt, &stoch_actions[pair]);
-                step(current_time, current_stop_idx.unwrap(), &alternatives, stoch_log.get_mut(pair).unwrap(), &mut results.get_mut(pair).unwrap().stoch, &tt.connections, &tt.stations);
+                step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, stoch_log.get_mut(pair).unwrap(), &mut results.get_mut(pair).unwrap().stoch, &tt.connections, &tt.stations);
             }
             let current_stop_idx = get_current_stop_idx(current_time, *pair, det_log.get_mut(pair).unwrap(), &mut results.get_mut(pair).unwrap().det, &tt);
             if current_stop_idx.is_some() {
                 let alternatives = get_det_alternatives(current_stop_idx.unwrap(), &tt, &det_actions[pair]);
-                step(current_time, current_stop_idx.unwrap(), &alternatives, det_log.get_mut(pair).unwrap(), &mut results.get_mut(pair).unwrap().det, &tt.connections, &tt.stations);
+                step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, det_log.get_mut(pair).unwrap(), &mut results.get_mut(pair).unwrap().det, &tt.connections, &tt.stations);
             }
             if !results[pair].is_completed() {
                 do_continue = true;
@@ -358,7 +365,9 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
 }
 
 fn get_current_stop_idx(current_time: i32, pair: (usize, usize, i32), log: &mut Vec<LogEntry>, result: &mut SimulationResult, tt: &GtfsTimetable) -> Option<usize> {
-    if log.len() == 0 {
+    if result.actual_dest_arrival.is_some() {
+        return None;
+    } else if log.len() == 0 {
         Some(pair.0)
     } else {
         let last_c = &tt.connections[log.last().unwrap().conn_idx];
@@ -369,9 +378,8 @@ fn get_current_stop_idx(current_time: i32, pair: (usize, usize, i32), log: &mut 
             let stop_idx = if i == footpaths.len() { current_stop_idx } else { footpaths[i].target_location_idx };
             if stop_idx == pair.1 {
                 if current_time >= last_c.arrival.projected() {
-                    result.connections_taken.push(tt.connections[log.last().unwrap().conn_idx].clone());
-                    result.broken = false;
-                    result.actual_dest_arrival = last_c.arrival.projected();
+                    update_connections_taken_from_last_log(result, log, &tt.connections);
+                    result.actual_dest_arrival = Some(last_c.arrival.projected());
                 }
                 return None;
             }
@@ -428,25 +436,25 @@ fn get_stoch_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, stoch_act
     alternatives
 }
 
-fn step(current_time: i32, current_stop_idx: usize, alternatives: &[Alternative], log: &mut Vec<LogEntry>, result: &mut SimulationResult, connections: &[connection::Connection], stations: &[connection::Station]) {
-    let arrival_time = if log.len() == 0 {current_time} else {connections[log.last().unwrap().conn_idx].arrival.projected()};
+fn step(current_time: i32, start_time: i32, current_stop_idx: usize, alternatives: &[Alternative], log: &mut Vec<LogEntry>, result: &mut SimulationResult, connections: &[connection::Connection], stations: &[connection::Station]) {
+    let arrival_time = if log.len() == 0 {start_time} else {connections[log.last().unwrap().conn_idx].arrival.projected()};
     let mut alternatives_still_available = false;
     if current_time >= arrival_time {
         for alt in alternatives {
             let next_c = &connections[alt.from_conn_idx];
-            let transfer_time = if log.len() == 0 {0} else {get_transfer_time(current_stop_idx, next_c.from_idx, stations)};
+            let transfer_time = if log.len() == 0 {0} else {get_transfer_time(current_stop_idx, next_c.from_idx, stations)}; // TODO intiial footpaths? 
             if next_c.departure.projected() >= arrival_time+transfer_time || (log.len() > 0 && connections[log.last().unwrap().conn_idx].is_consecutive(next_c)) {    
                 if current_time >= next_c.departure.projected() { // TODO require not too long ago?
                     if log.len() > 0 {
-                        result.connections_taken.push(connections[log.last().unwrap().conn_idx].clone());
+                        update_connections_taken_from_last_log(result, log, connections);
                     } else {
                         result.departure = next_c.departure.projected();
                         result.original_dest_arrival_prediction = alt.proj_dest_arr;
                     }
-                    result.broken = false;
-                    result.connections_taken.push(next_c.clone());
+                    update_connections_taken(result, &next_c, alt.proj_dest_arr);
                     log.push(LogEntry{
-                        conn_idx: alt.to_conn_idx
+                        conn_idx: alt.to_conn_idx,
+                        proj_dest_arr: alt.proj_dest_arr
                     });
                 }
                 alternatives_still_available = true;
@@ -454,9 +462,31 @@ fn step(current_time: i32, current_stop_idx: usize, alternatives: &[Alternative]
             }
         }
         if !alternatives_still_available {
+            if log.len() > 0 {
+                update_connections_taken_from_last_log(result, log, connections);
+            }
+            if alternatives.len() > 0 {
+                result.connection_missed = Some(connections[alternatives.last().unwrap().from_conn_idx].clone())
+            }
             result.broken = true;
         }
     }
+}
+
+fn update_connections_taken_from_last_log(result: &mut SimulationResult, log: &[LogEntry], connections: &[connection::Connection]) {
+    update_connections_taken(result, &connections[log.last().unwrap().conn_idx], log.last().unwrap().proj_dest_arr);
+}
+
+fn update_connections_taken(result: &mut SimulationResult, connection: &connection::Connection, proj_dest_arr: f32) {
+    let conn = connection.clone();
+    conn.destination_arrival.replace(Some(distribution::Distribution {
+        feasible_probability: 1.0,
+        histogram: vec![],
+        start: 0,
+        mean: proj_dest_arr
+    }));
+    result.connections_taken.push(conn);
+    result.broken = false;
 }
 
 fn get_transfer_time(from_stop_idx: usize, to_stop_idx: usize, stations: &[connection::Station]) -> i32 {
