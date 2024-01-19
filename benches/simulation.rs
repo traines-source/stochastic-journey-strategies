@@ -1,6 +1,7 @@
 use criterion::{black_box, criterion_group, Criterion};
 use glob::glob;
 use motis_nigiri::Timetable;
+use ndarray_stats::QuantileExt;
 use serde::Deserialize;
 use serde::Serialize;
 use stost::connection;
@@ -16,6 +17,7 @@ use stost::distribution_store;
 use stost::gtfs;
 use stost::distribution;
 use stost::query::topocsa;
+use ndarray;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct SimulationConfig {
@@ -36,6 +38,11 @@ fn load_config(path: &str) -> SimulationConfig {
 
 fn load_samples() -> Vec<OriginDestinationSample> {
     let buf = std::fs::read("./benches/samples/samples.json").unwrap();
+    serde_json::from_slice(&buf).unwrap()
+}
+
+fn load_simulation_run(path: &str) -> SimulationRun {
+    let buf = std::fs::read(path).unwrap();
     serde_json::from_slice(&buf).unwrap()
 }
 
@@ -503,6 +510,65 @@ fn get_transfer_time(from_stop_idx: usize, to_stop_idx: usize, stations: &[conne
         }
     }
     panic!("Tried walking where no walking connection exists from {} to {}", from_stop_idx, to_stop_idx);
+}
+
+struct SimulationAnalysis {
+    det_infeasible: i32,
+    stoch_infeasible: i32,
+    det_stoch_infeasible: i32,
+    delta_det_predicted_actual: Vec<f32>,
+    delta_stoch_predicted_actual: Vec<f32>,
+    delta_det_stoch_predicted: Vec<f32>,
+    delta_det_predicted_stoch_actual: Vec<f32>,
+    delta_det_stoch_actual_arrival: Vec<f32>,
+    delta_det_stoch_actual_travel_time: Vec<f32>
+}
+
+fn summary(values: Vec<f32>, name: &str) {
+    let arr = ndarray::Array::from_vec(values);
+    println!("{}: mean {} stddev {} min {} max {}", name, arr.mean().unwrap(), arr.std(1.0), arr.min().unwrap(), arr.max().unwrap());
+}
+
+pub fn analyze_simulation() {
+    let run = load_simulation_run("./benches/runs/1705685171.priori_offline.adaptive_offline.short.ign.json");
+    let mut a = SimulationAnalysis {
+        det_infeasible: 0,
+        stoch_infeasible: 0,
+        det_stoch_infeasible: 0,
+        delta_det_predicted_actual: vec![],
+        delta_stoch_predicted_actual: vec![],
+        delta_det_stoch_predicted: vec![],
+        delta_det_predicted_stoch_actual: vec![],
+        delta_det_stoch_actual_arrival: vec![],
+        delta_det_stoch_actual_travel_time: vec![]
+    };
+    for result in &run.results {
+        if result.det.actual_dest_arrival.is_some() {
+            a.delta_det_predicted_actual.push(result.det.actual_dest_arrival.unwrap() as f32-result.det.original_dest_arrival_prediction);
+        } else {
+            a.det_infeasible += 1;
+        }
+        if result.stoch.actual_dest_arrival.is_some() {
+            a.delta_stoch_predicted_actual.push(result.stoch.actual_dest_arrival.unwrap() as f32-result.stoch.original_dest_arrival_prediction);
+        } else {
+            a.stoch_infeasible += 1;
+        }
+        if result.det.actual_dest_arrival.is_some() && result.stoch.actual_dest_arrival.is_some() {
+            a.delta_det_stoch_predicted.push(result.stoch.original_dest_arrival_prediction-result.det.original_dest_arrival_prediction);
+            a.delta_det_predicted_stoch_actual.push(result.stoch.actual_dest_arrival.unwrap() as f32-result.det.original_dest_arrival_prediction);
+            a.delta_det_stoch_actual_arrival.push(result.stoch.actual_dest_arrival.unwrap() as f32-result.det.actual_dest_arrival.unwrap() as f32);
+            a.delta_det_stoch_actual_travel_time.push(((result.stoch.actual_dest_arrival.unwrap()-result.stoch.departure)-(result.det.actual_dest_arrival.unwrap()-result.det.departure)) as f32);
+        } else if result.det.actual_dest_arrival.is_none() && result.stoch.actual_dest_arrival.is_none() {
+            a.det_stoch_infeasible += 1;
+        }
+    }
+    println!("infeasible: both: {} det: {} stoch: {} feasible: both: {}", a.det_stoch_infeasible, a.det_infeasible, a.stoch_infeasible, a.delta_det_stoch_actual_travel_time.len());
+    summary(a.delta_det_predicted_actual, "delta_det_predicted_actual");
+    summary(a.delta_stoch_predicted_actual, "delta_stoch_predicted_actual");
+    summary(a.delta_det_stoch_predicted, "delta_det_stoch_predicted");
+    summary(a.delta_det_predicted_stoch_actual, "delta_det_predicted_stoch_actual");
+    summary(a.delta_det_stoch_actual_arrival, "delta_det_stoch_actual_arrival");
+    summary(a.delta_det_stoch_actual_travel_time, "delta_det_stoch_actual_travel_time");
 }
 
 #[ignore]
