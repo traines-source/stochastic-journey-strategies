@@ -205,7 +205,7 @@ struct SimulationJourney {
     from_station: String,
     to_station: String,
     det: SimulationResult,
-    stoch: SimulationResult
+    stoch: SimulationResult,
 }
 
 impl SimulationJourney {
@@ -215,8 +215,9 @@ impl SimulationJourney {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct SimulationRun {
+pub struct SimulationRun {
     simulation_run_at: u64,
+    comment: String,
     config: SimulationConfig,
     results: Vec<SimulationJourney>
 }
@@ -290,10 +291,8 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                 let start = Instant::now();
                 let min_journey = t.get_journeys(pair.0, pair.1, current_time, false).journeys.into_iter().reduce(|a, b| if a.dest_time < b.dest_time {a} else {b});
                 let timing_det = start.elapsed().as_millis();
-                if min_journey.is_none() && stoch[&pair.0].len() == 0 {
-                    println!("Infeasible for both det and stoch, skipping. pair: {:?}", pair);
-                } else if min_journey.is_none() || stoch[&pair.0].len() == 0 {
-                    println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch[&pair.0].len());
+                if min_journey.is_none() || !stoch.get(&pair.0).is_some_and(|s| s.len() > 0) {
+                    println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch.get(&pair.0).is_some_and(|s| s.len() > 0));
                 } else {
                     det_actions.insert(*pair, min_journey.unwrap());
                     stoch_actions.insert(*pair, stoch);
@@ -348,9 +347,10 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
             break;
         }
     }
-    let filename = format!("./benches/runs/{}.{}.{}.{}.json", simulation_run_at, conf.det_simulation, conf.stoch_simulation, conf.transfer);
+    let filename = format!("./benches/runs/{}.{}.{}.{}.ign.json", simulation_run_at, conf.det_simulation, conf.stoch_simulation, conf.transfer);
     let run = SimulationRun {
         simulation_run_at: simulation_run_at,
+        comment: "".to_string(),
         config: conf,
         results: results.into_values().collect(),
     };
@@ -399,6 +399,10 @@ fn get_det_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, det_actions
             break;
         }
         next_leg += 1;
+    }
+    if next_leg >= det_actions.legs.len() { // TODO platform change
+        println!("failed to find journey continuation (platform change?): {:?} current_stop: {:?}", det_actions, tt.stations[current_stop_idx]);
+        return vec![];
     }
     let departure_idx = resolve_connection_idx(det_actions, next_leg, false, &tt.transport_and_day_to_connection_id, &tt.order);
     let arrival_idx = resolve_connection_idx(det_actions, next_leg, true, &tt.transport_and_day_to_connection_id, &tt.order);
