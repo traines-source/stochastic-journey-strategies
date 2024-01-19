@@ -25,6 +25,7 @@ struct SimulationConfig {
     gtfs_path: String,
     gtfs_cache_path: String,
     gtfsrt_glob: String,
+    samples_config_path: String,
     det_simulation: String,
     stoch_simulation: String,
     transfer: String,
@@ -36,8 +37,8 @@ fn load_config(path: &str) -> SimulationConfig {
     serde_json::from_slice(&buf).unwrap()
 }
 
-fn load_samples() -> Vec<OriginDestinationSample> {
-    let buf = std::fs::read("./benches/samples/samples.json").unwrap();
+fn load_samples(path: &str) -> Vec<OriginDestinationSample> {
+    let buf = std::fs::read(path).unwrap();
     serde_json::from_slice(&buf).unwrap()
 }
 
@@ -122,7 +123,7 @@ fn manual_test() -> Result<i32, Box<dyn std::error::Error>> {
             &tt.stations,
             tt.cut.clone(),
             &mut tt.order,
-            0,
+            start_time,
             0.01,
             true,
         );
@@ -196,7 +197,8 @@ fn manual_test() -> Result<i32, Box<dyn std::error::Error>> {
 
 struct LogEntry {
     conn_idx: usize,
-    proj_dest_arr: f32
+    proj_dest_arr: f32,
+    arrival_time_lower_bound: i32
 }
 struct Alternative {
     from_conn_idx: usize,
@@ -226,7 +228,9 @@ struct SimulationJourney {
     pair: (usize, usize, i32),
     start_time: u64,
     from_station: String,
+    from_station_name: String,
     to_station: String,
+    to_station_name: String,    
     det: SimulationResult,
     stoch: SimulationResult,
 }
@@ -259,8 +263,8 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
     }
     let start_ts = t.get_start_day_ts() as u64;
 
-    let start_time = 8100;
-    let stop_pairs: Vec<(usize, usize, i32)> = load_samples().into_iter().take(conf.samples).map(|s| (s.from_idx, s.to_idx, start_time)).collect();
+    let start_time = 8050;
+    let stop_pairs: Vec<(usize, usize, i32)> = load_samples(&conf.samples_config_path).into_iter().take(conf.samples).map(|s| (s.from_idx, s.to_idx, start_time)).collect();
     let mut det_actions: HashMap<(usize, usize, i32), motis_nigiri::Journey> = HashMap::new();
     let mut stoch_actions: HashMap<(usize, usize, i32), HashMap<usize, Vec<topocsa::ConnectionLabel>>> = HashMap::new();
     let mut det_log: HashMap<(usize, usize, i32), Vec<LogEntry>> = HashMap::new();
@@ -286,7 +290,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
             &tt.stations,
             tt.cut.clone(),
             &mut tt.order,
-            0,
+            start_time,
             0.01,
             true,
         );
@@ -307,7 +311,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                     &tt.stations,
                     tt.cut.clone(),
                     &mut tt.order,
-                    0,
+                    start_time,
                     0.01,
                     true,
                 );
@@ -329,7 +333,9 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                     pair: *pair,
                     start_time: start_ts+pair.2 as u64*60,
                     from_station: tt.stations[pair.0].id.clone(),
+                    from_station_name: tt.stations[pair.0].name.clone(),
                     to_station: tt.stations[pair.1].id.clone(),
+                    to_station_name: tt.stations[pair.1].name.clone(),
                     det: SimulationResult {
                         departure: 0,
                         original_dest_arrival_prediction: 0.0,
@@ -353,15 +359,23 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
             if det_actions.get(pair).is_none() || stoch_actions.get(pair).is_none() {
                 continue;
             }
-            let current_stop_idx = get_current_stop_idx(current_time, *pair, stoch_log.get_mut(pair).unwrap(), &mut results.get_mut(pair).unwrap().stoch, &tt);
-            if current_stop_idx.is_some() {
-                let alternatives = get_stoch_alternatives(current_stop_idx.unwrap(), &tt, &stoch_actions[pair]);
-                step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, stoch_log.get_mut(pair).unwrap(), &mut results.get_mut(pair).unwrap().stoch, &tt.connections, &tt.stations);
+            let mut repeat = true;
+            while repeat {
+                repeat = false;
+                let current_stop_idx = get_current_stop_idx(current_time, *pair, stoch_log.get_mut(pair).unwrap(), &mut results.get_mut(pair).unwrap().stoch, &tt);
+                if current_stop_idx.is_some() {
+                    let alternatives = get_stoch_alternatives(current_stop_idx.unwrap(), &tt, &stoch_actions[pair]);
+                    repeat = step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, stoch_log.get_mut(pair).unwrap(), &mut results.get_mut(pair).unwrap().stoch, &tt.connections, &tt.stations);
+                }
             }
-            let current_stop_idx = get_current_stop_idx(current_time, *pair, det_log.get_mut(pair).unwrap(), &mut results.get_mut(pair).unwrap().det, &tt);
-            if current_stop_idx.is_some() {
-                let alternatives = get_det_alternatives(current_stop_idx.unwrap(), &tt, &det_actions[pair]);
-                step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, det_log.get_mut(pair).unwrap(), &mut results.get_mut(pair).unwrap().det, &tt.connections, &tt.stations);
+            repeat = true;
+            while repeat {
+                repeat = false;
+                let current_stop_idx = get_current_stop_idx(current_time, *pair, det_log.get_mut(pair).unwrap(), &mut results.get_mut(pair).unwrap().det, &tt);
+                if current_stop_idx.is_some() {
+                    let alternatives = get_det_alternatives(current_stop_idx.unwrap(), &tt, &det_actions[pair]);
+                    repeat = step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, det_log.get_mut(pair).unwrap(), &mut results.get_mut(pair).unwrap().det, &tt.connections, &tt.stations);
+                }
             }
             if !results[pair].is_completed() {
                 do_continue = true;
@@ -392,7 +406,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
 
 fn get_current_stop_idx(current_time: i32, pair: (usize, usize, i32), log: &mut Vec<LogEntry>, result: &mut SimulationResult, tt: &GtfsTimetable) -> Option<usize> {
     if result.actual_dest_arrival.is_some() {
-        return None;
+        None
     } else if log.len() == 0 {
         Some(pair.0)
     } else {
@@ -404,14 +418,14 @@ fn get_current_stop_idx(current_time: i32, pair: (usize, usize, i32), log: &mut 
             let stop_idx = if i == footpaths.len() { current_stop_idx } else { footpaths[i].target_location_idx };
             if stop_idx == pair.1 {
                 if current_time >= last_c.arrival.projected() {
-                    update_connections_taken_from_last_log(result, log, &tt.connections);
+                    update_connections_taken_from_last_log(result, log, &tt.connections, &tt.stations);
                     result.actual_dest_arrival = Some(last_c.arrival.projected());
                 }
                 return None;
             }
             i += 1;
         }
-        return Some(current_stop_idx);
+        Some(current_stop_idx)
     }
 }
 
@@ -466,8 +480,13 @@ fn get_stoch_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, stoch_act
     alternatives
 }
 
-fn step(current_time: i32, start_time: i32, current_stop_idx: usize, alternatives: &[Alternative], log: &mut Vec<LogEntry>, result: &mut SimulationResult, connections: &[connection::Connection], stations: &[connection::Station]) {
-    let arrival_time = if log.len() == 0 {start_time} else {connections[log.last().unwrap().conn_idx].arrival.projected()};
+fn step(current_time: i32, start_time: i32, current_stop_idx: usize, alternatives: &[Alternative], log: &mut Vec<LogEntry>, result: &mut SimulationResult, connections: &[connection::Connection], stations: &[connection::Station]) -> bool {
+    let arrival_time = if log.len() == 0 {
+        start_time
+    } else {
+        let c = &connections[log.last().unwrap().conn_idx];
+        std::cmp::max(std::cmp::max(c.arrival.projected(), c.departure.projected()), log.last().unwrap().arrival_time_lower_bound) // TODO enforce while gtfsrt updating?
+    };
     let mut alternatives_still_available = false;
     if current_time >= arrival_time {
         for alt in alternatives {
@@ -476,16 +495,19 @@ fn step(current_time: i32, start_time: i32, current_stop_idx: usize, alternative
             if next_c.departure.projected() >= arrival_time+transfer_time || (log.len() > 0 && connections[log.last().unwrap().conn_idx].is_consecutive(next_c)) {    
                 if current_time >= next_c.departure.projected() { // TODO require not too long ago?
                     if log.len() > 0 {
-                        update_connections_taken_from_last_log(result, log, connections);
+                        update_connections_taken_from_last_log(result, log, connections, stations);
                     } else {
                         result.departure = next_c.departure.projected();
                         result.original_dest_arrival_prediction = alt.proj_dest_arr;
                     }
-                    update_connections_taken(result, &next_c, alt.proj_dest_arr);
+                    update_connections_taken(result, &next_c, stations, alt.proj_dest_arr);
+                    println!("step {} {} {} {} {} {} {} {}", alt.from_conn_idx, alt.to_conn_idx, next_c.from_idx, next_c.trip_id, next_c.arrival.scheduled, next_c.arrival.projected(), next_c.departure.scheduled, next_c.departure.projected());
                     log.push(LogEntry{
                         conn_idx: alt.to_conn_idx,
-                        proj_dest_arr: alt.proj_dest_arr
+                        proj_dest_arr: alt.proj_dest_arr,
+                        arrival_time_lower_bound: arrival_time
                     });
+                    return true;
                 }
                 alternatives_still_available = true;
                 break;
@@ -493,7 +515,7 @@ fn step(current_time: i32, start_time: i32, current_stop_idx: usize, alternative
         }
         if !alternatives_still_available {
             if log.len() > 0 {
-                update_connections_taken_from_last_log(result, log, connections);
+                update_connections_taken_from_last_log(result, log, connections, stations);
             }
             if alternatives.len() > 0 {
                 result.connection_missed = Some(connections[alternatives.last().unwrap().from_conn_idx].clone())
@@ -501,20 +523,22 @@ fn step(current_time: i32, start_time: i32, current_stop_idx: usize, alternative
             result.broken = true;
         }
     }
+    return false;
 }
 
-fn update_connections_taken_from_last_log(result: &mut SimulationResult, log: &[LogEntry], connections: &[connection::Connection]) {
-    update_connections_taken(result, &connections[log.last().unwrap().conn_idx], log.last().unwrap().proj_dest_arr);
+fn update_connections_taken_from_last_log(result: &mut SimulationResult, log: &[LogEntry], connections: &[connection::Connection], stations: &[connection::Station]) {
+    update_connections_taken(result, &connections[log.last().unwrap().conn_idx], stations, log.last().unwrap().proj_dest_arr);
 }
 
-fn update_connections_taken(result: &mut SimulationResult, connection: &connection::Connection, proj_dest_arr: f32) {
-    let conn = connection.clone();
+fn update_connections_taken(result: &mut SimulationResult, connection: &connection::Connection, stations: &[connection::Station], proj_dest_arr: f32) {
+    let mut conn = connection.clone();
     conn.destination_arrival.replace(Some(distribution::Distribution {
         feasible_probability: 1.0,
         histogram: vec![],
         start: 0,
         mean: proj_dest_arr
     }));
+    conn.message = format!("from: {} {} to: {} {}", stations[conn.from_idx].id, stations[conn.from_idx].name, stations[conn.to_idx].id, stations[conn.to_idx].name);
     result.connections_taken.push(conn);
     result.broken = false;
 }
@@ -525,7 +549,7 @@ fn get_transfer_time(from_stop_idx: usize, to_stop_idx: usize, stations: &[conne
     }
     for f in &stations[from_stop_idx].footpaths {
         if f.target_location_idx == to_stop_idx {
-            return f.duration as i32;
+            return std::cmp::max(f.duration, 1) as i32;
         }
     }
     panic!("Tried walking where no walking connection exists from {} to {}", from_stop_idx, to_stop_idx);
@@ -533,7 +557,9 @@ fn get_transfer_time(from_stop_idx: usize, to_stop_idx: usize, stations: &[conne
 
 struct SimulationAnalysis {
     det_infeasible: i32,
+    det_broken: i32,
     stoch_infeasible: i32,
+    stoch_broken: i32,
     det_stoch_infeasible: i32,
     delta_det_predicted_actual: Vec<f32>,
     delta_stoch_predicted_actual: Vec<f32>,
@@ -552,7 +578,9 @@ pub fn analyze_simulation() {
     let run = load_simulation_run("./benches/runs/1705685171.priori_offline.adaptive_offline.short.ign.json");
     let mut a = SimulationAnalysis {
         det_infeasible: 0,
+        det_broken: 0,
         stoch_infeasible: 0,
+        stoch_broken: 0,
         det_stoch_infeasible: 0,
         delta_det_predicted_actual: vec![],
         delta_stoch_predicted_actual: vec![],
@@ -566,11 +594,17 @@ pub fn analyze_simulation() {
             a.delta_det_predicted_actual.push(result.det.actual_dest_arrival.unwrap() as f32-result.det.original_dest_arrival_prediction);
         } else {
             a.det_infeasible += 1;
+            if result.det.broken {
+                a.det_broken += 1;
+            }
         }
         if result.stoch.actual_dest_arrival.is_some() {
             a.delta_stoch_predicted_actual.push(result.stoch.actual_dest_arrival.unwrap() as f32-result.stoch.original_dest_arrival_prediction);
         } else {
             a.stoch_infeasible += 1;
+            if result.stoch.broken {
+                a.stoch_broken += 1;
+            }
         }
         if result.det.actual_dest_arrival.is_some() && result.stoch.actual_dest_arrival.is_some() {
             a.delta_det_stoch_predicted.push(result.stoch.original_dest_arrival_prediction-result.det.original_dest_arrival_prediction);
@@ -581,7 +615,7 @@ pub fn analyze_simulation() {
             a.det_stoch_infeasible += 1;
         }
     }
-    println!("infeasible: both: {} det: {} stoch: {} feasible: both: {}", a.det_stoch_infeasible, a.det_infeasible, a.stoch_infeasible, a.delta_det_stoch_actual_travel_time.len());
+    println!("infeasible: both: {} det: {} stoch: {} broken: det: {} stoch: {} feasible: both: {}", a.det_stoch_infeasible, a.det_infeasible, a.stoch_infeasible, a.det_broken, a.stoch_broken, a.delta_det_stoch_actual_travel_time.len());
     summary(a.delta_det_predicted_actual, "delta_det_predicted_actual");
     summary(a.delta_stoch_predicted_actual, "delta_stoch_predicted_actual");
     summary(a.delta_det_stoch_predicted, "delta_det_stoch_predicted");
@@ -593,6 +627,7 @@ pub fn analyze_simulation() {
 #[ignore]
 pub fn simulation(c: &mut Criterion) {
     run_simulation().unwrap();
+    //analyze_simulation();
     //manual_test().unwrap();
     /*let mut group = c.benchmark_group("once");
     group.sample_size(10); //measurement_time(Duration::from_secs(10))
