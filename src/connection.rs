@@ -64,7 +64,7 @@ pub struct Connection {
 	pub to_idx: usize,
 	pub departure: StopInfo,
 	pub arrival: StopInfo,
-	message: String,
+	pub message: String,
 	pub cancelled: bool,
 	pub product_type: i16,
 	pub destination_arrival: RefCell<Option<distribution::Distribution>>	
@@ -100,7 +100,7 @@ impl<'a> Connection {
 	}
 
 	pub fn is_consecutive(&self, next: &Connection) -> bool {
-		self.trip_id == next.trip_id && self.route_idx == next.route_idx && self.arrival.scheduled <= next.departure.scheduled && self.id != next.id
+		self.trip_id == next.trip_id && self.route_idx == next.route_idx && self.arrival.scheduled <= next.departure.scheduled && self.id != next.id && self.to_idx == next.from_idx
 	}
 }
 

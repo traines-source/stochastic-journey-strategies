@@ -76,6 +76,22 @@ fn update_footpaths(t: &Timetable, tt: &mut GtfsTimetable) {
     }
 }
 
+fn geodist_meters(stop1: &connection::Station, stop2: &connection::Station) -> f32 {       
+    let r = 6371e3;
+    let x = (stop2.lon.to_radians()-stop1.lon.to_radians()) * ((stop1.lat.to_radians()+stop2.lat.to_radians())/2 as f32).cos();
+    let y = stop2.lat.to_radians()-stop1.lat.to_radians();
+    (x*x + y*y).sqrt() * r
+}
+
+fn shorten_footpaths(tt: &mut GtfsTimetable) {
+    for i in 0..tt.stations.len() {
+        for j in 0..tt.stations[i].footpaths.len() {
+            let dur = (geodist_meters(&tt.stations[i], &tt.stations[tt.stations[i].footpaths[j].target_location_idx])/1.5/60.0).round() as u32;
+            tt.stations[i].footpaths[j].duration = std::cmp::min(std::cmp::max(dur, 1), tt.stations[i].footpaths[j].duration);
+        }
+    }
+}
+
 fn manual_test() -> Result<i32, Box<dyn std::error::Error>> {
     let conf = load_config("./benches/config/config.json");
 
@@ -238,6 +254,9 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
     let mut tt = gtfs::load_gtfs_cache(&conf.gtfs_cache_path);
     let t = gtfs::load_timetable(&conf.gtfs_path, day(2023, 11, 1), day(2023, 11, 2));
     //update_footpaths(&t, &mut tt);
+    if conf.transfer == "short" {
+        shorten_footpaths(&mut tt);
+    }
     let start_ts = t.get_start_day_ts() as u64;
 
     let start_time = 8100;
