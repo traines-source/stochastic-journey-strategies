@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, cell::RefCell};
 
 use chrono;
 
@@ -27,7 +27,15 @@ pub fn load_timetable<'a, 'b>(gtfs_path: &str, start_date: chrono::NaiveDate, en
 pub fn retrieve<'a, 'b>(t: &Timetable, stations: &'a mut Vec<connection::Station>, _routes: &'a mut Vec<connection::Route>, connections: &'b mut Vec<connection::Connection>) -> HashMap<(usize, u16), usize> {
     let gtfs_locations = t.get_locations();
     for mut l in gtfs_locations {
-        let mut station = connection::Station::new(l.id.to_string(), l.name.to_string(), vec![]);
+        let mut station = connection::Station {
+            id: l.id.to_string(), 
+            name: l.name.to_string(),
+            departures: RefCell::new(vec![]),
+            lat: l.lat,
+            lon: l.lon,
+            transfer_time: l.transfer_time,
+            footpaths: vec![]
+        };
         station.footpaths.append(&mut l.footpaths);
         stations.push(station);
     }

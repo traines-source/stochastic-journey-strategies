@@ -294,6 +294,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
             0.01,
             true,
         );
+        println!("Loading {}", path);
         gtfs::load_realtime(
             &path,
             &t,
@@ -304,6 +305,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
         );
         let mut do_continue = false;
         for pair in &stop_pairs {
+            println!("Pair: {:?}", pair);
             if is_first {
                 let mut env = topocsa::new(
                     &mut store,
@@ -513,12 +515,12 @@ fn step(current_time: i32, start_time: i32, current_stop_idx: usize, alternative
                 break;
             }
         }
-        if !alternatives_still_available {
+        if !alternatives_still_available && !result.broken {
             if log.len() > 0 {
                 update_connections_taken_from_last_log(result, log, connections, stations);
             }
             if alternatives.len() > 0 {
-                result.connection_missed = Some(connections[alternatives.last().unwrap().from_conn_idx].clone())
+                result.connection_missed = Some(connections[alternatives.last().unwrap().from_conn_idx].clone());
             }
             result.broken = true;
         }
@@ -575,7 +577,7 @@ fn summary(values: Vec<f32>, name: &str) {
 }
 
 pub fn analyze_simulation() {
-    let run = load_simulation_run("./benches/runs/1705685171.priori_offline.adaptive_offline.short.ign.json");
+    let run = load_simulation_run("./benches/runs/1705772392.priori_offline.adaptive_offline.short.ign.json");
     let mut a = SimulationAnalysis {
         det_infeasible: 0,
         det_broken: 0,
