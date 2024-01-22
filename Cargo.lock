@@ -1064,6 +1064,7 @@ dependencies = [
  "motis-nigiri",
  "ndarray",
  "ndarray-stats",
+ "noisy_float",
  "quick-protobuf",
  "rand",
  "rmp-serde",

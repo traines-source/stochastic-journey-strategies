@@ -20,6 +20,7 @@ glob = "0.3.1"
 rand = "0.8.5"
 ndarray-stats = "0.5.1"
 ndarray = "0.15.6"
+noisy_float = "0.2.0"
 
 
 [dev-dependencies]

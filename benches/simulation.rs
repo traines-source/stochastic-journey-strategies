@@ -1,7 +1,9 @@
 use criterion::{black_box, criterion_group, Criterion};
 use glob::glob;
 use motis_nigiri::Timetable;
+use ndarray_stats::Quantile1dExt;
 use ndarray_stats::QuantileExt;
+use ndarray_stats::interpolate::Linear;
 use serde::Deserialize;
 use serde::Serialize;
 use stost::connection;
@@ -18,6 +20,7 @@ use stost::gtfs;
 use stost::distribution;
 use stost::query::topocsa;
 use ndarray;
+use noisy_float::types::{n64, N64};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct SimulationConfig {
@@ -572,12 +575,14 @@ struct SimulationAnalysis {
 }
 
 fn summary(values: Vec<f32>, name: &str) {
-    let arr = ndarray::Array::from_vec(values);
-    println!("{}: mean {} stddev {} min {} max {}", name, arr.mean().unwrap(), arr.std(1.0), arr.min().unwrap(), arr.max().unwrap());
+    let mut arr = ndarray::Array::from_vec(values);
+    let q5 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.05), &Linear).unwrap();
+    let q95 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.95), &Linear).unwrap();
+    println!("{}: mean {} stddev {} min {} 5% {} max {} 95% {}", name, arr.mean().unwrap(), arr.std(1.0), arr.min().unwrap(), q5, arr.max().unwrap(), q95);
 }
 
 pub fn analyze_simulation() {
-    let run = load_simulation_run("./benches/runs/1705772392.priori_offline.adaptive_offline.short.ign.json");
+    let run = load_simulation_run("./benches/runs/1705855019.priori_offline.adaptive_offline.short.ign.json");
     let mut a = SimulationAnalysis {
         det_infeasible: 0,
         det_broken: 0,
@@ -628,8 +633,8 @@ pub fn analyze_simulation() {
 
 #[ignore]
 pub fn simulation(c: &mut Criterion) {
-    run_simulation().unwrap();
-    //analyze_simulation();
+    //run_simulation().unwrap();
+    analyze_simulation();
     //manual_test().unwrap();
     /*let mut group = c.benchmark_group("once");
     group.sample_size(10); //measurement_time(Duration::from_secs(10))
