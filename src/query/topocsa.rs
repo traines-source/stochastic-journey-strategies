@@ -258,7 +258,18 @@ impl<'a, 'b> Environment<'b> {
                     }
                     j -= 1;
                 }
+                let mut do_insert = true;
+                if ((j+1) as usize) < departures.len() {
+                    let reference = &self.connections[departures[(j+1) as usize].connection_idx];
+                    let dep_dist_ref = self.store.borrow_mut().delay_distribution(&reference.departure, true, reference.product_type, self.now).mean; // TODO opt
+                    let dep_dist_c = self.store.borrow_mut().delay_distribution(&c.departure, true, c.product_type, self.now).mean; // TODO opt
+                        if dep_dist_c < dep_dist_ref {
+                        do_insert = false;
+                    }
+                }
+                if do_insert {
                 departures.insert((j+1) as usize, ConnectionLabel{connection_idx: i, destination_arrival: new_distribution});
+                }
             }
         }
         station_labels
@@ -314,9 +325,9 @@ impl<'a, 'b> Environment<'b> {
                 panic!("mean 0 with high feasibility");
             }
             //assert_float_absolute_eq!(dest.as_ref().unwrap().mean, dest.as_ref().unwrap().mean(), 1e-3);
-            if last_departure.is_some() {
+            /*if last_departure.is_some() {
                 p *= self.store.borrow_mut().before_probability(last_departure.unwrap(), last_product_type, true, departure.unwrap(), departure_product_type, 1, self.now);
-            }
+            }*/
             if p > 0.0 && !is_continuing {
                 p *= self.store.borrow_mut().before_probability(from_arrival, from_product_type, false, departure.unwrap(), departure_product_type, transfer_time, self.now);
             }
