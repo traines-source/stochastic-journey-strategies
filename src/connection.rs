@@ -29,6 +29,7 @@ impl Route {
 pub struct Station {
 	pub id: String,
 	pub name: String,
+	pub arrivals: Vec<usize>,
 	pub departures: RefCell<Vec<usize>>,
 	pub lat: f32,
 	pub lon: f32,
@@ -41,6 +42,7 @@ impl<'a> Station {
 		Station {
 			id: id,
 			name: name,
+			arrivals: vec![],
 			departures: RefCell::new(departures),
 			lat: 0.,
 			lon: 0.,

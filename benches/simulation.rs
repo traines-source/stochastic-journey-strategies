@@ -252,6 +252,12 @@ pub struct SimulationRun {
     results: Vec<SimulationJourney>
 }
 
+struct StochActions {
+    station_labels: HashMap<usize, Vec<topocsa::ConnectionLabel>>,
+    connection_pairs: HashMap<usize, usize>,
+    connection_pairs_reverse: HashMap<usize, usize>
+}
+
 fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
     let conf = load_config("./benches/config/config.json");
 
@@ -259,7 +265,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
     store.load_distributions(&conf.distributions_path);
 
     let mut tt = gtfs::load_gtfs_cache(&conf.gtfs_cache_path);
-    let t = gtfs::load_timetable(&conf.gtfs_path, day(2023, 11, 1), day(2023, 11, 2));
+    let t = gtfs::load_timetable(&conf.gtfs_path, day(2023, 11, 2), day(2023, 11, 3));
     //update_footpaths(&t, &mut tt);
     if conf.transfer == "short" {
         shorten_footpaths(&mut tt);
@@ -269,7 +275,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
     let start_time = 8050;
     let stop_pairs: Vec<(usize, usize, i32)> = load_samples(&conf.samples_config_path).into_iter().take(conf.samples).map(|s| (s.from_idx, s.to_idx, start_time)).collect();
     let mut det_actions: HashMap<(usize, usize, i32), motis_nigiri::Journey> = HashMap::new();
-    let mut stoch_actions: HashMap<(usize, usize, i32), HashMap<usize, Vec<topocsa::ConnectionLabel>>> = HashMap::new();
+    let mut stoch_actions: HashMap<(usize, usize, i32), StochActions> = HashMap::new();
     let mut det_log: HashMap<(usize, usize, i32), Vec<LogEntry>> = HashMap::new();
     let mut stoch_log: HashMap<(usize, usize, i32), Vec<LogEntry>> = HashMap::new();
     let mut results: HashMap<(usize, usize, i32), SimulationJourney> = HashMap::new();
@@ -330,7 +336,13 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                     println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch.get(&pair.0).is_some_and(|s| s.len() > 0));
                 } else {
                     det_actions.insert(*pair, min_journey.unwrap());
-                    stoch_actions.insert(*pair, stoch);
+                    let relevant_stations = env.relevant_stations(pair.2, pair.0, pair.1, &stoch);
+                    let relevant_pairs = env.relevant_connection_pairs(relevant_stations);
+                    stoch_actions.insert(*pair, StochActions{
+                        station_labels: stoch,
+                        connection_pairs_reverse: relevant_pairs.iter().map(|(k,v)| (*v,*k)).collect(),
+                        connection_pairs: relevant_pairs
+                    });
                 }
                 det_log.insert(*pair, vec![]);
                 stoch_log.insert(*pair, vec![]);
@@ -363,6 +375,31 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
             }
             if det_actions.get(pair).is_none() || stoch_actions.get(pair).is_none() {
                 continue;
+            }
+            if conf.det_simulation == "priori_online_broken" {
+                if results[pair].det.broken {
+                    let stuck_at = det_log[pair].last().map(|l| tt.connections[l.conn_idx].to_idx).unwrap_or(pair.0);
+                    let min_journey = t.get_journeys(stuck_at, pair.1, current_time, false).journeys.into_iter().reduce(|a, b| if a.dest_time < b.dest_time {a} else {b});
+                    if min_journey.is_some() {
+                        det_actions.insert(*pair, min_journey.unwrap());
+                    }
+                }
+            }
+            if conf.stoch_simulation == "adaptive_online_relevant" {
+                println!("relevant topocsa...");
+                let mut env = topocsa::new(
+                    &mut store,
+                    &mut tt.connections,
+                    &tt.stations,
+                    tt.cut.clone(),
+                    &mut tt.order,
+                    start_time,
+                    0.01,
+                    true,
+                );
+                let stoch = env.pair_query(&tt.stations[pair.0], &tt.stations[pair.1], &stoch_actions[pair].connection_pairs);
+                stoch_actions.get_mut(pair).unwrap().station_labels = stoch;
+                println!("relevant topocsa done.");
             }
             let mut repeat = true;
             while repeat {
@@ -459,13 +496,17 @@ fn get_det_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, det_actions
     alternatives
 }
 
-fn get_stoch_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, stoch_actions: &HashMap<usize, Vec<topocsa::ConnectionLabel>>) -> Vec<Alternative> {
+fn get_stoch_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, stoch_actions: &StochActions) -> Vec<Alternative> {
     let mut alternatives: Vec<Alternative> = vec![];
-    let mut i = 0;
     let footpaths = &tt.stations[current_stop_idx].footpaths;
-    while i <= footpaths.len() {
+    for i in 0..footpaths.len()+1 {
         let stop_idx = if i == footpaths.len() { current_stop_idx } else { footpaths[i].target_location_idx };
-        alternatives.extend(stoch_actions[&stop_idx].iter().filter_map(|l| {
+        let station_labels = stoch_actions.station_labels.get(&stop_idx);
+        if station_labels.is_none() {
+            continue;
+        }
+        println!("label len: {} {}", station_labels.unwrap().len(), stoch_actions.connection_pairs.len());
+        alternatives.extend(station_labels.unwrap().iter().filter_map(|l| {
             if l.destination_arrival.mean == 0.0 {
                 panic!("weirdly 0");
             }
@@ -474,13 +515,12 @@ fn get_stoch_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, stoch_act
             }
             Some(Alternative{
                 from_conn_idx: l.connection_idx,
-                to_conn_idx: l.connection_idx,
+                to_conn_idx: stoch_actions.connection_pairs_reverse[&l.connection_idx],
                 proj_dest_arr: l.destination_arrival.mean
             })
         }));
-            
-        i += 1;
     }
+
     alternatives.sort_by(|a, b| a.proj_dest_arr.partial_cmp(&b.proj_dest_arr).unwrap());
     alternatives
 }
@@ -582,7 +622,7 @@ fn summary(values: Vec<f32>, name: &str) {
 }
 
 pub fn analyze_simulation() {
-    let run = load_simulation_run("./benches/runs/1705855019.priori_offline.adaptive_offline.short.ign.json");
+    let run = load_simulation_run("./benches/runs/1706698538.priori_online_broken.adaptive_online_relevant.short.ign.json");
     let mut a = SimulationAnalysis {
         det_infeasible: 0,
         det_broken: 0,

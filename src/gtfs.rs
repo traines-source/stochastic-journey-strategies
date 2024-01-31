@@ -30,6 +30,7 @@ pub fn retrieve<'a, 'b>(t: &Timetable, stations: &'a mut Vec<connection::Station
         let mut station = connection::Station {
             id: l.id.to_string(), 
             name: l.name.to_string(),
+            arrivals: vec![],
             departures: RefCell::new(vec![]),
             lat: l.lat,
             lon: l.lon,
@@ -61,6 +62,7 @@ pub fn retrieve<'a, 'b>(t: &Timetable, stations: &'a mut Vec<connection::Station
             to_idx, c.arrival.try_into().unwrap(), None
         ));
         stations[from_idx].departures.borrow_mut().push(id);
+        stations[to_idx].arrivals.push(id);
     }
     gtfs_connections.into()
 }

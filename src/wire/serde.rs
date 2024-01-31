@@ -66,6 +66,7 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connec
                 }) });
                 connections.push(nc);
                 stations[from_idx].departures.borrow_mut().push(id);
+                stations[to_idx].arrivals.push(id);
             }
             trip_id += 1;
         }

@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::hash::Hash;
 
 use indexmap::IndexMap;
 use motis_nigiri::EventChange;
@@ -96,7 +97,7 @@ impl<'a, 'b> Environment<'b> {
             let footpaths = &self.stations[c.to_idx].footpaths;
             'outer: while i <= footpaths.len() {
                 let station_idx = if i == footpaths.len() { c.to_idx } else { footpaths[i].target_location_idx };
-                let transfer_time = if i == footpaths.len() { 1 } else { 1+footpaths[i].duration as i32 };
+                let transfer_time = if i == footpaths.len() { 1 } else { footpaths[i].duration as i32 };
                 let deps = self.stations[station_idx].departures.borrow();
                 for dep_id in &*deps {
                     let dep = self.connections.get(*dep_id).unwrap();
@@ -203,17 +204,21 @@ impl<'a, 'b> Environment<'b> {
             None => println!("Failed to find matching connection for update.")
         }
     }
-
     pub fn query(&mut self, _origin: &'a connection::Station, destination: &'a connection::Station) -> HashMap<usize, Vec<ConnectionLabel>> {
+        let pairs = HashMap::new();
+        self.pair_query(_origin, destination, &pairs)
+    }
+
+    pub fn pair_query(&mut self, _origin: &'a connection::Station, destination: &'a connection::Station, connection_pairs: &HashMap<usize, usize>) -> HashMap<usize, Vec<ConnectionLabel>> {
         let mut station_labels: HashMap<usize, Vec<ConnectionLabel>> = HashMap::new();
         let empty_vec = vec![];
         for i in 0..self.connections.len() {
+            if connection_pairs.len() > 0 && !connection_pairs.contains_key(&i) {
+                continue;
+            }
             let c = self.connections.get(i).unwrap();
             if !station_labels.contains_key(&c.to_idx) {
                 station_labels.insert(c.to_idx, vec![]);
-            }
-            if !station_labels.contains_key(&c.from_idx) {
-                station_labels.insert(c.from_idx, vec![]);
             }
             if c.cancelled {
                 c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
@@ -245,9 +250,15 @@ impl<'a, 'b> Environment<'b> {
                 footpath_distributions.sort_by(|a, b| a.mean.partial_cmp(&b.mean).unwrap());
                 self.new_destination_arrival(c.to_idx, c.id, c.trip_id, c.route_idx, c.product_type, &c.arrival, 1, &station_labels, &footpath_distributions, &mut new_distribution);   
             }
-            let station_label = station_labels.get_mut(&c.from_idx);
+            let departure_conn_idx = if connection_pairs.len() == 0 { i } else { connection_pairs[&i] };
+            let departure_conn = if connection_pairs.len() == 0 { c } else { &self.connections[connection_pairs[&i]] };
+            let departure_station_idx = departure_conn.from_idx;
+            if !station_labels.contains_key(&departure_station_idx) {
+                station_labels.insert(departure_station_idx, vec![]);
+            }
+            let station_label = station_labels.get_mut(&departure_station_idx);
             let departures = station_label.unwrap();
-            c.destination_arrival.replace(Some(new_distribution.clone())); // TODO remove
+            departure_conn.destination_arrival.replace(Some(new_distribution.clone())); // TODO remove
             if new_distribution.feasible_probability > 0.0 {
                 // TODO pareto? - sort incoming departures and connections by dep?
                 let mut j = departures.len() as i32-1;
@@ -262,13 +273,13 @@ impl<'a, 'b> Environment<'b> {
                 if ((j+1) as usize) < departures.len() {
                     let reference = &self.connections[departures[(j+1) as usize].connection_idx];
                     let dep_dist_ref = self.store.borrow_mut().delay_distribution(&reference.departure, true, reference.product_type, self.now).mean; // TODO opt
-                    let dep_dist_c = self.store.borrow_mut().delay_distribution(&c.departure, true, c.product_type, self.now).mean; // TODO opt
-                        if dep_dist_c < dep_dist_ref {
+                    let dep_dist_c = self.store.borrow_mut().delay_distribution(&departure_conn.departure, true, departure_conn.product_type, self.now).mean; // TODO opt
+                    if dep_dist_c < dep_dist_ref {
                         do_insert = false;
                     }
                 }
                 if do_insert {
-                departures.insert((j+1) as usize, ConnectionLabel{connection_idx: i, destination_arrival: new_distribution});
+                    departures.insert((j+1) as usize, ConnectionLabel{connection_idx: departure_conn_idx, destination_arrival: new_distribution});
                 }
             }
         }
@@ -344,6 +355,138 @@ impl<'a, 'b> Environment<'b> {
         new_distribution.feasible_probability = (1.0-remaining_probability).clamp(0.0,1.0);
         if new_distribution.feasible_probability < 1.0 {
             new_distribution.normalize_with(self.mean_only);
+        }
+    }
+
+    pub fn relevant_stations(&mut self, start_time: types::Mtime, origin_idx: usize, destination_idx: usize, station_labels: &HashMap<usize, Vec<ConnectionLabel>>) -> HashMap<usize, f32> {
+        let origin = connection::StopInfo {
+            scheduled: start_time,
+            delay: None,
+            scheduled_track: "".to_string(),
+            projected_track: "".to_string()
+        };
+        println!("from {} {} to {} {}", origin_idx, self.stations[origin_idx].name, destination_idx, self.stations[destination_idx].name);
+        let mut stack = vec![(self.order[&self.stations[origin_idx].arrivals[0]].order, 1.0)];
+        println!("starting: {}", self.stations[self.connections[stack[0].0].to_idx].name);
+        let mut weights_by_station_idx: HashMap<usize, f32> = HashMap::new();
+        'outer: while !stack.is_empty() {
+            let conn_with_prob = stack.pop().unwrap();
+            let c = &self.connections[conn_with_prob.0];
+            let station_idx = c.to_idx;
+            if station_idx == destination_idx {
+                weights_by_station_idx.insert(station_idx, 1000.0);
+                continue;
+            }
+
+            let mut departures = vec![&station_labels[&station_idx]];
+            let mut transfer_times = vec![1];
+            let footpaths = &self.stations[station_idx].footpaths;
+            for i in 0..footpaths.len() {
+                let stop_idx = footpaths[i].target_location_idx;
+                if stop_idx == destination_idx {
+                    for i in 0..footpaths.len() {
+                        weights_by_station_idx.insert(footpaths[i].target_location_idx, 1000.0);
+                    }
+                    continue 'outer;
+                }
+                let transfer_time = footpaths[i].duration as i32;
+                departures.push(&station_labels[&stop_idx]);
+                transfer_times.push(transfer_time);
+            }
+            let mut is = vec![0; transfer_times.len()];
+            let mut remaining_probability = 1.0;
+            while remaining_probability > self.epsilon {
+                let mut min_mean = 1440.0*100.0;
+                let mut min_k = 0;
+                let mut found = false;
+                for k in 0..departures.len() {
+                    if is[k] < departures[k].len() {
+                        let cand = departures[k][departures[k].len()-is[k]-1].destination_arrival.mean;
+                        if cand < min_mean {
+                            min_mean = cand;
+                            min_k = k;
+                            found = true;
+                        }
+                    }
+                }
+                if !found {
+                    break;
+                }
+                let dep_label = &departures[min_k][departures[min_k].len()-is[min_k]-1];
+                let mut p: f32 = dep_label.destination_arrival.feasible_probability;
+                let dep = &self.connections[dep_label.connection_idx];
+                is[min_k] += 1;
+
+                if self.cut.contains(&(c.id, dep.id)) {
+                    continue;
+                }
+                if station_idx == origin_idx {
+                    p *= self.store.borrow_mut().before_probability(&origin, 100, false, &dep.departure, dep.product_type, transfer_times[min_k], self.now);                            
+                } else if p > 0.0 && !c.is_consecutive(dep) {
+                    p *= self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_times[min_k], self.now);
+                }
+                if p <= self.epsilon {
+                    continue;
+                }
+                let dep_prob = p*remaining_probability*conn_with_prob.1;
+                if !c.is_consecutive(dep) || station_idx == origin_idx {
+                    let mut w = *weights_by_station_idx.get(&dep.from_idx).unwrap_or(&0.0);
+                    w += dep_prob;
+                    weights_by_station_idx.insert(dep.from_idx, w);
+                    //println!("{} {} {}", dep.from_idx, self.stations[dep.from_idx].name, w);
+                    if station_idx != dep.from_idx {
+                        let mut w = *weights_by_station_idx.get(&station_idx).unwrap_or(&0.0);
+                        w += dep_prob;
+                        weights_by_station_idx.insert(station_idx, w);    
+                        //println!("{} {} {}", station_idx, self.stations[station_idx].name, w);
+
+                    }
+                }
+                if dep_prob > self.epsilon*self.epsilon {
+                    stack.push((dep_label.connection_idx, dep_prob));
+                }
+                remaining_probability = (1.0-p).clamp(0.0,1.0)*remaining_probability;
+            }
+        }
+        for w in &weights_by_station_idx {
+            println!("{} {} {}", w.0, self.stations[*w.0].name, w.1);
+
+        }
+        weights_by_station_idx
+    }
+
+    pub fn relevant_connection_pairs(&mut self, weights_by_station_idx: HashMap<usize, f32>) -> HashMap<usize, usize> {
+        let mut stations: Vec<(usize, f32)> = weights_by_station_idx.into_iter().collect();
+        stations.sort_by(|a,b| b.1.partial_cmp(&a.1).unwrap());
+        let mut trip_id_to_conn_idxs: HashMap<i32, Vec<(usize, bool)>> = HashMap::new();
+        for i in 0..std::cmp::min(stations.len(), 500) {
+            for arr in &self.stations[stations[i].0].arrivals {
+                self.insert_relevant_conn_idx(arr, &mut trip_id_to_conn_idxs, false);
+            }
+            for dep in &*self.stations[stations[i].0].departures.borrow() {
+                self.insert_relevant_conn_idx(dep, &mut trip_id_to_conn_idxs, true);
+            }
+        }
+        let mut connection_pairs = HashMap::new();
+        for trip in trip_id_to_conn_idxs.values_mut() {
+            trip.sort_by(|a,b| self.connections[a.0].departure.scheduled.cmp(&self.connections[b.0].departure.scheduled).then(b.1.cmp(&a.1)));
+            let mut i = if !trip[0].1 { 1 } else { 0 };
+            while i+1 < trip.len() {
+                connection_pairs.insert(trip[i+1].0, trip[i].0);
+                i += 2;
+            }
+        }
+        connection_pairs
+    }
+
+    fn insert_relevant_conn_idx(&mut self, conn_id: &usize, trip_id_to_conn_idxs: &mut HashMap<i32, Vec<(usize, bool)>>, is_departure: bool) {
+        let connidx = self.order[conn_id].order;
+        let c = &self.connections[connidx];
+        match trip_id_to_conn_idxs.get_mut(&c.trip_id) {
+            Some(list) => list.push((connidx, is_departure)),
+            None => {
+                trip_id_to_conn_idxs.insert(c.trip_id, vec![(connidx, is_departure)]);
+            }
         }
     }
 }
