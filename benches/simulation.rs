@@ -381,7 +381,9 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                     let stuck_at = det_log[pair].last().map(|l| tt.connections[l.conn_idx].to_idx).unwrap_or(pair.0);
                     let min_journey = t.get_journeys(stuck_at, pair.1, current_time, false).journeys.into_iter().reduce(|a, b| if a.dest_time < b.dest_time {a} else {b});
                     if min_journey.is_some() {
+                        println!("Replacing broken det itinerary.");
                         det_actions.insert(*pair, min_journey.unwrap());
+                        results.get_mut(pair).unwrap().det.broken = false;
                     }
                 }
             }
@@ -546,7 +548,7 @@ fn step(current_time: i32, start_time: i32, current_stop_idx: usize, alternative
                         result.original_dest_arrival_prediction = alt.proj_dest_arr;
                     }
                     update_connections_taken(result, &next_c, stations, alt.proj_dest_arr);
-                    println!("step {} {} {} {} {} {} {} {}", alt.from_conn_idx, alt.to_conn_idx, next_c.from_idx, next_c.trip_id, next_c.arrival.scheduled, next_c.arrival.projected(), next_c.departure.scheduled, next_c.departure.projected());
+                    println!("step {} {} {} from/to: {} {} trip: {} arr: {} {} dep: {} {} to_conn: dp: {} {} arr: {} {} from/to: {} {} trip: {}", arrival_time, alt.from_conn_idx, alt.to_conn_idx, next_c.from_idx, next_c.to_idx, next_c.trip_id, next_c.arrival.scheduled, next_c.arrival.projected(), next_c.departure.scheduled, next_c.departure.projected(), connections[alt.to_conn_idx].departure.scheduled, connections[alt.to_conn_idx].departure.projected(), connections[alt.to_conn_idx].arrival.scheduled, connections[alt.to_conn_idx].arrival.projected(), connections[alt.to_conn_idx].from_idx, connections[alt.to_conn_idx].to_idx, connections[alt.to_conn_idx].trip_id);
                     log.push(LogEntry{
                         conn_idx: alt.to_conn_idx,
                         proj_dest_arr: alt.proj_dest_arr,
@@ -585,6 +587,9 @@ fn update_connections_taken(result: &mut SimulationResult, connection: &connecti
     }));
     conn.message = format!("from: {} {} to: {} {}", stations[conn.from_idx].id, stations[conn.from_idx].name, stations[conn.to_idx].id, stations[conn.to_idx].name);
     result.connections_taken.push(conn);
+    if result.broken {
+        println!("Updating broken journey to make it feasible again.");
+    }
     result.broken = false;
 }
 
@@ -622,7 +627,7 @@ fn summary(values: Vec<f32>, name: &str) {
 }
 
 pub fn analyze_simulation() {
-    let run = load_simulation_run("./benches/runs/1706698538.priori_online_broken.adaptive_online_relevant.short.ign.json");
+    let run = load_simulation_run("./benches/runs/1706729466.priori_online_broken.adaptive_online_relevant.short.ign.json");
     let mut a = SimulationAnalysis {
         det_infeasible: 0,
         det_broken: 0,
