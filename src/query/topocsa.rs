@@ -135,11 +135,17 @@ impl<'a, 'b> Environment<'b> {
                                 }
                                 if min_i == trace.len() {
                                     self.cut.insert((c_id, *dep_id));
+                                    if c.trip_id == dep.trip_id {
+                                        //panic!("cutting trip"); 
+                                    }
                                     continue;
                                 }
                                 let cut_before = trace.get_index(min_i).unwrap();
                                 let cut_after = trace.get_index(min_i-1).unwrap();
                                 self.cut.insert((*cut_after.0, *cut_before.0));
+                                if self.connections[*cut_after.0].trip_id == self.connections[*cut_before.0].trip_id {
+                                    //panic!("cutting trip"); TODO
+                                }
                                 stack.truncate(*cut_before.1);
                                 for _ in min_i..trace.len() {
                                     let l = self.order.get_mut(&trace.pop().unwrap().0).unwrap();
@@ -469,7 +475,10 @@ impl<'a, 'b> Environment<'b> {
         }
         let mut connection_pairs = HashMap::new();
         for trip in trip_id_to_conn_idxs.values_mut() {
-            trip.sort_by(|a,b| self.connections[a.0].departure.scheduled.cmp(&self.connections[b.0].departure.scheduled).then(self.connections[a.0].id.cmp(&self.connections[b.0].id)));
+            trip.sort_by(|a,b| self.connections[a.0].departure.scheduled.cmp(&self.connections[b.0].departure.scheduled)
+                .then(self.connections[a.0].id.cmp(&self.connections[b.0].id))
+                .then(b.1.cmp(&a.1))
+            );
             let mut i = if !trip[0].1 { 1 } else { 0 };
             while i+1 < trip.len() {
                 connection_pairs.insert(trip[i+1].0, trip[i].0);

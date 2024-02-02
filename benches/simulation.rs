@@ -336,7 +336,12 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                     println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch.get(&pair.0).is_some_and(|s| s.len() > 0));
                 } else {
                     det_actions.insert(*pair, min_journey.unwrap());
-                    let relevant_stations = env.relevant_stations(pair.2, pair.0, pair.1, &stoch);
+                    let mut relevant_stations = env.relevant_stations(pair.2, pair.0, pair.1, &stoch);
+                    println!("Enriching relevant stations...");
+                    for l in &det_actions[pair].legs {
+                        println!("{} {} {:?}", l.from_location_idx, tt.stations[l.from_location_idx].name, relevant_stations.insert(l.from_location_idx, 1000.0));
+                        println!("{} {} {:?}", l.to_location_idx, tt.stations[l.to_location_idx].name, relevant_stations.insert(l.to_location_idx, 1000.0));
+                    }
                     let relevant_pairs = env.relevant_connection_pairs(relevant_stations);
                     stoch_actions.insert(*pair, StochActions{
                         station_labels: stoch,
@@ -395,7 +400,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                     &tt.stations,
                     tt.cut.clone(),
                     &mut tt.order,
-                    start_time,
+                    current_time,
                     0.01,
                     true,
                 );
