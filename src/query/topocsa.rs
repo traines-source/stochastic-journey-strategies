@@ -72,9 +72,7 @@ impl<'a, 'b> Environment<'b> {
         let mut unraveling_time = 0;
         let mut unraveling_no = 0;
         let mut stack: Vec<usize> = Vec::with_capacity(10000);
-        //let mut trace: IndexMap<usize, usize> = IndexMap::with_capacity(1000);
-        let mut trace: Vec<(usize, usize)> = vec![];
-        let mut trace_cuts: Vec<usize> = vec![];
+        let mut trace: IndexMap<usize, usize> = IndexMap::with_capacity(1000);
         stack.push(anchor_id);
         self.order.insert(anchor_id, ConnectionOrder{visited: 0, order: 0});
         while !stack.is_empty() {
@@ -83,26 +81,16 @@ impl<'a, 'b> Environment<'b> {
             let c_label = self.order.get_mut(&c_id).unwrap();
             if c_label.visited == 0 {
                 c_label.visited = 1;
-                trace.push((c_id, stack.len()-1));
-                //println!("inserting trace {} {:?}", c_id, trace);
+                trace.insert(c_id, stack.len()-1);
             } else {
                 if c_label.visited == 1 {
                     c_label.order = *topo_idx;
                     *topo_idx += 1;
-                    
-                } else {
-                    assert_eq!(c_label.visited, 2);
-                }
-                if trace.last().is_some_and(|t| t.0 == c_id) {
                     let p = trace.pop().unwrap();
                     assert_eq!(p.0, c_id);
                     assert_eq!(p.1, stack.len()-1);
-                    match trace_cuts.last() {
-                        Some(cut) => if *cut >= trace.len() {
-                            trace_cuts.pop();
-                        },
-                        None => ()
-                    };
+                } else {
+                    assert_eq!(c_label.visited, 2);
                 }
                 c_label.visited = 2;
                 stack.pop();
@@ -122,45 +110,25 @@ impl<'a, 'b> Environment<'b> {
                     let is_continuing = if i == footpaths.len() { c.is_consecutive(dep) } else { false };
                     // TODO max reachability independent from now
                     if !is_continuing {
-
                         let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
-
                         if reachable <= self.epsilon {
                             continue;
                         }
-
                     }
                     let dep_label = self.order.get(dep_id);
                     if dep_label.is_some() {
                         let dep_label = dep_label.unwrap();
                         if dep_label.visited == 1 {
-                        let start_ts = Instant::now();
-
-                            let mut trace_idx = None;
-                            for k in (0..trace.len()).rev() {
-                                if trace[k].0 == *dep_id {
-                                    trace_idx = Some(k);
-                                    break;
-                                }
-                            }
+                            let trace_idx = trace.get_index_of(dep_id);
                             if trace_idx.is_some() {
-                                match trace_cuts.last() {
-                                    Some(cut_idx) => if *cut_idx > trace_idx.unwrap() {
-                                        stack.push(*dep_id);
-                                        self.order.insert(*dep_id, ConnectionOrder { visited: 0, order: 0 });
-                                        unraveling_time += start_ts.elapsed().as_micros();
-
-                                        continue;
-                                    },
-                                    None => ()
-                                };
+                                let start_ts = Instant::now();
                                 let transfer_time = dep.departure.projected()-c.arrival.projected();
                                 let mut min_transfer = if c.is_consecutive(dep) { 1 } else { transfer_time };
                                 let mut min_i = trace.len();
                                 let start = trace_idx.unwrap()+1 as usize;
                                 for i in start..trace.len() {
-                                    let a = &self.connections[trace.get(i-1).unwrap().0];
-                                    let b = &self.connections[trace.get(i).unwrap().0];
+                                    let a = &self.connections[*trace.get_index(i-1).unwrap().0];
+                                    let b = &self.connections[*trace.get_index(i).unwrap().0];
                                     if a.is_consecutive(b) {
                                         continue;
                                     }
@@ -171,38 +139,33 @@ impl<'a, 'b> Environment<'b> {
                                     }
                                 }
                                 if min_transfer > 0 {
-                                    panic!("cutting positive transfer {} {:?}  {:?} {:?} {} {}", start, trace, c, dep, min_transfer, transfer_time)
+                                    panic!("cutting positive transfer {:?} {:?} {} {}", c.departure, c.route_idx, min_transfer, transfer_time)
                                 }
                                 if min_i == trace.len() {
                                     self.cut.insert((c_id, *dep_id));
                                     if c.is_consecutive(dep) {
                                         panic!("cutting trip"); 
                                     }
-                                    unraveling_time += start_ts.elapsed().as_micros();
-
                                     continue;
                                 }
-                                let cut_before = trace.get(min_i).unwrap();
-                                let cut_after = trace.get(min_i-1).unwrap();
-                                self.cut.insert((cut_after.0, cut_before.0));
-                                if self.connections[cut_after.0].is_consecutive(&self.connections[cut_before.0]) {
-                                    panic!("cutting trip {:?} {:?}", self.connections[cut_after.0],self.connections[cut_before.0]);
+                                let cut_before = trace.get_index(min_i).unwrap();
+                                let cut_after = trace.get_index(min_i-1).unwrap();
+                                self.cut.insert((*cut_after.0, *cut_before.0));
+                                if self.connections[*cut_after.0].is_consecutive(&self.connections[*cut_before.0]) {
+                                    panic!("cutting trip {:?} {:?}", self.connections[*cut_after.0],self.connections[*cut_before.0]);
                                 }
-                                unraveling_no += stack.len()-cut_before.1;
-                                trace_cuts.push(min_i);
-                                /*stack.truncate(cut_before.1);
+                                unraveling_no += stack.len()-*cut_before.1;
+                                stack.truncate(*cut_before.1);
                                 for _ in min_i..trace.len() {
                                     let l = self.order.get_mut(&trace.pop().unwrap().0).unwrap();
                                     assert_eq!(l.visited, 1);
                                     l.visited = 0;
                                 }
-                                break 'outer;*/
-                                //continue;
+                                unraveling_time += start_ts.elapsed().as_micros();
+                                break 'outer;
                             } else {
                                 panic!("marked as visited but not in trace {:?} {:?}", *dep_id, trace);
                             }
-                            unraveling_time += start_ts.elapsed().as_micros();
-
                         } else if dep_label.visited == 2 {
                             continue;
                         }
