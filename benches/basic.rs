@@ -27,6 +27,25 @@ fn from_relevant(c: &mut Criterion) {
     group.finish();
 }
 
+fn measure_prepare(c: &mut Criterion) {
+    let mut store = distribution_store::Store::new();
+    store.load_distributions("./data/de_db.csv");
+
+    let bytes: Vec<u8> = serde::read_protobuf("./tests/fixtures/basic.pb");
+    let mut stations = vec![];
+    let mut routes = vec![];
+    let mut connections = vec![];
+    let (start_time, o, d, now, _) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
+
+    let mut group = c.benchmark_group("once");
+    group.sample_size(10); //measurement_time(Duration::from_secs(10))
+    group.bench_function("basic", |b| b.iter(|| {
+        let mut order = HashMap::with_capacity(connections.len());
+        topocsa::prepare(black_box(&mut store), black_box(&mut connections.clone()), black_box(&stations), black_box(&mut order), black_box(serde::to_mtime(now, start_time)), black_box(0.0), black_box(true));
+    }));
+    group.finish();
+}
+
 fn from_gtfs(c: &mut Criterion) {
     let mut store = distribution_store::Store::new();
     store.load_distributions("./data/ch_sbb.csv");
@@ -42,5 +61,6 @@ fn from_gtfs(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, from_relevant, from_gtfs);
+//criterion_group!(benches, from_relevant, from_gtfs, measure_prepare);
+criterion_group!(benches, measure_prepare);
 

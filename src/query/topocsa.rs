@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::Hash;
+use std::time::Instant;
 
 use indexmap::IndexMap;
 use motis_nigiri::EventChange;
@@ -68,13 +69,15 @@ pub struct ConnectionLabel {
 impl<'a, 'b> Environment<'b> {
 
     fn dfs(&mut self, anchor_id: usize, topo_idx: &mut usize, max_stack: &mut usize, max_trace: &mut usize) {
-        let mut stack: Vec<usize> = Vec::with_capacity(self.connections.len());
-        let mut trace: IndexMap<usize, usize> = IndexMap::with_capacity(self.connections.len());
+        let mut unraveling_time = 0;
+        let mut unraveling_no = 0;
+        let mut stack: Vec<usize> = Vec::with_capacity(10000);
+        let mut trace: IndexMap<usize, usize> = IndexMap::with_capacity(1000);
         stack.push(anchor_id);
         self.order.insert(anchor_id, ConnectionOrder{visited: 0, order: 0});
         while !stack.is_empty() {
             let c_id = *stack.last().unwrap();
-            let c = self.connections.get(c_id).unwrap();
+            let c = &self.connections[c_id];
             let c_label = self.order.get_mut(&c_id).unwrap();
             if c_label.visited == 0 {
                 c_label.visited = 1;
@@ -100,12 +103,11 @@ impl<'a, 'b> Environment<'b> {
                 let transfer_time = if i == footpaths.len() { 1 } else { footpaths[i].duration as i32 };
                 let deps = self.stations[station_idx].departures.borrow();
                 for dep_id in &*deps {
-                    let dep = self.connections.get(*dep_id).unwrap();
-                    let is_continuing = if i == footpaths.len() { c.is_consecutive(dep) } else { false };
-                    let dep_label = self.order.get(dep_id);
                     if self.cut.contains(&(c_id, *dep_id)) {
                         continue;
                     }
+                    let dep = self.connections.get(*dep_id).unwrap();
+                    let is_continuing = if i == footpaths.len() { c.is_consecutive(dep) } else { false };
                     // TODO max reachability independent from now
                     if !is_continuing {
                         let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
@@ -113,18 +115,24 @@ impl<'a, 'b> Environment<'b> {
                             continue;
                         }
                     }
+                    let dep_label = self.order.get(dep_id);
                     if dep_label.is_some() {
                         let dep_label = dep_label.unwrap();
                         if dep_label.visited == 1 {
                             let trace_idx = trace.get_index_of(dep_id);
                             if trace_idx.is_some() {
+                                let start_ts = Instant::now();
                                 let transfer_time = dep.departure.projected()-c.arrival.projected();
-                                let mut min_transfer = transfer_time;
+                                let mut min_transfer = if c.is_consecutive(dep) { 1 } else { transfer_time };
                                 let mut min_i = trace.len();
                                 let start = trace_idx.unwrap()+1 as usize;
                                 for i in start..trace.len() {
-                                    let test = trace.get_index(i).unwrap();
-                                    let t = self.connections.get(*test.0).unwrap().departure.projected()-self.connections.get(*trace.get_index(i-1).unwrap().0).unwrap().arrival.projected();
+                                    let a = &self.connections[*trace.get_index(i-1).unwrap().0];
+                                    let b = &self.connections[*trace.get_index(i).unwrap().0];
+                                    if a.is_consecutive(b) {
+                                        continue;
+                                    }
+                                    let t = b.departure.projected()-a.arrival.projected();
                                     if t < min_transfer {
                                         min_transfer = t;
                                         min_i = i;
@@ -135,23 +143,25 @@ impl<'a, 'b> Environment<'b> {
                                 }
                                 if min_i == trace.len() {
                                     self.cut.insert((c_id, *dep_id));
-                                    if c.trip_id == dep.trip_id {
-                                        //panic!("cutting trip"); 
+                                    if c.is_consecutive(dep) {
+                                        panic!("cutting trip"); 
                                     }
                                     continue;
                                 }
                                 let cut_before = trace.get_index(min_i).unwrap();
                                 let cut_after = trace.get_index(min_i-1).unwrap();
                                 self.cut.insert((*cut_after.0, *cut_before.0));
-                                if self.connections[*cut_after.0].trip_id == self.connections[*cut_before.0].trip_id {
-                                    //panic!("cutting trip"); TODO
+                                if self.connections[*cut_after.0].is_consecutive(&self.connections[*cut_before.0]) {
+                                    panic!("cutting trip {:?} {:?}", self.connections[*cut_after.0],self.connections[*cut_before.0]);
                                 }
+                                unraveling_no += stack.len()-*cut_before.1;
                                 stack.truncate(*cut_before.1);
                                 for _ in min_i..trace.len() {
                                     let l = self.order.get_mut(&trace.pop().unwrap().0).unwrap();
                                     assert_eq!(l.visited, 1);
                                     l.visited = 0;
                                 }
+                                unraveling_time += start_ts.elapsed().as_micros();
                                 break 'outer;
                             } else {
                                 panic!("marked as visited but not in trace {:?} {:?}", *dep_id, trace);
@@ -172,7 +182,7 @@ impl<'a, 'b> Environment<'b> {
                 *max_trace = trace.len();
             }
         }
-        println!("max stack {} trace {}", max_stack, max_trace);
+        println!("max stack {} trace {} unraveling: {} {}", max_stack, max_trace, unraveling_time, unraveling_no);
     }
     
     pub fn preprocess(&mut self) {
@@ -181,13 +191,14 @@ impl<'a, 'b> Environment<'b> {
         
         let mut max_stack = 0;
         let mut max_trace = 0;
+        let start = Instant::now();
         for i in 0..self.connections.len() {
             if !self.order.contains_key(&i) || self.order.get(&i).unwrap().visited != 2 {
                 self.dfs(i, &mut topo_idx, &mut max_stack, &mut max_trace);
                 println!("connections {} cycles found {} labels {} done {}", self.connections.len(), self.cut.len(), self.order.len(), i);
             }
         }
-        println!("Done DFSing.");
+        println!("Done DFSing. {}", start.elapsed().as_millis());
         self.connections.sort_by(|a, b|
             self.order.get(&a.id).unwrap().order.partial_cmp(&self.order.get(&b.id).unwrap().order).unwrap()
         );
