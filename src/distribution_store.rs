@@ -223,6 +223,10 @@ impl Store {
     }
 
     pub fn before_probability(&mut self, from: &connection::StopInfo, from_product_type: i16, from_is_departure: bool, to: &connection::StopInfo, to_product_type: i16, transfer_time: i32, now: types::Mtime) -> f32 {
+        let diff = (to.projected()-from.projected()-transfer_time) as i16;
+        /*if diff < -180 {
+            return 0.0;
+        }*/
         let ttl = self.ttl_bucket((from.projected()-now) as i32);
         let key = ReachabilityKey{
             from_product_type,
@@ -230,7 +234,7 @@ impl Store {
             from_prior_delay: self.delay_bucket(from.delay, ttl),
             to_prior_delay: self.delay_bucket(to.delay, ttl),
             prior_ttl: ttl,
-            diff: (to.projected()-from.projected()-transfer_time) as i16,
+            diff: diff,
             from_is_departure: from_is_departure
         };
         match self.reachability.get(&key) {

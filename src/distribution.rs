@@ -118,6 +118,9 @@ impl Distribution {
         let mut p = 0.0;
         let self_len = self.histogram.len() as i32;
         let other_len = other.histogram.len() as i32;
+        if self.start+offset >= other.start+other_len {
+            return 0.0;
+        }
         for i in 0..self_len {
             for j in 0..other_len {
                 if self.start+i+offset > other.start+j {
