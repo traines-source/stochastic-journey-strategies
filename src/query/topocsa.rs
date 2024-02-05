@@ -70,113 +70,135 @@ impl<'a, 'b> Environment<'b> {
 
     fn dfs(&mut self, anchor_id: usize, topo_idx: &mut usize, max_stack: &mut usize, max_trace: &mut usize) {
         let mut unraveling_time = 0;
+
         let mut unraveling_no = 0;
-        let mut stack: Vec<usize> = Vec::with_capacity(10000);
         let mut trace: IndexMap<usize, usize> = IndexMap::with_capacity(1000);
-        stack.push(anchor_id);
+        let mut index_stack: Vec<(usize, usize, usize)> = Vec::with_capacity(10000);
+        let to_idx = self.connections[anchor_id].to_idx;
+        let footpaths = &self.stations[to_idx].footpaths;
+        let deps = self.stations[to_idx].departures.borrow();
+        index_stack.push((anchor_id, footpaths.len(), deps.len()));
         self.order.insert(anchor_id, ConnectionOrder{visited: 0, order: 0});
-        while !stack.is_empty() {
-            let c_id = *stack.last().unwrap();
-            let c = &self.connections[c_id];
+        while !index_stack.is_empty() {
+
+            let len = index_stack.len();
+            let triple = index_stack.last_mut().unwrap();
+            let c_id = triple.0;        
             let c_label = self.order.get_mut(&c_id).unwrap();
             if c_label.visited == 0 {
                 c_label.visited = 1;
-                trace.insert(c_id, stack.len()-1);
+                trace.insert(c_id, len-1);
+            }
+            if triple.2 > 0 {
+                triple.2 -= 1;
             } else {
-                if c_label.visited == 1 {
+                let mut found = false;
+                while triple.1 > 0 {
+                    triple.1 -= 1;
+                    let c_id = triple.0;        
+                    let c = &self.connections[c_id];
+                    let footpaths = &self.stations[c.to_idx].footpaths;
+                    let station_idx = if triple.1 == footpaths.len() { c.to_idx } else { footpaths[triple.1].target_location_idx };
+                    let deps = self.stations[station_idx].departures.borrow().len();
+                    if deps > 0 {
+                        triple.2 = deps-1;
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
                     c_label.order = *topo_idx;
                     *topo_idx += 1;
+                    c_label.visited = 2;
                     let p = trace.pop().unwrap();
                     assert_eq!(p.0, c_id);
-                    assert_eq!(p.1, stack.len()-1);
-                } else {
-                    assert_eq!(c_label.visited, 2);
+                    assert_eq!(p.1, index_stack.len()-1);
+                    index_stack.pop();
+                    continue;
                 }
-                c_label.visited = 2;
-                stack.pop();
+            }
+
+            let c = &self.connections[c_id];
+            let footpaths = &self.stations[c.to_idx].footpaths;
+            let station_idx = if triple.1 == footpaths.len() { c.to_idx } else { footpaths[triple.1].target_location_idx };
+            let transfer_time = if triple.1 == footpaths.len() { 1 } else { footpaths[triple.1].duration as i32 };
+            let deps = self.stations[station_idx].departures.borrow();
+            let dep_id = &deps[triple.2];
+
+            if self.cut.contains(&(c_id, *dep_id)) {
+
                 continue;
             }
-            let mut i = 0;
-            let footpaths = &self.stations[c.to_idx].footpaths;
-            'outer: while i <= footpaths.len() {
-                let station_idx = if i == footpaths.len() { c.to_idx } else { footpaths[i].target_location_idx };
-                let transfer_time = if i == footpaths.len() { 1 } else { footpaths[i].duration as i32 };
-                let deps = self.stations[station_idx].departures.borrow();
-                for dep_id in &*deps {
-                    if self.cut.contains(&(c_id, *dep_id)) {
-                        continue;
-                    }
-                    let dep = self.connections.get(*dep_id).unwrap();
-                    let is_continuing = if i == footpaths.len() { c.is_consecutive(dep) } else { false };
-                    // TODO max reachability independent from now
-                    if !is_continuing {
-                        let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
-                        if reachable <= self.epsilon {
-                            continue;
-                        }
-                    }
-                    let dep_label = self.order.get(dep_id);
-                    if dep_label.is_some() {
-                        let dep_label = dep_label.unwrap();
-                        if dep_label.visited == 1 {
-                            let trace_idx = trace.get_index_of(dep_id);
-                            if trace_idx.is_some() {
-                                let start_ts = Instant::now();
-                                let transfer_time = dep.departure.projected()-c.arrival.projected();
-                                let mut min_transfer = if c.is_consecutive(dep) { 1 } else { transfer_time };
-                                let mut min_i = trace.len();
-                                let start = trace_idx.unwrap()+1 as usize;
-                                for i in start..trace.len() {
-                                    let a = &self.connections[*trace.get_index(i-1).unwrap().0];
-                                    let b = &self.connections[*trace.get_index(i).unwrap().0];
-                                    if a.is_consecutive(b) {
-                                        continue;
-                                    }
-                                    let t = b.departure.projected()-a.arrival.projected();
-                                    if t < min_transfer {
-                                        min_transfer = t;
-                                        min_i = i;
-                                    }
-                                }
-                                if min_transfer > 0 {
-                                    panic!("cutting positive transfer {:?} {:?} {} {}", c.departure, c.route_idx, min_transfer, transfer_time)
-                                }
-                                if min_i == trace.len() {
-                                    self.cut.insert((c_id, *dep_id));
-                                    if c.is_consecutive(dep) {
-                                        panic!("cutting trip"); 
-                                    }
-                                    continue;
-                                }
-                                let cut_before = trace.get_index(min_i).unwrap();
-                                let cut_after = trace.get_index(min_i-1).unwrap();
-                                self.cut.insert((*cut_after.0, *cut_before.0));
-                                if self.connections[*cut_after.0].is_consecutive(&self.connections[*cut_before.0]) {
-                                    panic!("cutting trip {:?} {:?}", self.connections[*cut_after.0],self.connections[*cut_before.0]);
-                                }
-                                unraveling_no += stack.len()-*cut_before.1;
-                                stack.truncate(*cut_before.1);
-                                for _ in min_i..trace.len() {
-                                    let l = self.order.get_mut(&trace.pop().unwrap().0).unwrap();
-                                    assert_eq!(l.visited, 1);
-                                    l.visited = 0;
-                                }
-                                unraveling_time += start_ts.elapsed().as_micros();
-                                break 'outer;
-                            } else {
-                                panic!("marked as visited but not in trace {:?} {:?}", *dep_id, trace);
-                            }
-                        } else if dep_label.visited == 2 {
-                            continue;
-                        }
-                    }
-                    stack.push(*dep_id);
-                    self.order.insert(*dep_id, ConnectionOrder { visited: 0, order: 0 });
+
+            let dep = &self.connections[*dep_id];
+            let is_continuing = if triple.1 == footpaths.len() { c.is_consecutive(dep) } else { false };
+                // TODO max reachability independent from now
+            if !is_continuing {
+                let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
+                if reachable <= self.epsilon {
+                    continue;
                 }
-                i += 1;
             }
-            if stack.len() > *max_stack {
-                *max_stack = stack.len();
+            let dep_label = self.order.get(dep_id);
+            if dep_label.is_some() {
+                let dep_label = dep_label.unwrap();
+                if dep_label.visited == 1 {
+                    let trace_idx = trace.get_index_of(dep_id);
+                    if trace_idx.is_some() {
+                        let transfer_time = dep.departure.projected()-c.arrival.projected();
+                        let mut min_transfer = if c.is_consecutive(dep) { 1 } else { transfer_time };
+                        let mut min_i = trace.len();
+                        let start = trace_idx.unwrap()+1 as usize;
+                        for i in start..trace.len() {
+                            let a = &self.connections[*trace.get_index(i-1).unwrap().0];
+                            let b = &self.connections[*trace.get_index(i).unwrap().0];
+                            if a.is_consecutive(b) {
+                                continue;
+                            }
+                            let t = b.departure.projected()-a.arrival.projected();
+                            if t < min_transfer {
+                                min_transfer = t;
+                                min_i = i;
+                            }
+                        }
+                        if min_transfer > 0 {
+                            panic!("cutting positive transfer {:?} {:?} {} {}", c.departure, c.route_idx, min_transfer, transfer_time)
+                        }
+                        if min_i == trace.len() {
+                            self.cut.insert((c_id, *dep_id));
+                            if c.is_consecutive(dep) {
+                                panic!("cutting trip"); 
+                            }
+                            continue;
+                        }
+                        let cut_before = trace.get_index(min_i).unwrap();
+                        let cut_after = trace.get_index(min_i-1).unwrap();
+                        self.cut.insert((*cut_after.0, *cut_before.0));
+                        if self.connections[*cut_after.0].is_consecutive(&self.connections[*cut_before.0]) {
+                            panic!("cutting trip {:?} {:?}", self.connections[*cut_after.0],self.connections[*cut_before.0]);
+                        }
+                        unraveling_no += index_stack.len()-*cut_before.1;
+                        index_stack.truncate(*cut_before.1);
+                        for _ in min_i..trace.len() {
+                            let l = self.order.get_mut(&trace.pop().unwrap().0).unwrap();
+                            assert_eq!(l.visited, 1);
+                            l.visited = 0;
+                        }
+                        continue;
+                    } else {
+                        panic!("marked as visited but not in trace {:?} {:?}", *dep_id, trace);
+                    }
+                } else if dep_label.visited == 2 {
+                    continue;
+                }
+            }
+            let footpaths = &self.stations[dep.to_idx].footpaths;
+            let deps = self.stations[dep.to_idx].departures.borrow();
+            index_stack.push((*dep_id, footpaths.len(), deps.len()));
+            self.order.insert(*dep_id, ConnectionOrder { visited: 0, order: 0 });
+
+            if index_stack.len() > *max_stack {
+                *max_stack = index_stack.len();
             }
             if trace.len() > *max_trace {
                 *max_trace = trace.len();
