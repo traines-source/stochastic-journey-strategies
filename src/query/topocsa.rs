@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::Hash;
+use std::iter::Successors;
 use std::time::Instant;
 
 use indexmap::IndexMap;
@@ -76,23 +77,21 @@ pub struct Instrumentation {
     cycle_sum_len: usize,
     cycle_max_len: usize,
     cycle_self_count: usize,
+    encounter_2: usize,
     iterations: usize,
 }
 
 impl<'a, 'b> Environment<'b> {
 
-    fn dfs(&mut self, anchor_id: usize, topo_idx: &mut usize, instr: &mut Instrumentation) {
+    fn dfs(&mut self, anchor_id: usize, topo_idx: &mut usize, successor_indices: &mut HashMap<usize, (usize, usize, usize)>, instr: &mut Instrumentation) {
         let mut trace: IndexMap<usize, usize> = IndexMap::with_capacity(1000);
-        let mut index_stack: Vec<(usize, usize, usize)> = Vec::with_capacity(10000);
-        let to_idx = self.connections[anchor_id].to_idx;
-        let footpaths = &self.stations[to_idx].footpaths;
-        let deps = &self.stations[to_idx].departures;
-        index_stack.push((anchor_id, footpaths.len(), deps.len()));
+        let mut index_stack: Vec<usize> = Vec::with_capacity(10000);
+        index_stack.push(anchor_id);
         self.order.insert(anchor_id, ConnectionOrder{visited: 0, order: 0});
         while !index_stack.is_empty() {
             instr.iterations += 1;
             let len = index_stack.len();
-            let triple = index_stack.last_mut().unwrap();
+            let triple = successor_indices.get_mut(index_stack.last().unwrap()).unwrap();
             let c_id = triple.0;        
             let c_label = self.order.get_mut(&c_id).unwrap();
             if c_label.visited == 0 {
@@ -133,9 +132,16 @@ impl<'a, 'b> Environment<'b> {
             let station_idx = if triple.1 == footpaths.len() { c.to_idx } else { footpaths[triple.1].target_location_idx };
             let transfer_time = if triple.1 == footpaths.len() { 1 } else { footpaths[triple.1].duration as i32 };
             let dep_id = &self.stations[station_idx].departures[triple.2];
+            let dep_label = self.order.get(dep_id);
+            if dep_label.is_some() {
+                let dep_label = dep_label.unwrap();
+                if dep_label.visited == 2 {
+                    instr.encounter_2 += 1;
+                    continue;
+                }
+            }
 
             if self.cut.contains(&(c_id, *dep_id)) {
-
                 continue;
             }
 
@@ -145,12 +151,11 @@ impl<'a, 'b> Environment<'b> {
             if !is_continuing {
                 let start_ts = Instant::now();
                 let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
-                instr.before_prob_time += start_ts.elapsed().as_micros();
+                instr.before_prob_time += start_ts.elapsed().as_nanos();
                 if reachable <= self.epsilon {
                     continue;
                 }
             }
-            let dep_label = self.order.get(dep_id);
             if dep_label.is_some() {
                 let start_ts = Instant::now();
                 let dep_label = dep_label.unwrap();
@@ -188,7 +193,7 @@ impl<'a, 'b> Environment<'b> {
                             if c.is_consecutive(dep) {
                                 panic!("cutting trip"); 
                             }
-                            instr.unraveling_time += start_ts.elapsed().as_micros();
+                            instr.unraveling_time += start_ts.elapsed().as_nanos();
                             continue;
                         }
                         let cut_before = trace.get_index(min_i).unwrap();
@@ -200,23 +205,33 @@ impl<'a, 'b> Environment<'b> {
                         instr.unraveling_no += index_stack.len()-*cut_before.1;
                         index_stack.truncate(*cut_before.1);
                         for _ in min_i..trace.len() {
-                            let l = self.order.get_mut(&trace.pop().unwrap().0).unwrap();
+                            let id = trace.pop().unwrap().0;
+                            let triple = successor_indices.get_mut(&id).unwrap();
+                            triple.2 += 1;
+                            loop {
+                                let c_id = id;        
+                                let c = &self.connections[c_id];
+                                let footpaths = &self.stations[c.to_idx].footpaths;
+                                let station_idx = if triple.1 == footpaths.len() { c.to_idx } else { footpaths[triple.1].target_location_idx };
+                                let deps = self.stations[station_idx].departures.len();
+                                if triple.2 <= deps || triple.1 == footpaths.len() {
+                                    break;
+                                }
+                                triple.1 += 1;
+                                triple.2 = 0;
+                            }
+                            let l = self.order.get_mut(&id).unwrap();
                             assert_eq!(l.visited, 1);
                             l.visited = 0;
                         }
-                        instr.unraveling_time += start_ts.elapsed().as_micros();
+                        instr.unraveling_time += start_ts.elapsed().as_nanos();
                         continue;
                     } else {
                         panic!("marked as visited but not in trace {:?} {:?}", *dep_id, trace);
                     }
-                } else if dep_label.visited == 2 {
-                    instr.unraveling_time += start_ts.elapsed().as_micros();
-                    continue;
                 }
             }
-            let footpaths = &self.stations[dep.to_idx].footpaths;
-            let deps = &self.stations[dep.to_idx].departures;
-            index_stack.push((*dep_id, footpaths.len(), deps.len()));
+            index_stack.push(*dep_id);//, footpaths.len(), deps.len()));
             self.order.insert(*dep_id, ConnectionOrder { visited: 0, order: 0 });
 
             if index_stack.len() > instr.max_stack {
@@ -232,17 +247,23 @@ impl<'a, 'b> Environment<'b> {
     pub fn preprocess(&mut self) {
         println!("Start preprocessing...");
         let mut conn_ids: Vec<usize> = (0..self.connections.len()).collect();
-        conn_ids.sort_unstable_by(|a,b| self.connections[*b].departure.projected().cmp(&self.connections[*a].departure.projected()));
+        conn_ids.sort_unstable_by(|a,b| self.connections[*a].departure.projected().cmp(&self.connections[*b].departure.projected()));
 
         let mut topo_idx = 0;
         
-        let mut instr = Instrumentation { max_stack: 0, max_trace: 0, unraveling_time: 0, before_prob_time: 0, unraveling_no: 0, cycle_sum_len: 0, cycle_max_len: 0, cycle_self_count: 0, iterations: 0 };
+        let mut instr = Instrumentation { max_stack: 0, max_trace: 0, unraveling_time: 0, before_prob_time: 0, unraveling_no: 0, cycle_sum_len: 0, cycle_max_len: 0, cycle_self_count: 0, encounter_2: 0, iterations: 0 };
         let start = Instant::now();
-        for id in 0..self.connections.len() {
-            let idx = conn_ids[id];
-            if !self.order.contains_key(&idx) || self.order.get(&idx).unwrap().visited != 2 {
-                self.dfs(idx, &mut topo_idx, &mut instr);
-                println!("connections {} cycles found {} labels {} done {} {}", self.connections.len(), self.cut.len(), self.order.len(), id, idx);
+        let mut successor_indices: HashMap<usize, (usize, usize, usize)> = HashMap::new();
+        for c in &*self.connections {
+            let footpaths = &self.stations[c.to_idx].footpaths;
+            let deps = &self.stations[c.to_idx].departures;
+            successor_indices.insert(c.id, (c.id, footpaths.len(), deps.len()));
+        }
+        for idx in 0..self.connections.len() {
+            let id = conn_ids[idx];
+            if !self.order.contains_key(&id) || self.order.get(&id).unwrap().visited != 2 {
+                self.dfs(id, &mut topo_idx, &mut successor_indices, &mut instr);
+                println!("connections {} cycles found {} labels {} done {} {}", self.connections.len(), self.cut.len(), self.order.len(), idx, id);
             }
         }
         println!("Done DFSing. {}", start.elapsed().as_millis());
