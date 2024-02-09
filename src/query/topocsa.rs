@@ -226,15 +226,19 @@ impl<'a, 'b> Environment<'b> {
     
     pub fn preprocess(&mut self) {
         println!("Start preprocessing...");
+        let mut conn_ids: Vec<usize> = (0..self.connections.len()).collect();
+        conn_ids.sort_unstable_by(|a,b| self.connections[*b].departure.projected().cmp(&self.connections[*a].departure.projected()));
+
         let mut topo_idx = 0;
         
         let mut max_stack = 0;
         let mut max_trace = 0;
         let start = Instant::now();
-        for i in 0..self.connections.len() {
-            if !self.order.contains_key(&i) || self.order.get(&i).unwrap().visited != 2 {
-                self.dfs(i, &mut topo_idx, &mut max_stack, &mut max_trace);
-                println!("connections {} cycles found {} labels {} done {}", self.connections.len(), self.cut.len(), self.order.len(), i);
+        for id in 0..self.connections.len() {
+            let idx = conn_ids[id];
+            if !self.order.contains_key(&idx) || self.order.get(&idx).unwrap().visited != 2 {
+                self.dfs(idx, &mut topo_idx, &mut max_stack, &mut max_trace);
+                println!("connections {} cycles found {} labels {} done {} {}", self.connections.len(), self.cut.len(), self.order.len(), id, idx);
             }
         }
         println!("Done DFSing. {}", start.elapsed().as_millis());
