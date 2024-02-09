@@ -115,19 +115,27 @@ impl Distribution {
     }
 
     pub fn before_probability(&self, other: &Distribution, offset: i32) -> f32 {
-        let mut p = 0.0;
         let self_len = self.histogram.len() as i32;
         let other_len = other.histogram.len() as i32;
-        if self.start+offset >= other.start+other_len {
+        let diff = other.start-self.start-offset;
+        if diff+other_len <= 0 {
             return 0.0;
         }
-        for i in 0..self_len {
-            for j in 0..other_len {
-                if self.start+i+offset > other.start+j {
-                    continue
-                }
-                p += self.histogram[i as usize]*other.histogram[j as usize];
+        let mut cumulative = 0.0;
+        let until_other_start = std::cmp::min(diff, self_len);
+        for i in 0..until_other_start {
+            cumulative += self.histogram[i as usize];
+        }
+        let mut p = 0.0;
+        for j in 0..other_len {
+            let i = diff+j;
+            if i < 0 {
+                continue
             }
+            if i < self_len {
+                cumulative += self.histogram[i as usize];
+            }
+            p += cumulative*other.histogram[j as usize];
         }
         if p > 1.0 {
             return 1.0
@@ -350,6 +358,19 @@ mod tests {
         assert_float_relative_eq!(a.before_probability(&b, 2), 0.2*(0.5+0.3)+0.6*0.3);
         assert_float_relative_eq!(a.before_probability(&b, 3), 0.2*0.3);
         assert_float_relative_eq!(a.before_probability(&b, 4), 0.0);
+    }
+
+    #[test]
+    fn before_apart_after() {
+        let a = Distribution::uniform(8, 2);
+        let b = Distribution::uniform(5, 2);
+        assert_eq!(a.before_probability(&b, -4), 1.0);
+        assert_eq!(a.before_probability(&b, -3), 0.75);
+        assert_eq!(a.before_probability(&b, -2), 0.25);
+        assert_eq!(a.before_probability(&b, -1), 0.0);
+        assert_eq!(a.before_probability(&b, 0), 0.0);
+        assert_eq!(a.before_probability(&b, 1), 0.0);
+        assert_eq!(a.before_probability(&b, 2), 0.0);        
     }
 
     #[test]
