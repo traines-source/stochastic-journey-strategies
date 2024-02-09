@@ -239,7 +239,7 @@ impl<'a, 'b> Environment<'b> {
             }
         }
         println!("Done DFSing. {}", start.elapsed().as_millis());
-        self.connections.sort_by(|a, b|
+        self.connections.sort_unstable_by(|a, b|
             self.order.get(&a.id).unwrap().order.partial_cmp(&self.order.get(&b.id).unwrap().order).unwrap()
         );
         println!("Done preprocessing.");
@@ -304,7 +304,7 @@ impl<'a, 'b> Environment<'b> {
                     }
                 }
                 //println!("{:?} {:?}", footpath_distributions.len(), footpaths.len());
-                footpath_distributions.sort_by(|a, b| a.mean.partial_cmp(&b.mean).unwrap());
+                footpath_distributions.sort_unstable_by(|a, b| a.mean.partial_cmp(&b.mean).unwrap());
                 self.new_destination_arrival(c.to_idx, c.id, c.trip_id, c.route_idx, c.product_type, &c.arrival, 1, &station_labels, &footpath_distributions, &mut new_distribution);   
             }
             let departure_conn_idx = if connection_pairs.len() == 0 { i } else { connection_pairs[&i] };
@@ -514,7 +514,7 @@ impl<'a, 'b> Environment<'b> {
 
     pub fn relevant_connection_pairs(&mut self, weights_by_station_idx: HashMap<usize, f32>) -> HashMap<usize, usize> {
         let mut stations: Vec<(usize, f32)> = weights_by_station_idx.into_iter().collect();
-        stations.sort_by(|a,b| b.1.partial_cmp(&a.1).unwrap());
+        stations.sort_unstable_by(|a,b| b.1.partial_cmp(&a.1).unwrap());
         let mut trip_id_to_conn_idxs: HashMap<i32, Vec<(usize, bool)>> = HashMap::new();
         for i in 0..std::cmp::min(stations.len(), 500) {
             for arr in &self.stations[stations[i].0].arrivals {
@@ -526,7 +526,7 @@ impl<'a, 'b> Environment<'b> {
         }
         let mut connection_pairs = HashMap::new();
         for trip in trip_id_to_conn_idxs.values_mut() {
-            trip.sort_by(|a,b| self.connections[a.0].departure.scheduled.cmp(&self.connections[b.0].departure.scheduled)
+            trip.sort_unstable_by(|a,b| self.connections[a.0].departure.scheduled.cmp(&self.connections[b.0].departure.scheduled)
                 .then(self.connections[a.0].id.cmp(&self.connections[b.0].id))
                 .then(b.1.cmp(&a.1))
             );
