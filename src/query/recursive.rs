@@ -58,8 +58,7 @@ impl<'a, 'b> Query<'a> {
         }
         
         self.trace.insert(c_id, 1.0);
-        let binding = stations[c.to_idx].departures.borrow();
-        for dep_id in &*binding {
+        for dep_id in &stations[c.to_idx].departures {
             let dep = connections.get(*dep_id).unwrap();
             if self.cut.contains(&(c_id, *dep_id)) {
                 continue;
@@ -103,7 +102,7 @@ impl<'a, 'b> Query<'a> {
                 return Some(min_id);
             }
         }
-        for dep_id in binding.iter().rev() {
+        for dep_id in stations[c.to_idx].departures.iter().rev() {
             let dep = connections.get(*dep_id).unwrap();
             if self.cut.contains(&(c_id, *dep_id)) {
                 continue;
@@ -140,7 +139,7 @@ impl<'a, 'b> Query<'a> {
             return None;
         }
         
-        let mut departures_by_arrival: Vec<&usize> = binding.iter().collect();
+        let mut departures_by_arrival: Vec<&usize> = stations[c.to_idx].departures.iter().collect();
         departures_by_arrival.sort_by(|a, b| connections.get(**a).unwrap().destination_arrival.borrow().as_ref().map(|da| da.mean).unwrap_or(0.0).partial_cmp(
             &connections.get(**b).unwrap().destination_arrival.borrow().as_ref().map(|da| da.mean).unwrap_or(0.0)).unwrap());
 

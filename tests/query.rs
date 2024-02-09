@@ -22,7 +22,7 @@ fn setup<'a>() -> (distribution_store::Store, connection::Route, connection::Sta
 
 #[test]
 fn non_stochastic() {
-    let (mut store, route, station0, station1, station2) = setup();
+    let (mut store, route, mut station0, mut station1, mut station2) = setup();
 
     let c0 = connection::Connection::new(0, 0, 1, 1, false,
         0, 10, None,
@@ -71,7 +71,7 @@ fn non_stochastic() {
 
 #[test]
 fn zero_minutes_transfer() {
-    let (mut store, route, station0, station1, station2) = setup();
+    let (mut store, route, mut station0, mut station1, station2) = setup();
 
     let c0 = connection::Connection::new(0,  0, 1, 1, false,
         0, 10, None,
@@ -104,7 +104,7 @@ fn zero_minutes_transfer() {
 
 #[test]
 fn zero_minutes_transfer_same_trip() {
-    let (mut store, route, station0, station1, station2) = setup();
+    let (mut store, route, mut station0, mut station1, station2) = setup();
 
     let c0 = connection::Connection::new(0, 0, 1, 1, false,
         0, 10, None,
@@ -142,7 +142,7 @@ fn zero_minutes_transfer_same_trip() {
 
 #[test]
 fn with_cancelled_probability() {
-    let (mut store, route, station0, station1, station2) = setup();
+    let (mut store, route, mut station0, mut station1, mut station2) = setup();
 
     let c0 = connection::Connection::new(0, 0, 1, 1, false,
         0, 10, None,
@@ -196,7 +196,7 @@ fn with_cancelled_probability() {
 
 #[test]
 fn with_uniform() {
-    let (mut store, route, station0, station1, station2) = setup();
+    let (mut store, route, mut station0, mut station1, station2) = setup();
 
     let c0 = connection::Connection::new(0, 0, 1, 1, false,
         0, 10, None,
@@ -243,7 +243,7 @@ fn with_uniform() {
 
 #[test]
 fn infinite_loop() {
-    let (mut store, route, station0, station1, station2) = setup();
+    let (mut store, route, mut station0, mut station1, station2) = setup();
 
     let c0 = connection::Connection::new(0, 0, 1, 1, false,
         0, 10, Some(0),
@@ -296,7 +296,7 @@ fn infinite_loop() {
 
 #[test]
 fn infinite_loop_cut_at_lowest_reachability() {
-    let (mut store, route, station0, station1, station2) = setup();
+    let (mut store, route, mut station0, mut station1, station2) = setup();
 
     let c0 = connection::Connection::new(0, 0, 1, 1, false,
         0, 10, Some(0),
@@ -379,7 +379,7 @@ fn infinite_loop_cut_at_lowest_reachability() {
 
 #[test]
 fn infinite_loop_cut_and_revisit() {
-    let (mut store, route, station0, station1, station2) = setup();
+    let (mut store, route, mut station0, mut station1, mut station2) = setup();
 
     let c0 = connection::Connection::new(0, 0, 1, 0, false,
         1, 8, None,
@@ -461,7 +461,7 @@ fn infinite_loop_cut_and_revisit() {
 
 #[test]
 fn revisit_completed() {
-    let (mut store, route, station0, station1, station2) = setup();
+    let (mut store, route, mut station0, mut station1, station2) = setup();
 
     let c0 = connection::Connection::new(0, 0, 1, 0, false,
         0, 8, None,
@@ -525,7 +525,7 @@ fn revisit_completed() {
 
 #[test]
 fn partial_feasibility() {
-    let (mut store, route, station0, station1, station2) = setup();
+    let (mut store, route, mut station0, mut station1, station2) = setup();
 
     let c0 = connection::Connection::new(0, 0, 1, 1, false,
         0, 10, Some(0),
@@ -571,7 +571,7 @@ fn partial_feasibility() {
 
 #[test]
 fn with_cancelled() {
-    let (mut store, route, station0, station1, station2) = setup();
+    let (mut store, route, mut station0, mut station1, station2) = setup();
 
     let c0 = connection::Connection::new(0, 0, 1, 1, false,
         0, 10, None,

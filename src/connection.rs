@@ -30,7 +30,7 @@ pub struct Station {
 	pub id: String,
 	pub name: String,
 	pub arrivals: Vec<usize>,
-	pub departures: RefCell<Vec<usize>>,
+	pub departures: Vec<usize>,
 	pub lat: f32,
 	pub lon: f32,
 	pub transfer_time: u16,
@@ -43,7 +43,7 @@ impl<'a> Station {
 			id: id,
 			name: name,
 			arrivals: vec![],
-			departures: RefCell::new(departures),
+			departures: departures,
 			lat: 0.,
 			lon: 0.,
 			transfer_time: 0,
@@ -51,8 +51,8 @@ impl<'a> Station {
 		}
 	}
 
-	pub fn add_departure(&self, c_id: usize) {
-		self.departures.borrow_mut().push(c_id);
+	pub fn add_departure(&mut self, c_id: usize) {
+		self.departures.push(c_id);
 	}
 }
 

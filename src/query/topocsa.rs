@@ -81,7 +81,7 @@ impl<'a, 'b> Environment<'b> {
         let mut index_stack: Vec<(usize, usize, usize)> = Vec::with_capacity(10000);
         let to_idx = self.connections[anchor_id].to_idx;
         let footpaths = &self.stations[to_idx].footpaths;
-        let deps = self.stations[to_idx].departures.borrow();
+        let deps = &self.stations[to_idx].departures;
         index_stack.push((anchor_id, footpaths.len(), deps.len()));
         self.order.insert(anchor_id, ConnectionOrder{visited: 0, order: 0});
         while !index_stack.is_empty() {
@@ -104,7 +104,7 @@ impl<'a, 'b> Environment<'b> {
                     let c = &self.connections[c_id];
                     let footpaths = &self.stations[c.to_idx].footpaths;
                     let station_idx = if triple.1 == footpaths.len() { c.to_idx } else { footpaths[triple.1].target_location_idx };
-                    let deps = self.stations[station_idx].departures.borrow().len();
+                    let deps = self.stations[station_idx].departures.len();
                     if deps > 0 {
                         triple.2 = deps-1;
                         found = true;
@@ -127,8 +127,7 @@ impl<'a, 'b> Environment<'b> {
             let footpaths = &self.stations[c.to_idx].footpaths;
             let station_idx = if triple.1 == footpaths.len() { c.to_idx } else { footpaths[triple.1].target_location_idx };
             let transfer_time = if triple.1 == footpaths.len() { 1 } else { footpaths[triple.1].duration as i32 };
-            let deps = self.stations[station_idx].departures.borrow();
-            let dep_id = &deps[triple.2];
+            let dep_id = &self.stations[station_idx].departures[triple.2];
 
             if self.cut.contains(&(c_id, *dep_id)) {
 
@@ -211,7 +210,7 @@ impl<'a, 'b> Environment<'b> {
                 }
             }
             let footpaths = &self.stations[dep.to_idx].footpaths;
-            let deps = self.stations[dep.to_idx].departures.borrow();
+            let deps = &self.stations[dep.to_idx].departures;
             index_stack.push((*dep_id, footpaths.len(), deps.len()));
             self.order.insert(*dep_id, ConnectionOrder { visited: 0, order: 0 });
 
@@ -520,7 +519,7 @@ impl<'a, 'b> Environment<'b> {
             for arr in &self.stations[stations[i].0].arrivals {
                 self.insert_relevant_conn_idx(arr, &mut trip_id_to_conn_idxs, false);
             }
-            for dep in &*self.stations[stations[i].0].departures.borrow() {
+            for dep in &self.stations[stations[i].0].departures {
                 self.insert_relevant_conn_idx(dep, &mut trip_id_to_conn_idxs, true);
             }
         }
