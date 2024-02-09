@@ -3,6 +3,7 @@ extern crate rmp_serde as rmps;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::env;
 use serde::Serialize;
 use rmps::Serializer;
 use std::io::Write;
@@ -11,9 +12,7 @@ use stost::distribution_store;
 use stost::query::topocsa;
 use stost::gtfs;
 use std::time::Instant;
-
-
-const CACHE_PATH: &str = "./tests/fixtures/timetable_linbefprob.ign.cache";
+const CACHE_PATH: &str = "./tests/fixtures/timetable.ign.cache";
 const GTFS_PATH: &str = "/gtfs/swiss-gtfs/2023-11-06/";
 const GTFSRT_PATH: &str = "/gtfs/swiss-gtfs-rt/2023-11-01/";
 
@@ -24,6 +23,10 @@ fn day(year: i32, month: u32, day: u32) -> chrono::NaiveDate {
 #[test]
 #[ignore]
 fn create_gtfs_cache() {
+    let prefix = match env::var("STOST_GTFS_PATH") {
+        Ok(v) => v,
+        Err(_) => "".to_owned()
+    };
     let mut store = distribution_store::Store::new();
     store.load_distributions("./data/ch_sbb.csv");
 
@@ -35,7 +38,7 @@ fn create_gtfs_cache() {
         transport_and_day_to_connection_id: HashMap::new()
     };
     let mut routes = vec![];
-    let t = gtfs::load_timetable(GTFS_PATH, day(2023, 11, 2), day(2023, 11, 3));
+    let t = gtfs::load_timetable(&format!("{}{}", prefix, GTFS_PATH), day(2023, 11, 2), day(2023, 11, 3));
     tt.transport_and_day_to_connection_id = gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);
     let start_ts = Instant::now();
     let env = topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, &mut tt.order, 0, 0.01, true);
@@ -58,7 +61,7 @@ fn create_gtfs_cache() {
         transport_and_day_to_connection_id: HashMap::new()
     };
     let mut routes = vec![];
-    let t = gtfs::load_timetable(GTFS_PATH, day(2023, 11, 2), day(2023, 11, 3));
+    let t = gtfs::load_timetable(&format!("{}{}", prefix, GTFS_PATH), day(2023, 11, 2), day(2023, 11, 3));
     tt.transport_and_day_to_connection_id = gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);
     let start_ts = Instant::now();
     let env = topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, &mut tt.order, 0, 0.01, true);
