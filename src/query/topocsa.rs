@@ -70,8 +70,13 @@ impl<'a, 'b> Environment<'b> {
 
     fn dfs(&mut self, anchor_id: usize, topo_idx: &mut usize, max_stack: &mut usize, max_trace: &mut usize) {
         let mut unraveling_time = 0;
-
+        let mut before_prob_time = 0;
         let mut unraveling_no = 0;
+        let mut cycle_sum_len = 0;
+        let mut cycle_max_len = 0;
+        let mut cycle_self_count = 0;
+        let mut iterations = 0;
+
         let mut trace: IndexMap<usize, usize> = IndexMap::with_capacity(1000);
         let mut index_stack: Vec<(usize, usize, usize)> = Vec::with_capacity(10000);
         let to_idx = self.connections[anchor_id].to_idx;
@@ -80,7 +85,7 @@ impl<'a, 'b> Environment<'b> {
         index_stack.push((anchor_id, footpaths.len(), deps.len()));
         self.order.insert(anchor_id, ConnectionOrder{visited: 0, order: 0});
         while !index_stack.is_empty() {
-
+            iterations += 1;
             let len = index_stack.len();
             let triple = index_stack.last_mut().unwrap();
             let c_id = triple.0;        
@@ -134,13 +139,16 @@ impl<'a, 'b> Environment<'b> {
             let is_continuing = if triple.1 == footpaths.len() { c.is_consecutive(dep) } else { false };
                 // TODO max reachability independent from now
             if !is_continuing {
+                let start_ts = Instant::now();
                 let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
+                before_prob_time += start_ts.elapsed().as_micros();
                 if reachable <= self.epsilon {
                     continue;
                 }
             }
             let dep_label = self.order.get(dep_id);
             if dep_label.is_some() {
+                let start_ts = Instant::now();
                 let dep_label = dep_label.unwrap();
                 if dep_label.visited == 1 {
                     let trace_idx = trace.get_index_of(dep_id);
@@ -149,6 +157,10 @@ impl<'a, 'b> Environment<'b> {
                         let mut min_transfer = if c.is_consecutive(dep) { 1 } else { transfer_time };
                         let mut min_i = trace.len();
                         let start = trace_idx.unwrap()+1 as usize;
+                        cycle_sum_len += trace.len()-start;
+                        if trace.len()-start > cycle_max_len {
+                            cycle_max_len = trace.len()-start;
+                        }
                         for i in start..trace.len() {
                             let a = &self.connections[*trace.get_index(i-1).unwrap().0];
                             let b = &self.connections[*trace.get_index(i).unwrap().0];
@@ -166,9 +178,13 @@ impl<'a, 'b> Environment<'b> {
                         }
                         if min_i == trace.len() {
                             self.cut.insert((c_id, *dep_id));
+                            if c_id == *dep_id {
+                                cycle_self_count += 1;
+                            }
                             if c.is_consecutive(dep) {
                                 panic!("cutting trip"); 
                             }
+                            unraveling_time += start_ts.elapsed().as_micros();
                             continue;
                         }
                         let cut_before = trace.get_index(min_i).unwrap();
@@ -184,11 +200,13 @@ impl<'a, 'b> Environment<'b> {
                             assert_eq!(l.visited, 1);
                             l.visited = 0;
                         }
+                        unraveling_time += start_ts.elapsed().as_micros();
                         continue;
                     } else {
                         panic!("marked as visited but not in trace {:?} {:?}", *dep_id, trace);
                     }
                 } else if dep_label.visited == 2 {
+                    unraveling_time += start_ts.elapsed().as_micros();
                     continue;
                 }
             }
@@ -204,7 +222,7 @@ impl<'a, 'b> Environment<'b> {
                 *max_trace = trace.len();
             }
         }
-        println!("max stack {} trace {} unraveling: {} {}", max_stack, max_trace, unraveling_time, unraveling_no);
+        println!("max stack: {} trace: {} iterations: {} cycle_sum_len: {} cycle_max_len: {} cycle_self_count: {} unraveling: {} {} before_prob_time: {}", max_stack, max_trace, iterations, cycle_sum_len, cycle_max_len, cycle_self_count, unraveling_time, unraveling_no, before_prob_time);
     }
     
     pub fn preprocess(&mut self) {
@@ -225,7 +243,7 @@ impl<'a, 'b> Environment<'b> {
             self.order.get(&a.id).unwrap().order.partial_cmp(&self.order.get(&b.id).unwrap().order).unwrap()
         );
         println!("Done preprocessing.");
-        println!("cut: {}", self.cut.len());
+        println!("connections: {} cut: {}", self.connections.len(), self.cut.len());
     }
 
     pub fn update(&mut self, connection_id: usize, is_departure: bool, delay: i16, cancelled: bool) {
