@@ -115,6 +115,10 @@ pub struct StopInfo {
 }
 
 impl StopInfo {
+	pub fn new(scheduled: types::Mtime, delay: Option<i16>) -> StopInfo {
+		StopInfo { scheduled: scheduled, delay: delay, scheduled_track: "".to_owned(), projected_track: "".to_owned() }
+	}
+
     pub fn projected(&self) -> types::Mtime {
         match self.delay {
             Some(d) => self.scheduled + d as types::Mtime,

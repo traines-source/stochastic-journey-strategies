@@ -34,7 +34,9 @@ pub struct Store {
     delay_buckets: HashMap<i16, (i16, i16)>,
     delay_upper: (i16, i16),
     ttl_buckets: HashMap<i16, (i16, i16)>,
-    reachability: HashMap<ReachabilityKey, f32>
+    reachability: HashMap<ReachabilityKey, f32>,
+    hits: usize,
+    misses: usize
 }
 
 impl Store {
@@ -44,10 +46,16 @@ impl Store {
             delay_buckets: HashMap::new(),
             delay_upper: (0,0),
             ttl_buckets: HashMap::new(),
-            reachability: HashMap::new()
+            reachability: HashMap::new(),
+            hits: 0,
+            misses: 0
         };
         s.insert_fallback_distributions();
         s
+    }
+
+    pub fn print_stats(&self) {
+        println!("store: reachability entries: {} hits: {} misses: {}", self.reachability.len(), self.hits, self.misses);
     }
 
     pub fn reachability_len(&self) -> usize {
@@ -238,8 +246,14 @@ impl Store {
             from_is_departure: from_is_departure
         };
         match self.reachability.get(&key) {
-            Some(p) => *p,
-            None => self.calculate_before_probability(from, from_product_type, from_is_departure, to, to_product_type, now, key)
+            Some(p) => {
+                self.hits += 1;
+                *p
+            },
+            None => {
+                self.misses += 1;
+                self.calculate_before_probability(from, from_product_type, from_is_departure, to, to_product_type, now, key)
+            }
         }
     }
 

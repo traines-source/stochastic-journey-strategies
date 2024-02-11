@@ -83,6 +83,7 @@ pub struct Instrumentation {
 
 impl<'a, 'b> Environment<'b> {
 
+    // TODO try without unraveling in conjunction with preserving successor_idxs?
     fn dfs(&mut self, anchor_id: usize, topo_idx: &mut usize, successor_indices: &mut HashMap<usize, (usize, usize, usize)>, instr: &mut Instrumentation) {
         let mut trace: IndexMap<usize, usize> = IndexMap::with_capacity(1000);
         let mut index_stack: Vec<usize> = Vec::with_capacity(10000);
@@ -147,7 +148,8 @@ impl<'a, 'b> Environment<'b> {
 
             let dep = &self.connections[*dep_id];
             let is_continuing = if triple.1 == footpaths.len() { c.is_consecutive(dep) } else { false };
-                // TODO max reachability independent from now
+            // TODO max reachability independent from now
+            // TODO check how often this is actually called?
             if !is_continuing {
                 let start_ts = Instant::now();
                 let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
@@ -241,7 +243,7 @@ impl<'a, 'b> Environment<'b> {
                 instr.max_trace = trace.len();
             }
         }
-        println!("instr: {:?}", instr);
+        //println!("instr: {:?}", instr);
     }
     
     pub fn preprocess(&mut self) {
@@ -259,19 +261,23 @@ impl<'a, 'b> Environment<'b> {
             let deps = &self.stations[c.to_idx].departures;
             successor_indices.insert(c.id, (c.id, footpaths.len(), deps.len()));
         }
+        println!("Start dfs...");
+        self.store.borrow().print_stats();
         for idx in 0..self.connections.len() {
             let id = conn_ids[idx];
             if !self.order.contains_key(&id) || self.order.get(&id).unwrap().visited != 2 {
                 self.dfs(id, &mut topo_idx, &mut successor_indices, &mut instr);
-                println!("connections {} cycles found {} labels {} done {} {}", self.connections.len(), self.cut.len(), self.order.len(), idx, id);
+                //println!("connections {} cycles found {} labels {} done {} {}", self.connections.len(), self.cut.len(), self.order.len(), idx, id);
             }
         }
+        println!("instr: {:?}", instr);
+        self.store.borrow().print_stats();
         println!("Done DFSing. {}", start.elapsed().as_millis());
         self.connections.sort_unstable_by(|a, b|
             self.order.get(&a.id).unwrap().order.partial_cmp(&self.order.get(&b.id).unwrap().order).unwrap()
         );
         println!("Done preprocessing.");
-        println!("connections: {} cut: {}", self.connections.len(), self.cut.len());
+        println!("connections: {} topoidx: {} cut: {}", self.connections.len(), topo_idx, self.cut.len());
     }
 
     pub fn update(&mut self, connection_id: usize, is_departure: bool, delay: i16, cancelled: bool) {
