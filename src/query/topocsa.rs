@@ -84,7 +84,7 @@ pub struct Instrumentation {
 impl<'a, 'b> Environment<'b> {
 
     // TODO try without unraveling in conjunction with preserving successor_idxs?
-    fn dfs(&mut self, anchor_id: usize, topo_idx: &mut usize, successor_indices: &mut HashMap<usize, (usize, usize, usize)>, instr: &mut Instrumentation) {
+    fn dfs(&mut self, anchor_id: usize, topo_idx: &mut usize, successor_indices: &mut HashMap<usize, (usize, Vec<usize>, usize)>, instr: &mut Instrumentation) {
         let mut trace: IndexMap<usize, usize> = IndexMap::with_capacity(1000);
         let mut index_stack: Vec<usize> = Vec::with_capacity(10000);
         index_stack.push(anchor_id);
@@ -102,37 +102,17 @@ impl<'a, 'b> Environment<'b> {
             if triple.2 > 0 {
                 triple.2 -= 1;
             } else {
-                let mut found = false;
-                while triple.1 > 0 {
-                    triple.1 -= 1;
-                    let c_id = triple.0;        
-                    let c = &self.connections[c_id];
-                    let footpaths = &self.stations[c.to_idx].footpaths;
-                    let station_idx = if triple.1 == footpaths.len() { c.to_idx } else { footpaths[triple.1].target_location_idx };
-                    let deps = self.stations[station_idx].departures.len();
-                    if deps > 0 {
-                        triple.2 = deps-1;
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    c_label.order = *topo_idx;
-                    *topo_idx += 1;
-                    c_label.visited = 2;
-                    let p = trace.pop().unwrap();
-                    assert_eq!(p.0, c_id);
-                    assert_eq!(p.1, index_stack.len()-1);
-                    index_stack.pop();
-                    continue;
-                }
+                c_label.order = *topo_idx;
+                *topo_idx += 1;
+                c_label.visited = 2;
+                let p = trace.pop().unwrap();
+                assert_eq!(p.0, c_id);
+                assert_eq!(p.1, index_stack.len()-1);
+                index_stack.pop();
+                continue;
             }
-
-            let c = &self.connections[c_id];
-            let footpaths = &self.stations[c.to_idx].footpaths;
-            let station_idx = if triple.1 == footpaths.len() { c.to_idx } else { footpaths[triple.1].target_location_idx };
-            let transfer_time = if triple.1 == footpaths.len() { 1 } else { footpaths[triple.1].duration as i32 };
-            let dep_id = &self.stations[station_idx].departures[triple.2];
+            
+            let dep_id = &triple.1[triple.2];
             let dep_label = self.order.get(dep_id);
             if dep_label.is_some() {
                 let dep_label = dep_label.unwrap();
@@ -141,29 +121,17 @@ impl<'a, 'b> Environment<'b> {
                     continue;
                 }
             }
-
             if self.cut.contains(&(c_id, *dep_id)) {
                 continue;
             }
-
             let dep = &self.connections[*dep_id];
-            let is_continuing = if triple.1 == footpaths.len() { c.is_consecutive(dep) } else { false };
-            // TODO max reachability independent from now
-            // TODO check how often this is actually called?
-            if !is_continuing {
-                let start_ts = Instant::now();
-                let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
-                instr.before_prob_time += start_ts.elapsed().as_nanos();
-                if reachable <= self.epsilon {
-                    continue;
-                }
-            }
             if dep_label.is_some() {
                 let start_ts = Instant::now();
                 let dep_label = dep_label.unwrap();
                 if dep_label.visited == 1 {
                     let trace_idx = trace.get_index_of(dep_id);
                     if trace_idx.is_some() {
+                        let c = &self.connections[c_id];
                         let transfer_time = dep.departure.projected()-c.arrival.projected();
                         let mut min_transfer = if c.is_consecutive(dep) { 1 } else { transfer_time };
                         let mut min_i = trace.len();
@@ -210,18 +178,6 @@ impl<'a, 'b> Environment<'b> {
                             let id = trace.pop().unwrap().0;
                             let triple = successor_indices.get_mut(&id).unwrap();
                             triple.2 += 1;
-                            loop {
-                                let c_id = id;        
-                                let c = &self.connections[c_id];
-                                let footpaths = &self.stations[c.to_idx].footpaths;
-                                let station_idx = if triple.1 == footpaths.len() { c.to_idx } else { footpaths[triple.1].target_location_idx };
-                                let deps = self.stations[station_idx].departures.len();
-                                if triple.2 <= deps || triple.1 == footpaths.len() {
-                                    break;
-                                }
-                                triple.1 += 1;
-                                triple.2 = 0;
-                            }
                             let l = self.order.get_mut(&id).unwrap();
                             assert_eq!(l.visited, 1);
                             l.visited = 0;
@@ -255,13 +211,29 @@ impl<'a, 'b> Environment<'b> {
         
         let mut instr = Instrumentation { max_stack: 0, max_trace: 0, unraveling_time: 0, before_prob_time: 0, unraveling_no: 0, cycle_sum_len: 0, cycle_max_len: 0, cycle_self_count: 0, encounter_2: 0, iterations: 0 };
         let start = Instant::now();
-        let mut successor_indices: HashMap<usize, (usize, usize, usize)> = HashMap::new();
+        let mut successor_indices: HashMap<usize, (usize, Vec<usize>, usize)> = HashMap::new();
         for c in &*self.connections {
+            let mut deps: Vec<usize> = vec![]; 
             let footpaths = &self.stations[c.to_idx].footpaths;
-            let deps = &self.stations[c.to_idx].departures;
-            successor_indices.insert(c.id, (c.id, footpaths.len(), deps.len()));
+            for i in 0..footpaths.len()+1 {
+                let stop_idx = if i == footpaths.len() { c.to_idx } else { footpaths[i].target_location_idx };
+                let transfer_time = if i == footpaths.len() { 1 } else { footpaths[i].duration as i32 };
+                for dep_id in &self.stations[stop_idx].departures {
+                    let dep = &self.connections[*dep_id];
+                    let is_continuing = if i == footpaths.len() { c.is_consecutive(dep) } else { false };
+                    if !is_continuing {
+                        let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
+                        if reachable <= self.epsilon {
+                            continue;
+                        }
+                    }
+                    deps.push(*dep_id);
+                } 
+            }
+            let len = deps.len();
+            successor_indices.insert(c.id, (c.id, deps, len));
         }
-        println!("Start dfs...");
+        println!("Start dfs... {}", start.elapsed().as_millis());
         self.store.borrow().print_stats();
         for idx in 0..self.connections.len() {
             let id = conn_ids[idx];
