@@ -274,6 +274,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
 
     let start_time = 8050;
     let stop_pairs: Vec<(usize, usize, i32)> = load_samples(&conf.samples_config_path).into_iter().take(conf.samples).map(|s| (s.from_idx, s.to_idx, start_time)).collect();
+    //let stop_pairs = vec![(19337, 37262, 8050), (1423, 21135, 8050)];
     let mut det_actions: HashMap<(usize, usize, i32), motis_nigiri::Journey> = HashMap::new();
     let mut stoch_actions: HashMap<(usize, usize, i32), StochActions> = HashMap::new();
     let mut det_log: HashMap<(usize, usize, i32), Vec<LogEntry>> = HashMap::new();
@@ -424,6 +425,10 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                 if current_stop_idx.is_some() {
                     let alternatives = get_det_alternatives(current_stop_idx.unwrap(), &tt, &det_actions[pair]);
                     repeat = step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, det_log.get_mut(pair).unwrap(), &mut results.get_mut(pair).unwrap().det, &tt.connections, &tt.stations);
+                    let cidx = det_log[pair].last();
+                    if cidx.is_some() && !stoch_actions[pair].connection_pairs.contains_key(&cidx.unwrap().conn_idx) && !stoch_actions[pair].connection_pairs_reverse.contains_key(&cidx.unwrap().conn_idx) {
+                        panic!("WARN: connection from det not contained in connection pairs {} {} {}", cidx.unwrap().conn_idx, tt.connections[cidx.unwrap().conn_idx].from_idx, tt.connections[cidx.unwrap().conn_idx].to_idx);
+                    }
                 }
             }
             if !results[pair].is_completed() {
@@ -512,7 +517,7 @@ fn get_stoch_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, stoch_act
         if station_labels.is_none() {
             continue;
         }
-        println!("label len: {} {}", station_labels.unwrap().len(), stoch_actions.connection_pairs.len());
+        println!("label len: {} {} {} {}", current_stop_idx, stoch_actions.station_labels.iter().filter(|l| l.1.len() > 0).count(), station_labels.unwrap().len(), stoch_actions.connection_pairs.len());
         alternatives.extend(station_labels.unwrap().iter().filter_map(|l| {
             if l.destination_arrival.mean == 0.0 {
                 panic!("weirdly 0");
@@ -528,7 +533,7 @@ fn get_stoch_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, stoch_act
         }));
     }
 
-    alternatives.sort_by(|a, b| a.proj_dest_arr.partial_cmp(&b.proj_dest_arr).unwrap());
+    alternatives.sort_unstable_by(|a, b| a.proj_dest_arr.partial_cmp(&b.proj_dest_arr).unwrap());
     alternatives
 }
 
@@ -584,12 +589,12 @@ fn update_connections_taken_from_last_log(result: &mut SimulationResult, log: &[
 
 fn update_connections_taken(result: &mut SimulationResult, connection: &connection::Connection, stations: &[connection::Station], proj_dest_arr: f32) {
     let mut conn = connection.clone();
-    conn.destination_arrival.replace(Some(distribution::Distribution {
+    /*conn.destination_arrival.replace(Some(distribution::Distribution {
         feasible_probability: 1.0,
         histogram: vec![],
         start: 0,
         mean: proj_dest_arr
-    }));
+    }));*/
     conn.message = format!("from: {} {} to: {} {}", stations[conn.from_idx].id, stations[conn.from_idx].name, stations[conn.to_idx].id, stations[conn.to_idx].name);
     result.connections_taken.push(conn);
     if result.broken {
@@ -621,7 +626,8 @@ struct SimulationAnalysis {
     delta_det_stoch_predicted: Vec<f32>,
     delta_det_predicted_stoch_actual: Vec<f32>,
     delta_det_stoch_actual_arrival: Vec<f32>,
-    delta_det_stoch_actual_travel_time: Vec<f32>
+    delta_det_stoch_actual_travel_time: Vec<f32>,
+    stoch_actual_travel_time: Vec<f32>
 }
 
 fn summary(values: Vec<f32>, name: &str) {
@@ -632,7 +638,7 @@ fn summary(values: Vec<f32>, name: &str) {
 }
 
 pub fn analyze_simulation() {
-    let run = load_simulation_run("./benches/runs/1706729466.priori_online_broken.adaptive_online_relevant.short.ign.json");
+    let run = load_simulation_run("./benches/runs/1706891316.priori_online_broken.adaptive_online_relevant.short.ign.json");
     let mut a = SimulationAnalysis {
         det_infeasible: 0,
         det_broken: 0,
@@ -644,7 +650,8 @@ pub fn analyze_simulation() {
         delta_det_stoch_predicted: vec![],
         delta_det_predicted_stoch_actual: vec![],
         delta_det_stoch_actual_arrival: vec![],
-        delta_det_stoch_actual_travel_time: vec![]
+        delta_det_stoch_actual_travel_time: vec![],
+        stoch_actual_travel_time: vec![]
     };
     for result in &run.results {
         if result.det.actual_dest_arrival.is_some() {
@@ -657,6 +664,7 @@ pub fn analyze_simulation() {
         }
         if result.stoch.actual_dest_arrival.is_some() {
             a.delta_stoch_predicted_actual.push(result.stoch.actual_dest_arrival.unwrap() as f32-result.stoch.original_dest_arrival_prediction);
+            a.stoch_actual_travel_time.push((result.stoch.actual_dest_arrival.unwrap()-result.stoch.departure) as f32);
         } else {
             a.stoch_infeasible += 1;
             if result.stoch.broken {
@@ -679,6 +687,7 @@ pub fn analyze_simulation() {
     summary(a.delta_det_predicted_stoch_actual, "delta_det_predicted_stoch_actual");
     summary(a.delta_det_stoch_actual_arrival, "delta_det_stoch_actual_arrival");
     summary(a.delta_det_stoch_actual_travel_time, "delta_det_stoch_actual_travel_time");
+    summary(a.stoch_actual_travel_time, "stoch_actual_travel_time");
 }
 
 #[ignore]
