@@ -59,7 +59,7 @@ fn resolve_connection_idx(
     leg_idx: usize,
     to: bool,
     mapping: &HashMap<(usize, u16), usize>,
-    order: &HashMap<usize, topocsa::ConnectionOrder>,
+    order: &[usize]
 ) -> usize {
     let leg = &journey.legs[leg_idx];
     let connid = mapping[&(leg.transport_idx, leg.day_idx)]
@@ -68,7 +68,7 @@ fn resolve_connection_idx(
         } else {
             leg.from_stop_idx
         } as usize;
-    order[&connid].order
+    order[connid]
 }
 
 fn update_footpaths(t: &Timetable, tt: &mut GtfsTimetable) {
@@ -151,7 +151,7 @@ fn manual_test() -> Result<i32, Box<dyn std::error::Error>> {
                     println!("route {:?}", t.get_route(t.get_transport(leg.transport_idx).route_idx));
                     for l in leg.from_stop_idx..(leg.to_stop_idx+1) {
                         let connid = tt.transport_and_day_to_connection_id[&(leg.transport_idx, leg.day_idx)]+l as usize-1;
-                        let connidx_dep0 = tt.order[&connid].order;
+                        let connidx_dep0 = tt.order[connid];
                         println!(
                             "debgu start:{} {} {} frm dd: frmcon {} {} {} {:?} tocon {} {} {} {:?} trip: {} {} {} mean {} cut: {} fp: {}",
                             deterministic.journeys[0].start_time, i, connid,

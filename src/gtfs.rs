@@ -9,14 +9,13 @@ use crate::connection;
 use std::collections::HashSet;
 use serde::{Serialize, Deserialize};
 use rand::Rng;
-use crate::query::topocsa;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GtfsTimetable {
     pub stations: Vec<connection::Station>,
     pub connections: Vec<connection::Connection>,
     pub cut: HashSet<(usize, usize)>,
-    pub order: HashMap<usize, topocsa::ConnectionOrder>, // TODO rename
+    pub order: Vec<usize>,
     pub transport_and_day_to_connection_id: HashMap<(usize, u16), usize>
 }
 
@@ -98,7 +97,7 @@ pub fn create_simulation_samples(gtfs_path: &str, start_date: chrono::NaiveDate,
         stations: vec![],
         connections: vec![],
         cut: HashSet::new(),
-        order: HashMap::new(),
+        order: vec![],
         transport_and_day_to_connection_id: HashMap::new()
     };
     let mut routes = vec![];

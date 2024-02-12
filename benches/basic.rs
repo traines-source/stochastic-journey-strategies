@@ -18,7 +18,7 @@ fn from_relevant(c: &mut Criterion) {
     let mut stations = vec![];
     let mut routes = vec![];
     let mut connections = vec![];
-    let mut order = HashMap::with_capacity(connections.len());
+    let mut order = vec![];
     let (start_time, o, d, now, _) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
     let mut env = topocsa::prepare(&mut store, &mut connections, &stations, &mut order, serde::to_mtime(now, start_time), 0.0, true);
 
@@ -40,7 +40,7 @@ fn measure_prepare(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("once");
     group.bench_function("measure_prepare", |b| b.iter(|| {
-        let mut order = HashMap::with_capacity(connections.len());
+        let mut order = vec![];
         topocsa::prepare(black_box(&mut store), black_box(&mut connections.clone()), black_box(&stations), black_box(&mut order), black_box(serde::to_mtime(now, start_time)), black_box(0.0), black_box(true));
     }));
     group.finish();

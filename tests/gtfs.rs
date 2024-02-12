@@ -34,14 +34,14 @@ fn create_gtfs_cache() {
         stations: vec![],
         connections: vec![],
         cut: HashSet::new(),
-        order: HashMap::new(),
+        order: vec![],
         transport_and_day_to_connection_id: HashMap::new()
     };
     let mut routes = vec![];
     let t = gtfs::load_timetable(&format!("{}{}", prefix, GTFS_PATH), day(2023, 11, 2), day(2023, 11, 3));
     tt.transport_and_day_to_connection_id = gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);
     let start_ts = Instant::now();
-    let env = topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, &mut tt.order, 0, 0.01, true);
+    let env = topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, &mut tt.order, 8000, 0.01, true);
     println!("elapsed: {}", start_ts.elapsed().as_millis());
     tt.cut = env.cut;
     let mut buf = vec![];
@@ -52,7 +52,7 @@ fn create_gtfs_cache() {
         .truncate(true)
         .open(CACHE_PATH).expect("file not openable");
     file.write_all(&buf).expect("error writing file");
-
+    /*
     let mut tt = gtfs::GtfsTimetable {
         stations: vec![],
         connections: vec![],
@@ -67,6 +67,7 @@ fn create_gtfs_cache() {
     let env = topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, &mut tt.order, 0, 0.01, true);
     println!("elapsed hot run: {}", start_ts.elapsed().as_millis());
     println!("cut {}", env.cut.len());
+    */
 }
 
 #[test]
@@ -134,7 +135,7 @@ fn load_only_gtfs_with_rt() {
         stations: vec![],
         connections: vec![],
         cut: HashSet::new(),
-        order: HashMap::new(),
+        order: vec![],
         transport_and_day_to_connection_id: HashMap::new()
     };
     let mut routes = vec![];
@@ -164,7 +165,7 @@ fn gtfs_small() {
     let mut stations = vec![];
     let mut routes = vec![];
     let mut connections = vec![];
-    let mut order = HashMap::new();
+    let mut order = vec![];
     let t = gtfs::load_timetable("./tests/fixtures/gtfs_minimal_swiss/", day(2024, 1, 1), day(2024, 1, 10));
     let map = gtfs::retrieve(&t, &mut stations, &mut routes, &mut connections);
 
