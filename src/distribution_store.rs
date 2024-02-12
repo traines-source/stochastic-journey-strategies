@@ -3,6 +3,7 @@ use std::ops::Range;
 use std::fs::File;
 use csv;
 use serde::{Serialize, Deserialize};
+use rustc_hash::FxHashMap;
 
 use crate::distribution;
 use crate::connection;
@@ -30,11 +31,12 @@ struct ReachabilityKey {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Store {
-    delay: HashMap<DelayKey, distribution::Distribution>,
-    delay_buckets: HashMap<i16, (i16, i16)>,
+    delay: FxHashMap<DelayKey, distribution::Distribution>,
+    delay_buckets: FxHashMap<i16, (i16, i16)>,
     delay_upper: (i16, i16),
-    ttl_buckets: HashMap<i16, (i16, i16)>,
-    reachability: HashMap<ReachabilityKey, f32>,
+    ttl_buckets: FxHashMap<i16, (i16, i16)>,
+    reachability: FxHashMap<ReachabilityKey, f32>,
+    min_delay_diff: i16,
     hits: usize,
     misses: usize
 }
@@ -42,11 +44,12 @@ pub struct Store {
 impl Store {
     pub fn new() -> Store {
         let mut s = Store{
-            delay: HashMap::new(),
-            delay_buckets: HashMap::new(),
+            delay: FxHashMap::default(),
+            delay_buckets: FxHashMap::default(),
             delay_upper: (0,0),
-            ttl_buckets: HashMap::new(),
-            reachability: HashMap::new(),
+            ttl_buckets: FxHashMap::default(),
+            reachability: FxHashMap::default(),
+            min_delay_diff: 180,
             hits: 0,
             misses: 0
         };
@@ -55,7 +58,7 @@ impl Store {
     }
 
     pub fn print_stats(&self) {
-        println!("store: reachability entries: {} hits: {} misses: {}", self.reachability.len(), self.hits, self.misses);
+        println!("store: max_delay_diff: {} reachability entries: {} hits: {} misses: {}", self.min_delay_diff, self.reachability.len(), self.hits, self.misses);
     }
 
     pub fn reachability_len(&self) -> usize {
@@ -155,6 +158,7 @@ impl Store {
         let mut rdr = csv::Reader::from_reader(file);
         let mut current_delay_key: Option<DelayKey> = None;
         let mut latest_sample_delays: Vec<(Range<i16>, i32)> = vec![];
+        let mut min_max_delay = (0,0);
         let mut total_feasible_sample_count = 0;
         for result in rdr.records() {
             let record = result.unwrap();
@@ -171,8 +175,15 @@ impl Store {
             if latest_sample_delay.start != latest_sample_delay.end {
                 total_feasible_sample_count += sample_count;
             }
+            if latest_sample_delay.start < min_max_delay.0 {
+                min_max_delay.0 = latest_sample_delay.start;
+            }
+            if latest_sample_delay.end > min_max_delay.1 {
+                min_max_delay.1 = latest_sample_delay.end;
+            }
             latest_sample_delays.push((latest_sample_delay, sample_count));
         }
+        self.min_delay_diff = (min_max_delay.0-min_max_delay.1) as i16;
     }
 
     fn insert_fallback_distributions(&mut self) {
@@ -197,7 +208,7 @@ impl Store {
     }
 
     fn raw_delay_distribution<'a, 'b>(&'b self, stop_info: &connection::StopInfo, is_departure: bool, product_type: i16, now: types::Mtime) -> &'b distribution::Distribution {
-        let ttl = self.ttl_bucket((stop_info.projected()-now) as i32);
+        let ttl = self.ttl_bucket(stop_info.projected()-now);
         let key = DelayKey{
             product_type: product_type,
             prior_delay: self.delay_bucket(stop_info.delay, ttl),
@@ -232,10 +243,10 @@ impl Store {
 
     pub fn before_probability(&mut self, from: &connection::StopInfo, from_product_type: i16, from_is_departure: bool, to: &connection::StopInfo, to_product_type: i16, transfer_time: i32, now: types::Mtime) -> f32 {
         let diff = (to.projected()-from.projected()-transfer_time) as i16;
-        /*if diff < -180 {
+        if diff < self.min_delay_diff {
             return 0.0;
-        }*/
-        let ttl = self.ttl_bucket((from.projected()-now) as i32);
+        }
+        let ttl = self.ttl_bucket(from.projected()-now);
         let key = ReachabilityKey{
             from_product_type,
             to_product_type,

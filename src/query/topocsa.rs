@@ -1,12 +1,9 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::hash::Hash;
-use std::iter::Successors;
 use std::time::Instant;
 
 use indexmap::IndexMap;
-use motis_nigiri::EventChange;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -94,14 +91,31 @@ impl<'a, 'b> Environment<'b> {
             let len = index_stack.len();
             let triple = successor_indices.get_mut(index_stack.last().unwrap()).unwrap();
             let c_id = triple.0;        
+            
+            let mut found = false;
+            while triple.2 > 0 {
+                triple.2 -= 1;
+                let dep_id = &triple.1[triple.2];
+                let dep_label = self.order.get(dep_id);
+                if dep_label.is_some() {
+                    let dep_label = dep_label.unwrap();
+                    if dep_label.visited == 2 {
+                        instr.encounter_2 += 1;
+                    } else {
+                        found = true;
+                        break;
+                    }
+                } else {
+                    found = true;
+                    break;
+                }
+            }
             let c_label = self.order.get_mut(&c_id).unwrap();
             if c_label.visited == 0 {
                 c_label.visited = 1;
                 trace.insert(c_id, len-1);
             }
-            if triple.2 > 0 {
-                triple.2 -= 1;
-            } else {
+            if !found {
                 c_label.order = *topo_idx;
                 *topo_idx += 1;
                 c_label.visited = 2;
@@ -113,18 +127,11 @@ impl<'a, 'b> Environment<'b> {
             }
             
             let dep_id = &triple.1[triple.2];
-            let dep_label = self.order.get(dep_id);
-            if dep_label.is_some() {
-                let dep_label = dep_label.unwrap();
-                if dep_label.visited == 2 {
-                    instr.encounter_2 += 1;
-                    continue;
-                }
-            }
             if self.cut.contains(&(c_id, *dep_id)) {
                 continue;
             }
             let dep = &self.connections[*dep_id];
+            let dep_label = self.order.get(dep_id);
             if dep_label.is_some() {
                 let start_ts = Instant::now();
                 let dep_label = dep_label.unwrap();
@@ -213,8 +220,8 @@ impl<'a, 'b> Environment<'b> {
         let start = Instant::now();
         let mut successor_indices: HashMap<usize, (usize, Vec<usize>, usize)> = HashMap::new();
         for c in &*self.connections {
-            let mut deps: Vec<usize> = vec![]; 
             let footpaths = &self.stations[c.to_idx].footpaths;
+            let mut deps: Vec<usize> = Vec::with_capacity(100);
             for i in 0..footpaths.len()+1 {
                 let stop_idx = if i == footpaths.len() { c.to_idx } else { footpaths[i].target_location_idx };
                 let transfer_time = if i == footpaths.len() { 1 } else { footpaths[i].duration as i32 };
