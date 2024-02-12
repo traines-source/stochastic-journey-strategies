@@ -32,9 +32,11 @@ struct ReachabilityKey {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Store {
     delay: FxHashMap<DelayKey, distribution::Distribution>,
-    delay_buckets: FxHashMap<i16, (i16, i16)>,
+    delay_buckets: Vec<(i16, i16)>,
+    delay_lower: i16,
     delay_upper: (i16, i16),
-    ttl_buckets: FxHashMap<i16, (i16, i16)>,
+    ttl_buckets: Vec<(i16, i16)>,
+    ttl_lower: i16,
     reachability: FxHashMap<ReachabilityKey, f32>,
     min_delay_diff: i16,
     hits: usize,
@@ -45,9 +47,11 @@ impl Store {
     pub fn new() -> Store {
         let mut s = Store{
             delay: FxHashMap::default(),
-            delay_buckets: FxHashMap::default(),
+            delay_buckets: vec![],
+            delay_lower: 0,
             delay_upper: (0,0),
-            ttl_buckets: FxHashMap::default(),
+            ttl_buckets: vec![],
+            ttl_lower: 0,
             reachability: FxHashMap::default(),
             min_delay_diff: 180,
             hits: 0,
@@ -74,23 +78,38 @@ impl Store {
             return (0,0)
         }
         match delay {
-            Some(d) => if d >= self.delay_upper.0 { self.delay_upper } else { *self.delay_buckets.get(&d).unwrap_or(&(0,0)) },
+            Some(d) => if d >= self.delay_upper.0 { self.delay_upper } else { *self.delay_buckets.get((d-self.delay_lower) as usize).unwrap_or(&(0,0)) },
             None => (0,0)
         }        
     }
 
     fn ttl_bucket(&self, ttl: i32) -> (i16, i16) {
-        *self.ttl_buckets.get(&(ttl as i16)).unwrap_or(&(0,0))
+        *self.ttl_buckets.get((ttl-self.ttl_lower as i32) as usize).unwrap_or(&(0,0))
+    }
+
+    fn extend_bucket_mapping(bucket: (i16, i16), bucket_mapping: &mut Vec<(i16,i16)>, bucket_mapping_lower: &mut i16) {
+        if bucket.0 < *bucket_mapping_lower {
+            let mut prepended = vec![(0,0); (*bucket_mapping_lower-bucket.0) as usize];
+            *bucket_mapping_lower = bucket.0;
+            prepended.append(bucket_mapping);
+            *bucket_mapping = prepended;
+        }
+        let required_len = (bucket.1 - *bucket_mapping_lower) as usize;
+        if required_len > bucket_mapping.len() {
+            bucket_mapping.resize(required_len, (0,0));
+        }
     }
 
     fn insert_delay_key(&mut self, delay_key: DelayKey, distribution: distribution::Distribution) {
         let prior_delay_range = delay_key.prior_delay.0..delay_key.prior_delay.1;
         let prior_ttl_range = delay_key.prior_ttl.0..delay_key.prior_ttl.1;
+        Self::extend_bucket_mapping(delay_key.prior_delay, &mut self.delay_buckets, &mut self.delay_lower);
+        Self::extend_bucket_mapping(delay_key.prior_ttl, &mut self.ttl_buckets, &mut self.ttl_lower);
         for i in prior_delay_range {
-            self.delay_buckets.insert(i, delay_key.prior_delay);
+            self.delay_buckets[(i-self.delay_lower) as usize] = delay_key.prior_delay;
         }
         for i in prior_ttl_range {
-            self.ttl_buckets.insert(i, delay_key.prior_ttl);
+            self.ttl_buckets[(i-self.ttl_lower) as usize] = delay_key.prior_ttl;
         }
         if delay_key.prior_delay.0 >= self.delay_upper.0 {
             self.delay_upper = delay_key.prior_delay;
