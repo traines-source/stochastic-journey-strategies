@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::time::Instant;
 
-use indexmap::IndexMap;
+use indexmap::IndexSet;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -54,12 +54,6 @@ pub struct Environment<'b> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ConnectionOrder {
-    visited: i16,
-    pub order: usize
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct DfsConnectionLabel {
     successors: Vec<usize>,
     i: usize,
@@ -87,14 +81,12 @@ pub struct Instrumentation {
 
 impl<'a, 'b> Environment<'b> {
 
-    // TODO try without unraveling in conjunction with preserving successor_idxs?
     fn dfs(&mut self, anchor_id: usize, topo_idx: &mut usize, labels: &mut Vec<DfsConnectionLabel>, visited: &mut Vec<i16>, instr: &mut Instrumentation) {
-        let mut stack: IndexMap<usize, usize> = IndexMap::with_capacity(1000);
-        stack.insert(anchor_id, 0);
+        let mut stack: IndexSet<usize> = IndexSet::with_capacity(1000);
+        stack.insert(anchor_id);
         while !stack.is_empty() {
             instr.iterations += 1;
-            let len = stack.len();
-            let c_id = *stack.last().unwrap().0;
+            let c_id = *stack.last().unwrap();
             let c_label = labels.get_mut(c_id).unwrap();
             visited[c_id] = 1;
             let mut found = false;
@@ -106,88 +98,83 @@ impl<'a, 'b> Environment<'b> {
                     instr.encounter_2 += 1;
                 } else {
                     found = true;
+                    if self.cut.contains(&(c_id, dep_id)) {
+                        continue;
+                    }
+                    if dep_visited == 1 {
+                        let start_ts = Instant::now();
+                        let trace_idx = stack.get_index_of(&dep_id);
+                        if trace_idx.is_some() {
+                            let c = &self.connections[c_id];
+                            let dep = &self.connections[dep_id];
+                            let transfer_time = dep.departure.projected()-c.arrival.projected();
+                            let mut min_transfer = if c.is_consecutive(dep) { 1 } else { transfer_time };
+                            let mut min_i = stack.len();
+                            let start = trace_idx.unwrap()+1 as usize;
+                            instr.cycle_sum_len += stack.len()-start;
+                            if stack.len()-start > instr.cycle_max_len {
+                                instr.cycle_max_len = stack.len()-start;
+                            }
+                            for i in start..stack.len() {
+                                let a = &self.connections[*stack.get_index(i-1).unwrap()];
+                                let b = &self.connections[*stack.get_index(i).unwrap()];
+                                if a.is_consecutive(b) {
+                                    continue;
+                                }
+                                let t = b.departure.projected()-a.arrival.projected();
+                                if t < min_transfer {
+                                    min_transfer = t;
+                                    min_i = i;
+                                }
+                            }
+                            if min_transfer > 0 {
+                                panic!("cutting positive transfer {:?} {:?} {} {}", c.departure, c.route_idx, min_transfer, transfer_time)
+                            }
+                            if min_i == stack.len() {
+                                self.cut.insert((c_id, dep_id));
+                                if c_id == dep_id {
+                                    instr.cycle_self_count += 1;
+                                }
+                                if c.is_consecutive(dep) {
+                                    panic!("cutting trip"); 
+                                }
+                                instr.unraveling_time += start_ts.elapsed().as_nanos();
+                                continue;
+                            }
+                            let cut_before = stack.get_index(min_i).unwrap();
+                            let cut_after = stack.get_index(min_i-1).unwrap();
+                            self.cut.insert((*cut_after, *cut_before));
+                            if self.connections[*cut_after].is_consecutive(&self.connections[*cut_before]) {
+                                panic!("cutting trip {:?} {:?}", self.connections[*cut_after],self.connections[*cut_before]);
+                            }
+                            instr.unraveling_no += stack.len()-min_i;
+                            for _ in min_i..stack.len() {
+                                let id = stack.pop().unwrap();
+                                let label = labels.get_mut(id).unwrap();
+                                label.i += 1;
+                                assert_eq!(visited[id], 1);
+                                visited[id] = 0;
+                            }
+                            instr.unraveling_time += start_ts.elapsed().as_nanos();
+                            break;
+                        } else {
+                            panic!("marked as visited but not in trace {:?} {:?}", dep_id, stack);
+                        }
+                    } else if dep_visited != 0 {
+                        panic!("unexpected visited state");
+                    }
+                    stack.insert(dep_id);
                     break;
                 }
             }
             if !found {
+                let c_label = labels.get_mut(c_id).unwrap();
                 c_label.order = *topo_idx;
                 *topo_idx += 1;
                 visited[c_id] = 2;
                 let p = stack.pop().unwrap();
-                assert_eq!(p.0, c_id);
-                assert_eq!(p.1, stack.len());
-                continue;
+                assert_eq!(p, c_id);
             }
-            
-            let dep_id = c_label.successors[c_label.i];
-            if self.cut.contains(&(c_id, dep_id)) {
-                continue;
-            }
-            let dep = &self.connections[dep_id];
-            let dep_visited = visited[dep_id];
-            let start_ts = Instant::now();
-            if dep_visited == 1 {
-                let trace_idx = stack.get_index_of(&dep_id);
-                if trace_idx.is_some() {
-                    let c = &self.connections[c_id];
-                    let transfer_time = dep.departure.projected()-c.arrival.projected();
-                    let mut min_transfer = if c.is_consecutive(dep) { 1 } else { transfer_time };
-                    let mut min_i = stack.len();
-                    let start = trace_idx.unwrap()+1 as usize;
-                    instr.cycle_sum_len += stack.len()-start;
-                    if stack.len()-start > instr.cycle_max_len {
-                        instr.cycle_max_len = stack.len()-start;
-                    }
-                    for i in start..stack.len() {
-                        let a = &self.connections[*stack.get_index(i-1).unwrap().0];
-                        let b = &self.connections[*stack.get_index(i).unwrap().0];
-                        if a.is_consecutive(b) {
-                            continue;
-                        }
-                        let t = b.departure.projected()-a.arrival.projected();
-                        if t < min_transfer {
-                            min_transfer = t;
-                            min_i = i;
-                        }
-                    }
-                    if min_transfer > 0 {
-                        panic!("cutting positive transfer {:?} {:?} {} {}", c.departure, c.route_idx, min_transfer, transfer_time)
-                    }
-                    if min_i == stack.len() {
-                        self.cut.insert((c_id, dep_id));
-                        if c_id == dep_id {
-                            instr.cycle_self_count += 1;
-                        }
-                        if c.is_consecutive(dep) {
-                            panic!("cutting trip"); 
-                        }
-                        instr.unraveling_time += start_ts.elapsed().as_nanos();
-                        continue;
-                    }
-                    let cut_before = stack.get_index(min_i).unwrap();
-                    let cut_after = stack.get_index(min_i-1).unwrap();
-                    self.cut.insert((*cut_after.0, *cut_before.0));
-                    if self.connections[*cut_after.0].is_consecutive(&self.connections[*cut_before.0]) {
-                        panic!("cutting trip {:?} {:?}", self.connections[*cut_after.0],self.connections[*cut_before.0]);
-                    }
-                    instr.unraveling_no += stack.len()-*cut_before.1;
-                    for _ in min_i..stack.len() {
-                        let id = stack.pop().unwrap().0;
-                        let label = labels.get_mut(id).unwrap();
-                        label.i += 1;
-                        assert_eq!(visited[id], 1);
-                        visited[id] = 0;
-                    }
-                    instr.unraveling_time += start_ts.elapsed().as_nanos();
-                    continue;
-                } else {
-                    panic!("marked as visited but not in trace {:?} {:?}", dep_id, stack);
-                }
-            } else if dep_visited != 0 {
-                panic!("unexpected visited state");
-            }
-            stack.insert(dep_id, len);
-
             if stack.len() > instr.max_trace {
                 instr.max_trace = stack.len();
             }
