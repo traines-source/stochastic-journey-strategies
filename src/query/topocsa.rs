@@ -26,7 +26,7 @@ pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mu
 }
 
 pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], order: &'b mut Vec<usize>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
-    let mut e = new(store, connections, stations, HashSet::new(), order, now, epsilon, mean_only);
+    let mut e = new(store, connections, stations, HashSet::new(), order, now, epsilon, mean_only);    
     println!("Starting topocsa...");
     e.preprocess();
     e
@@ -55,7 +55,7 @@ pub struct Environment<'b> {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DfsConnectionLabel {
-    successors: Vec<usize>,
+    footpath_i: usize,
     i: usize,
     order: usize
 }
@@ -87,12 +87,27 @@ impl<'a, 'b> Environment<'b> {
         while !stack.is_empty() {
             instr.iterations += 1;
             let c_id = *stack.last().unwrap();
+            let c = &self.connections[c_id];
             let c_label = labels.get_mut(c_id).unwrap();
+            let footpaths = &self.stations[c.to_idx].footpaths;
+            let mut stop_idx = if c_label.footpath_i == footpaths.len() { c.to_idx } else { footpaths[c_label.footpath_i].target_location_idx };
             visited[c_id] = 1;
             let mut found = false;
-            while c_label.i > 0 {
-                c_label.i -= 1;
-                let dep_id = c_label.successors[c_label.i];
+            loop {
+                if c_label.i > 0 {
+                    c_label.i -= 1;
+                } else if c_label.footpath_i > 0 {
+                    c_label.footpath_i -= 1;
+                    stop_idx = footpaths[c_label.footpath_i].target_location_idx;
+                    let deps = self.stations[stop_idx].departures.len();
+                    if deps == 0 {
+                        continue;
+                    }
+                    c_label.i = deps-1;
+                } else {
+                    break;
+                }
+                let dep_id = self.stations[stop_idx].departures[c_label.i];
                 let dep_visited = visited[dep_id];
                 if dep_visited == 2 {
                     instr.encounter_2 += 1;
@@ -101,12 +116,21 @@ impl<'a, 'b> Environment<'b> {
                     if self.cut.contains(&(c_id, dep_id)) {
                         continue;
                     }
+                    let dep = &self.connections[dep_id];
+                    let is_continuing = if c_label.footpath_i == footpaths.len() { c.is_consecutive(dep) } else { false };
+                    if !is_continuing {
+                        let transfer_time = if c_label.footpath_i == footpaths.len() { 1 } else { footpaths[c_label.footpath_i].duration as i32 };
+                        let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
+                        if reachable <= self.epsilon {
+                            continue;
+                        }
+                    }
+                    
                     if dep_visited == 1 {
                         let start_ts = Instant::now();
                         let trace_idx = stack.get_index_of(&dep_id);
                         if trace_idx.is_some() {
                             let c = &self.connections[c_id];
-                            let dep = &self.connections[dep_id];
                             let transfer_time = dep.departure.projected()-c.arrival.projected();
                             let mut min_transfer = if c.is_consecutive(dep) { 1 } else { transfer_time };
                             let mut min_i = stack.len();
@@ -194,26 +218,9 @@ impl<'a, 'b> Environment<'b> {
         let mut labels: Vec<DfsConnectionLabel> = Vec::with_capacity(self.connections.len());
         for c in &*self.connections {
             let footpaths = &self.stations[c.to_idx].footpaths;
-            let mut deps: Vec<usize> = vec![];
-            for i in 0..footpaths.len()+1 {
-                let stop_idx = if i == footpaths.len() { c.to_idx } else { footpaths[i].target_location_idx };
-                let transfer_time = if i == footpaths.len() { 1 } else { footpaths[i].duration as i32 };
-                for dep_id in &self.stations[stop_idx].departures {
-                    let dep = &self.connections[*dep_id];
-                    let is_continuing = if i == footpaths.len() { c.is_consecutive(dep) } else { false };
-                    if !is_continuing {
-                        let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
-                        if reachable <= self.epsilon {
-                            continue;
-                        }
-                    }
-                    deps.push(*dep_id);
-                } 
-            }
-            let len = deps.len();
             labels.push(DfsConnectionLabel {
-                successors: deps, 
-                i: len,
+                footpath_i: footpaths.len(),
+                i: self.stations[c.to_idx].departures.len(),
                 order: 0
             });
         }
