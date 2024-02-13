@@ -91,7 +91,8 @@ impl<'a, 'b> Environment<'b> {
             let c = &self.connections[c_id];
             let c_label = labels.get_mut(c_id).unwrap();
             let footpaths = &self.stations[c.to_idx].footpaths;
-            let mut stop_idx = if c_label.footpath_i == footpaths.len() { c.to_idx } else { footpaths[c_label.footpath_i].target_location_idx };
+            let stop_idx = if c_label.footpath_i == footpaths.len() { c.to_idx } else { footpaths[c_label.footpath_i].target_location_idx };
+            let mut deps = &self.stations[stop_idx].departures;
             visited[c_id] = 1;
             let mut found = false;
             loop {
@@ -99,16 +100,16 @@ impl<'a, 'b> Environment<'b> {
                     c_label.i -= 1;
                 } else if c_label.footpath_i > 0 {
                     c_label.footpath_i -= 1;
-                    stop_idx = footpaths[c_label.footpath_i].target_location_idx;
-                    let deps = self.stations[stop_idx].departures.len();
-                    if deps == 0 {
+                    let stop_idx = footpaths[c_label.footpath_i].target_location_idx;
+                    deps = &self.stations[stop_idx].departures;
+                    if deps.is_empty() {
                         continue;
                     }
-                    c_label.i = deps-1;
+                    c_label.i = deps.len()-1;
                 } else {
                     break;
                 }
-                let dep_id = self.stations[stop_idx].departures[c_label.i];
+                let dep_id = deps[c_label.i];
                 let dep_visited = visited[dep_id];
                 if dep_visited == 2 {
                     instr.encounter_2 += 1;

@@ -21,6 +21,10 @@ impl Distribution {
         assert_float_absolute_eq!(self.histogram.iter().sum::<f32>(), 1.0, 1e-3);
     }
 
+    pub fn end(&self) -> types::Mtime {
+        self.start+self.histogram.len() as types::Mtime
+    }
+
     pub fn empty(start: types::Mtime) -> Distribution {
         Distribution{
             histogram: vec![],
@@ -48,6 +52,17 @@ impl Distribution {
             mean += (self.start as f32+i as f32)*self.histogram[i];
         }
         mean
+    }
+
+    pub fn quantile(&self, q: f32) -> types::Mtime {
+        let mut cum = 0.0;
+        for i in 0..self.histogram.len() {
+            cum += self.histogram[i];
+            if cum >= q {
+                return self.start+i as types::Mtime;
+            }
+        }
+        return self.end();
     }
 
     pub fn normalize(&mut self) {

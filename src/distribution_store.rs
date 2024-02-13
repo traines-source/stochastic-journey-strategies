@@ -10,7 +10,7 @@ use crate::connection;
 use crate::types;
 
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Debug, Clone)]
 struct DelayKey {
     product_type: i16,
     prior_delay: (i16, i16),
@@ -40,6 +40,7 @@ pub struct Store {
     ttl_lower: i16,
     reachability: FxHashMap<ReachabilityKey, f32>,
     min_delay_diff: i16,
+    min_epsilon_delay_diff: i16,
     hits: usize,
     misses: usize
 }
@@ -54,7 +55,8 @@ impl Store {
             ttl_buckets: vec![],
             ttl_lower: 0,
             reachability: FxHashMap::default(),
-            min_delay_diff: 180,
+            min_delay_diff: -180,
+            min_epsilon_delay_diff: -180,
             hits: 0,
             misses: 0
         };
@@ -63,7 +65,7 @@ impl Store {
     }
 
     pub fn print_stats(&self) {
-        println!("store: max_delay_diff: {} reachability entries: {} hits: {} misses: {}", self.min_delay_diff, self.reachability.len(), self.hits, self.misses);
+        println!("store: min_delay_diff: {} epsilon_min_delay_diff: {} reachability entries: {} hits: {} misses: {}", self.min_delay_diff, self.min_epsilon_delay_diff, self.reachability.len(), self.hits, self.misses);
     }
 
     pub fn reachability_len(&self) -> usize {
@@ -131,15 +133,16 @@ impl Store {
         self.insert_delay_key(delay_key, distribution);
     }
 
-    fn insert_distribution_from_buckets(&mut self, delay_key: DelayKey, latest_sample_delays: Vec<(Range<i16>, i32)>, total_feasible_sample_count: i32) {
+    fn insert_distribution_from_buckets(&mut self, delay_key: DelayKey, latest_sample_delays: Vec<(Range<i16>, i32)>, total_feasible_sample_count: i32) -> Option<&distribution::Distribution> {
         if latest_sample_delays.len() == 0
             || latest_sample_delays.len() <= 3 && latest_sample_delays.iter().fold(0, |acc, l| l.0.end-l.0.start+acc) == 0
             || total_feasible_sample_count < 100 {
             //println!("Skipping {:?} {:?}", delay_key, latest_sample_delays);
-            return;
+            return None;
         }
         let d = distribution::Distribution::from_buckets(latest_sample_delays, total_feasible_sample_count);
-        self.insert_delay_key(delay_key, d);
+        self.insert_delay_key(delay_key.clone(), d);
+        Some(self.raw_delay_distribution_by_key(delay_key))
     }
 
     fn parse_bucket(bucket: &str) -> Range<i16> {
@@ -164,6 +167,22 @@ impl Store {
         }
     }
 
+    fn update_min_max_delay(dist: &distribution::Distribution, min_max_delay: &mut (i16, i16), epsilon_min_max_delay: &mut (i16, i16)) {
+        if (dist.start as i16) < min_max_delay.0 {
+            min_max_delay.0 = dist.start as i16;
+        }
+        if (dist.end() as i16) > min_max_delay.1 {
+            min_max_delay.1 = dist.end() as i16;
+        }
+        let e = (0.01 as f32).sqrt();
+        if (dist.quantile(e) as i16)-1 < epsilon_min_max_delay.0 {
+            epsilon_min_max_delay.0 = dist.quantile(e) as i16-1;
+        }
+        if (dist.quantile(1.0-e) as i16) > epsilon_min_max_delay.1 {
+            epsilon_min_max_delay.1 = dist.quantile(1.0-e) as i16;
+        }
+    }
+
     pub fn load_distributions(&mut self, file_path: &str) {
         let key_array: [(&str, usize); 6] = [
             ("product_type_id", 0),
@@ -179,12 +198,16 @@ impl Store {
         let mut current_delay_key: Option<DelayKey> = None;
         let mut latest_sample_delays: Vec<(Range<i16>, i32)> = vec![];
         let mut min_max_delay = (0,0);
+        let mut epsilon_min_max_delay = (0,0);
         let mut total_feasible_sample_count = 0;
         for result in rdr.records() {
             let record = result.unwrap();
             let delay_key = Self::make_delay_key(&record, &keys);
             if current_delay_key.is_some() && delay_key != *current_delay_key.as_ref().unwrap() {
-                self.insert_distribution_from_buckets(current_delay_key.unwrap(), latest_sample_delays, total_feasible_sample_count);
+                let dist = self.insert_distribution_from_buckets(current_delay_key.unwrap(), latest_sample_delays, total_feasible_sample_count);
+                if dist.is_some() {
+                    Self::update_min_max_delay(dist.unwrap(), &mut min_max_delay, &mut epsilon_min_max_delay);
+                }
                 current_delay_key = None;
                 latest_sample_delays = vec![];
                 total_feasible_sample_count = 0;
@@ -195,15 +218,10 @@ impl Store {
             if latest_sample_delay.start != latest_sample_delay.end {
                 total_feasible_sample_count += sample_count;
             }
-            if latest_sample_delay.start < min_max_delay.0 {
-                min_max_delay.0 = latest_sample_delay.start;
-            }
-            if latest_sample_delay.end > min_max_delay.1 {
-                min_max_delay.1 = latest_sample_delay.end;
-            }
             latest_sample_delays.push((latest_sample_delay, sample_count));
         }
         self.min_delay_diff = (min_max_delay.0-min_max_delay.1) as i16;
+        self.min_epsilon_delay_diff = (epsilon_min_max_delay.0-epsilon_min_max_delay.1) as i16;
     }
 
     fn insert_fallback_distributions(&mut self) {
@@ -227,18 +245,22 @@ impl Store {
         }, distribution::Distribution::uniform(0, 1));
     }
 
-    fn raw_delay_distribution<'a, 'b>(&'b self, delay_bucket: (i16,i16), is_departure: bool, product_type: i16, ttl_bucket: (i16, i16)) -> &'b distribution::Distribution {
+    fn raw_delay_distribution(&self, delay_bucket: (i16,i16), is_departure: bool, product_type: i16, ttl_bucket: (i16, i16)) -> &distribution::Distribution {
         let key = DelayKey{
             product_type: product_type,
             prior_delay: delay_bucket,
             prior_ttl: ttl_bucket,
             is_departure: is_departure
         };
+        self.raw_delay_distribution_by_key(key)
+    }
+
+    fn raw_delay_distribution_by_key(&self, key: DelayKey) -> &distribution::Distribution {
         match self.delay.get(&key) {
             Some(d) => d,
             None => {
-                if product_type == 100 {
-                    return self.delay.get(&DelayKey { product_type: 100, prior_delay: (0,0), prior_ttl: (0,0), is_departure: is_departure }).unwrap();
+                if key.product_type == 100 {
+                    return self.delay.get(&DelayKey { product_type: 100, prior_delay: (0,0), prior_ttl: (0,0), is_departure: key.is_departure }).unwrap();
                 }
                 return self.delay.get(&DelayKey { product_type: -1, prior_delay: (0,0), prior_ttl: (0,0), is_departure: false }).unwrap();                
             }
