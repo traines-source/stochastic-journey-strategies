@@ -24,7 +24,8 @@ struct ReachabilityKey {
     to_product_type: i16,
     from_prior_delay: (i16, i16),
     to_prior_delay: (i16, i16),
-    prior_ttl: (i16, i16),
+    from_prior_ttl: (i16, i16),
+    to_prior_ttl: (i16, i16),
     diff: i16,
     from_is_departure: bool
 }
@@ -226,12 +227,11 @@ impl Store {
         }, distribution::Distribution::uniform(0, 1));
     }
 
-    fn raw_delay_distribution<'a, 'b>(&'b self, stop_info: &connection::StopInfo, is_departure: bool, product_type: i16, now: types::Mtime) -> &'b distribution::Distribution {
-        let ttl = self.ttl_bucket(stop_info.projected()-now);
+    fn raw_delay_distribution<'a, 'b>(&'b self, delay_bucket: (i16,i16), is_departure: bool, product_type: i16, ttl_bucket: (i16, i16)) -> &'b distribution::Distribution {
         let key = DelayKey{
             product_type: product_type,
-            prior_delay: self.delay_bucket(stop_info.delay, ttl),
-            prior_ttl: ttl,
+            prior_delay: delay_bucket,
+            prior_ttl: ttl_bucket,
             is_departure: is_departure
         };
         match self.delay.get(&key) {
@@ -246,14 +246,15 @@ impl Store {
     }
 
     pub fn delay_distribution(&self, stop_info: &connection::StopInfo, is_departure: bool, product_type: i16, now: types::Mtime) -> distribution::Distribution {
-        self.raw_delay_distribution(stop_info, is_departure, product_type, now).shift(stop_info.projected())
+        let ttl = self.ttl_bucket(stop_info.projected()-now);
+        self.raw_delay_distribution(self.delay_bucket(stop_info.delay, ttl), is_departure, product_type, ttl).shift(stop_info.projected())
     }
 
-    fn calculate_before_probability(&mut self, from: &connection::StopInfo, from_product_type: i16, from_is_departure: bool, to: &connection::StopInfo, to_product_type: i16, now: types::Mtime, key: ReachabilityKey) -> f32 {
-        let a = self.raw_delay_distribution(from, from_is_departure, from_product_type, now);
-        let d = self.raw_delay_distribution(to, true, to_product_type, now);
+    fn calculate_before_probability(&mut self, key: ReachabilityKey) -> f32 {
+        let a = self.raw_delay_distribution(key.from_prior_delay, key.from_is_departure, key.from_product_type, key.from_prior_ttl);
+        let d = self.raw_delay_distribution(key.to_prior_delay, true, key.to_product_type, key.to_prior_ttl);
         let mut p = a.before_probability(d, -key.diff as i32);
-        if !from_is_departure {
+        if !key.from_is_departure {
             p *= d.feasible_probability;
         }
         self.reachability.insert(key, p);
@@ -264,14 +265,18 @@ impl Store {
         let diff = (to.projected()-from.projected()-transfer_time) as i16;
         if diff < self.min_delay_diff {
             return 0.0;
+        } else if diff > self.min_delay_diff.abs() {
+            return 1.0;
         }
-        let ttl = self.ttl_bucket(from.projected()-now);
+        let from_ttl = self.ttl_bucket(from.projected()-now);
+        let to_ttl = self.ttl_bucket(to.projected()-now);
         let key = ReachabilityKey{
             from_product_type,
             to_product_type,
-            from_prior_delay: self.delay_bucket(from.delay, ttl),
-            to_prior_delay: self.delay_bucket(to.delay, ttl),
-            prior_ttl: ttl,
+            from_prior_delay: self.delay_bucket(from.delay, from_ttl),
+            to_prior_delay: self.delay_bucket(to.delay, to_ttl),
+            from_prior_ttl: from_ttl,
+            to_prior_ttl: to_ttl,
             diff: diff,
             from_is_departure: from_is_departure
         };
@@ -282,7 +287,7 @@ impl Store {
             },
             None => {
                 self.misses += 1;
-                self.calculate_before_probability(from, from_product_type, from_is_departure, to, to_product_type, now, key)
+                self.calculate_before_probability(key)
             }
         }
     }
