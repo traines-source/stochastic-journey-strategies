@@ -6,7 +6,7 @@ use motis_nigiri::Timetable;
 
 use crate::connection;
 
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 use serde::{Serialize, Deserialize};
 use rand::Rng;
 
@@ -14,7 +14,7 @@ use rand::Rng;
 pub struct GtfsTimetable {
     pub stations: Vec<connection::Station>,
     pub connections: Vec<connection::Connection>,
-    pub cut: HashSet<(usize, usize)>,
+    pub cut: FxHashSet<(usize, usize)>,
     pub order: Vec<usize>,
     pub transport_and_day_to_connection_id: HashMap<(usize, u16), usize>
 }
@@ -96,7 +96,7 @@ pub fn create_simulation_samples(gtfs_path: &str, start_date: chrono::NaiveDate,
     let mut tt = GtfsTimetable {
         stations: vec![],
         connections: vec![],
-        cut: HashSet::new(),
+        cut: FxHashSet::default(),
         order: vec![],
         transport_and_day_to_connection_id: HashMap::new()
     };

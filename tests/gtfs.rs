@@ -2,7 +2,7 @@
 extern crate rmp_serde as rmps;
 
 use std::collections::HashMap;
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 use std::env;
 use serde::Serialize;
 use rmps::Serializer;
@@ -33,7 +33,7 @@ fn create_gtfs_cache() {
     let mut tt = gtfs::GtfsTimetable {
         stations: vec![],
         connections: vec![],
-        cut: HashSet::new(),
+        cut: FxHashSet::default(),
         order: vec![],
         transport_and_day_to_connection_id: HashMap::new()
     };
@@ -134,7 +134,7 @@ fn load_only_gtfs_with_rt() {
     let mut tt = gtfs::GtfsTimetable {
         stations: vec![],
         connections: vec![],
-        cut: HashSet::new(),
+        cut: FxHashSet::default(),
         order: vec![],
         transport_and_day_to_connection_id: HashMap::new()
     };

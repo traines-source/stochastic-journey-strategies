@@ -1,7 +1,8 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::time::Instant;
+use rustc_hash::FxHashSet;
+
 
 use indexmap::IndexSet;
 use serde::Deserialize;
@@ -12,7 +13,7 @@ use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], cut: HashSet<(usize, usize)>, order: &'b mut Vec<usize>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
+pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], cut: FxHashSet<(usize, usize)>, order: &'b mut Vec<usize>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
     Environment {
         store: RefCell::new(store),
         connections: connections,
@@ -26,13 +27,13 @@ pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mu
 }
 
 pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], order: &'b mut Vec<usize>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
-    let mut e = new(store, connections, stations, HashSet::new(), order, now, epsilon, mean_only);    
+    let mut e = new(store, connections, stations, FxHashSet::default(), order, now, epsilon, mean_only);    
     println!("Starting topocsa...");
     e.preprocess();
     e
 }
 
-pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], origin: &'a connection::Station, destination: &'a connection::Station, _start_time: types::Mtime, _max_time: types::Mtime, now: types::Mtime, epsilon: f32, mean_only: bool) -> HashSet<(usize, usize)>  {
+pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], origin: &'a connection::Station, destination: &'a connection::Station, _start_time: types::Mtime, _max_time: types::Mtime, now: types::Mtime, epsilon: f32, mean_only: bool) -> FxHashSet<(usize, usize)>  {
     let mut order = Vec::with_capacity(connections.len());
     let mut e = prepare(store, connections, stations, &mut order, now, epsilon, mean_only);
     e.query(origin, destination);
@@ -49,7 +50,7 @@ pub struct Environment<'b> {
     now: types::Mtime,
     epsilon: f32,
     mean_only: bool,
-    pub cut: HashSet<(usize, usize)>,
+    pub cut: FxHashSet<(usize, usize)>,
     order: &'b mut Vec<usize>
 }
 
@@ -113,9 +114,6 @@ impl<'a, 'b> Environment<'b> {
                     instr.encounter_2 += 1;
                 } else {
                     found = true;
-                    if self.cut.contains(&(c_id, dep_id)) {
-                        continue;
-                    }
                     let dep = &self.connections[dep_id];
                     let is_continuing = if c_label.footpath_i == footpaths.len() { c.is_consecutive(dep) } else { false };
                     if !is_continuing {
@@ -127,7 +125,6 @@ impl<'a, 'b> Environment<'b> {
                     }
                     
                     if dep_visited == 1 {
-                        let start_ts = Instant::now();
                         let trace_idx = stack.get_index_of(&dep_id);
                         if trace_idx.is_some() {
                             let c = &self.connections[c_id];
@@ -162,7 +159,6 @@ impl<'a, 'b> Environment<'b> {
                                 if c.is_consecutive(dep) {
                                     panic!("cutting trip"); 
                                 }
-                                instr.unraveling_time += start_ts.elapsed().as_nanos();
                                 continue;
                             }
                             let cut_before = stack.get_index(min_i).unwrap();
@@ -179,7 +175,6 @@ impl<'a, 'b> Environment<'b> {
                                 assert_eq!(visited[id], 1);
                                 visited[id] = 0;
                             }
-                            instr.unraveling_time += start_ts.elapsed().as_nanos();
                             break;
                         } else {
                             panic!("marked as visited but not in trace {:?} {:?}", dep_id, stack);

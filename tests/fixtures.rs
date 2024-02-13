@@ -39,7 +39,7 @@ fn topocsa_recursive_identical() {
     let (start_time, o, d, now, _) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
     let mut connections_clone = connections.clone();
     let cut = topocsa::prepare_and_query(&mut store, &mut connections, &stations, &stations[o], &stations[d], 0, 100, serde::to_mtime(now, start_time), 0.0, false);
-    recursive::query(&mut store, &mut connections_clone, &stations, &stations[o], &stations[d], 0, 100, serde::to_mtime(now, start_time), cut);
+    recursive::query(&mut store, &mut connections_clone, &stations, &stations[o], &stations[d], 0, 100, serde::to_mtime(now, start_time), HashSet::from_iter(cut.into_iter()));
 
     compare_connections(&connections_clone, &connections);
 }
