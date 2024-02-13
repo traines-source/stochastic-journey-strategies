@@ -56,6 +56,7 @@ fn from_gtfs(c: &mut Criterion) {
     let d = 20000;
     println!("querying...");
     let mut group = c.benchmark_group("once");
+    group.sample_size(10);
     group.bench_function("from_gtfs", |b| b.iter(|| env.query(black_box(&tt.stations[o]), black_box(&tt.stations[d]))));
     group.finish();
 }

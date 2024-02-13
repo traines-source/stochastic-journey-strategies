@@ -251,22 +251,19 @@ impl<'a, 'b> Environment<'b> {
             c.arrival.delay = Some(delay);
         }
     }
-    pub fn query(&mut self, _origin: &'a connection::Station, destination: &'a connection::Station) -> HashMap<usize, Vec<ConnectionLabel>> {
+    pub fn query(&mut self, _origin: &'a connection::Station, destination: &'a connection::Station) -> Vec<Vec<ConnectionLabel>> {
         let pairs = HashMap::new();
         self.pair_query(_origin, destination, &pairs)
     }
 
-    pub fn pair_query(&mut self, _origin: &'a connection::Station, destination: &'a connection::Station, connection_pairs: &HashMap<usize, usize>) -> HashMap<usize, Vec<ConnectionLabel>> {
-        let mut station_labels: HashMap<usize, Vec<ConnectionLabel>> = HashMap::new();
+    pub fn pair_query(&mut self, _origin: &'a connection::Station, destination: &'a connection::Station, connection_pairs: &HashMap<usize, usize>) -> Vec<Vec<ConnectionLabel>> {
+        let mut station_labels: Vec<Vec<ConnectionLabel>> = (0..self.stations.len()).map(|i| vec![]).collect();
         let empty_vec = vec![];
         for i in 0..self.connections.len() {
             if connection_pairs.len() > 0 && !connection_pairs.contains_key(&i) {
                 continue;
             }
-            let c = self.connections.get(i).unwrap();
-            if !station_labels.contains_key(&c.to_idx) {
-                station_labels.insert(c.to_idx, vec![]);
-            }
+            let c = &self.connections[i];
             if c.cancelled {
                 c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
                 continue;
@@ -284,9 +281,6 @@ impl<'a, 'b> Environment<'b> {
                         // TODO cancelled prob twice??
                         footpath_dest_arr = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now).shift(f.duration as i32);
                     } else {
-                        if !station_labels.contains_key(&f.target_location_idx) {
-                            station_labels.insert(f.target_location_idx, vec![]);
-                        }
                         self.new_destination_arrival(f.target_location_idx, 0, -1, 0, c.product_type, &c.arrival, f.duration as i32, &station_labels, &empty_vec, &mut footpath_dest_arr);   
                     }
                     if footpath_dest_arr.feasible_probability > 0.0 {
@@ -300,10 +294,7 @@ impl<'a, 'b> Environment<'b> {
             let departure_conn_idx = if connection_pairs.len() == 0 { i } else { connection_pairs[&i] };
             let departure_conn = if connection_pairs.len() == 0 { c } else { &self.connections[connection_pairs[&i]] };
             let departure_station_idx = departure_conn.from_idx;
-            if !station_labels.contains_key(&departure_station_idx) {
-                station_labels.insert(departure_station_idx, vec![]);
-            }
-            let station_label = station_labels.get_mut(&departure_station_idx);
+            let station_label = station_labels.get_mut(departure_station_idx);
             let departures = station_label.unwrap();
             departure_conn.destination_arrival.replace(Some(new_distribution.clone())); // TODO remove
             if new_distribution.feasible_probability > 0.0 {
@@ -333,11 +324,11 @@ impl<'a, 'b> Environment<'b> {
         station_labels
     }
 
-    fn new_destination_arrival<'c>(&'c self, station_idx: usize, c_id: usize, from_trip_id: i32, from_route_idx: usize, from_product_type: i16, from_arrival: &connection::StopInfo, transfer_time: i32, station_labels: &HashMap<usize, Vec<ConnectionLabel>>, footpath_distributions: &[distribution::Distribution], new_distribution: &mut distribution::Distribution) {
+    fn new_destination_arrival<'c>(&'c self, station_idx: usize, c_id: usize, from_trip_id: i32, from_route_idx: usize, from_product_type: i16, from_arrival: &connection::StopInfo, transfer_time: i32, station_labels: &[Vec<ConnectionLabel>], footpath_distributions: &[distribution::Distribution], new_distribution: &mut distribution::Distribution) {
         let mut remaining_probability = 1.0;
         let mut last_departure: Option<&connection::StopInfo> = None;
         let mut last_product_type: i16 = 0;
-        let departures = station_labels.get(&station_idx).unwrap();
+        let departures = station_labels.get(station_idx).unwrap();
 
         let mut departures_i = 0;
         let mut footpaths_i = 0;
@@ -405,7 +396,7 @@ impl<'a, 'b> Environment<'b> {
         }
     }
 
-    pub fn relevant_stations(&mut self, start_time: types::Mtime, origin_idx: usize, destination_idx: usize, station_labels: &HashMap<usize, Vec<ConnectionLabel>>) -> HashMap<usize, f32> {
+    pub fn relevant_stations(&mut self, start_time: types::Mtime, origin_idx: usize, destination_idx: usize, station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, f32> {
         let origin = connection::StopInfo {
             scheduled: start_time,
             delay: None,
@@ -425,7 +416,7 @@ impl<'a, 'b> Environment<'b> {
                 continue;
             }
 
-            let mut departures = vec![&station_labels[&station_idx]];
+            let mut departures = vec![&station_labels[station_idx]];
             let mut transfer_times = vec![1];
             let footpaths = &self.stations[station_idx].footpaths;
             for i in 0..footpaths.len() {
@@ -437,7 +428,7 @@ impl<'a, 'b> Environment<'b> {
                     continue 'outer;
                 }
                 let transfer_time = footpaths[i].duration as i32;
-                departures.push(&station_labels[&stop_idx]);
+                departures.push(&station_labels[stop_idx]);
                 transfer_times.push(transfer_time);
             }
             let mut is = vec![0; transfer_times.len()];

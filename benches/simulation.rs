@@ -177,7 +177,7 @@ fn manual_test() -> Result<i32, Box<dyn std::error::Error>> {
             }
             i += 1;
         }
-        let origin_deps = &station_labels[&pair.0];
+        let origin_deps = &station_labels[pair.0];
         let mut i = 0;
         for dep in origin_deps.iter().rev() {
             let c = &tt.connections[dep.connection_idx];
@@ -253,7 +253,7 @@ pub struct SimulationRun {
 }
 
 struct StochActions {
-    station_labels: HashMap<usize, Vec<topocsa::ConnectionLabel>>,
+    station_labels: Vec<Vec<topocsa::ConnectionLabel>>,
     connection_pairs: HashMap<usize, usize>,
     connection_pairs_reverse: HashMap<usize, usize>
 }
@@ -333,8 +333,8 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                 let start = Instant::now();
                 let min_journey = t.get_journeys(pair.0, pair.1, current_time, false).journeys.into_iter().reduce(|a, b| if a.dest_time < b.dest_time {a} else {b});
                 let timing_det = start.elapsed().as_millis();
-                if min_journey.is_none() || !stoch.get(&pair.0).is_some_and(|s| s.len() > 0) {
-                    println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch.get(&pair.0).is_some_and(|s| s.len() > 0));
+                if min_journey.is_none() || !stoch.get(pair.0).is_some_and(|s| s.len() > 0) {
+                    println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch.get(pair.0).is_some_and(|s| s.len() > 0));
                 } else {
                     det_actions.insert(*pair, min_journey.unwrap());
                     let mut relevant_stations = env.relevant_stations(pair.2, pair.0, pair.1, &stoch);
@@ -513,11 +513,11 @@ fn get_stoch_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, stoch_act
     let footpaths = &tt.stations[current_stop_idx].footpaths;
     for i in 0..footpaths.len()+1 {
         let stop_idx = if i == footpaths.len() { current_stop_idx } else { footpaths[i].target_location_idx };
-        let station_labels = stoch_actions.station_labels.get(&stop_idx);
+        let station_labels = stoch_actions.station_labels.get(stop_idx);
         if station_labels.is_none() {
             continue;
         }
-        println!("label len: {} {} {} {}", current_stop_idx, stoch_actions.station_labels.iter().filter(|l| l.1.len() > 0).count(), station_labels.unwrap().len(), stoch_actions.connection_pairs.len());
+        println!("label len: {} {} {} {}", current_stop_idx, stoch_actions.station_labels.iter().filter(|l| l.len() > 0).count(), station_labels.unwrap().len(), stoch_actions.connection_pairs.len());
         alternatives.extend(station_labels.unwrap().iter().filter_map(|l| {
             if l.destination_arrival.mean == 0.0 {
                 panic!("weirdly 0");

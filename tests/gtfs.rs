@@ -95,7 +95,7 @@ fn gtfs() {
     let d = 20000;
     println!("querying...");
     let station_labels = env.query(&tt.stations[o], &tt.stations[d]);
-    let origin_deps = &station_labels[&o];
+    let origin_deps = &station_labels[o];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
     println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
@@ -119,7 +119,7 @@ fn gtfs_with_rt() {
     let d = 20000;
     println!("querying...");
     let station_labels = env.query(&tt.stations[o], &tt.stations[d]);
-    let origin_deps = &station_labels[&o];
+    let origin_deps = &station_labels[o];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
     println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
@@ -151,7 +151,7 @@ fn load_only_gtfs_with_rt() {
     let d = 20000;
     println!("querying...");
     let station_labels = env.query(&tt.stations[o], &tt.stations[d]);
-    let origin_deps = &station_labels[&o];
+    let origin_deps = &station_labels[o];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
     println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
@@ -180,7 +180,7 @@ fn gtfs_small() {
     assert_eq!(stations[d].footpaths.len(), 3);
 
     let station_labels = env.query(&stations[o], &stations[d]);
-    let origin_deps = &station_labels[&o];
+    let origin_deps = &station_labels[o];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
     println!("{:?} {:?} {:?} {:?} {:?}{:?}", stations[o].name, stations[d].name, &connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
