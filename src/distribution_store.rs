@@ -45,6 +45,7 @@ pub struct Store {
     ttl_lower: i16,
     reachability: FxHashMap<ReachabilityKey, f32>,
     hot_reachability: Vec<f32>,
+    hot_reachability_factors: [usize; 5],
     min_delay_diff: i16,
     min_epsilon_delay_diff: i16,
     delay_range_size: usize,
@@ -65,6 +66,7 @@ impl Store {
             ttl_lower: 0,
             reachability: FxHashMap::default(),
             hot_reachability: vec![],
+            hot_reachability_factors: [0; 5],
             min_delay_diff: -180,
             min_epsilon_delay_diff: -180,
             delay_range_size: 0,
@@ -87,6 +89,7 @@ impl Store {
         self.reachability.clear();
     }
 
+    #[inline(always)]
     fn delay_bucket(&self, delay: Option<i16>, ttl: (i16,i16)) -> (i16, i16) {
         if ttl == (0,0) {
             return (0,0)
@@ -97,6 +100,7 @@ impl Store {
         }        
     }
 
+    #[inline(always)]
     fn ttl_bucket(&self, ttl: i32) -> (i16, i16) {
         *self.ttl_buckets.get((ttl-self.ttl_lower as i32) as usize).unwrap_or(&(0,0))
     }
@@ -252,6 +256,11 @@ impl Store {
         self.hot_ttl_buckets = self.ttl_buckets.iter().map(|b| map[b]).collect();
         let len = 2*(PRODUCT_TYPES_NUM*PRODUCT_TYPES_NUM) as usize*self.hot_ttl_buckets_num*self.hot_ttl_buckets_num*self.delay_range_size;
         self.hot_reachability = vec![-1.0; len];
+        self.hot_reachability_factors[0] = self.delay_range_size;
+        self.hot_reachability_factors[1] = self.hot_reachability_factors[0]*PRODUCT_TYPES_NUM as usize;
+        self.hot_reachability_factors[2] = self.hot_reachability_factors[1]*2;
+        self.hot_reachability_factors[3] = self.hot_reachability_factors[2]*self.hot_ttl_buckets_num;
+        self.hot_reachability_factors[4] = self.hot_reachability_factors[3]*self.hot_ttl_buckets_num;
     }
 
     fn insert_fallback_distributions(&mut self) {
@@ -275,6 +284,7 @@ impl Store {
         }, distribution::Distribution::uniform(0, 1));
     }
 
+    #[inline(always)]
     fn raw_delay_distribution(&self, delay_bucket: (i16,i16), is_departure: bool, product_type: i16, ttl_bucket: (i16, i16)) -> &distribution::Distribution {
         let key = DelayKey{
             product_type: product_type,
@@ -285,6 +295,7 @@ impl Store {
         self.raw_delay_distribution_by_key(key)
     }
 
+    #[inline(always)]
     fn raw_delay_distribution_by_key(&self, key: DelayKey) -> &distribution::Distribution {
         match self.delay.get(&key) {
             Some(d) => d,
@@ -302,6 +313,7 @@ impl Store {
         self.raw_delay_distribution(self.delay_bucket(stop_info.delay, ttl), is_departure, product_type, ttl).shift(stop_info.projected())
     }
 
+    #[inline(always)]
     fn calculate_before_probability(&mut self, key: ReachabilityKey, from_prior_ttl: i32, to_prior_ttl: i32) -> f32 {
         let a = self.raw_delay_distribution(key.from_prior_delay, key.from_is_departure, key.from_product_type, key.from_prior_ttl);
         let d = self.raw_delay_distribution(key.to_prior_delay, true, key.to_product_type, key.to_prior_ttl);
@@ -319,25 +331,22 @@ impl Store {
         p
     }
 
+    #[inline(always)]
     fn resolve_hot_ttl_bucket(&self, ttl: i32) -> usize {
         *self.hot_ttl_buckets.get((ttl-self.ttl_lower as i32) as usize).unwrap_or(&0) as usize
     }
 
+    #[inline(always)]
     fn resolve_hot_reachability_index(&self, diff: i16, from_product_type: i16, to_product_type: i16, from_is_departure: bool, from_prior_ttl: i32, to_prior_ttl: i32) -> usize {
-        let mut index = (diff-self.min_delay_diff) as usize;
-        let mut prod = self.delay_range_size;
-        index += to_product_type as usize*prod;
-        prod *= PRODUCT_TYPES_NUM as usize;
-        index += from_is_departure as usize*prod;
-        prod *= 2;
-        index += self.resolve_hot_ttl_bucket(to_prior_ttl)*prod;
-        prod *= self.hot_ttl_buckets_num;
-        index += self.resolve_hot_ttl_bucket(from_prior_ttl)*prod;
-        prod *= self.hot_ttl_buckets_num;
-        index += from_product_type as usize*prod;
-        index        
+        (diff-self.min_delay_diff) as usize
+        + to_product_type as usize*self.hot_reachability_factors[0]
+        + from_is_departure as usize*self.hot_reachability_factors[1]
+        + self.resolve_hot_ttl_bucket(to_prior_ttl)*self.hot_reachability_factors[2]
+        + self.resolve_hot_ttl_bucket(from_prior_ttl)*self.hot_reachability_factors[3]
+        + from_product_type as usize*self.hot_reachability_factors[4]
     }
 
+    #[inline]
     pub fn before_probability(&mut self, from: &connection::StopInfo, from_product_type: i16, from_is_departure: bool, to: &connection::StopInfo, to_product_type: i16, transfer_time: i32, now: types::Mtime) -> f32 {
         let diff = (to.projected()-from.projected()-transfer_time) as i16;
         if diff < self.min_delay_diff {

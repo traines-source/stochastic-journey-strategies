@@ -69,6 +69,7 @@ impl Distribution {
         self.normalize_with(false);    
     }
     
+    #[inline]
     pub fn normalize_with(&mut self, mean_only: bool) {
         // TODO performance vs accuracy  
         if !mean_only {
@@ -92,6 +93,7 @@ impl Distribution {
         self.add_with(other, weight, false);    
     }
 
+    #[inline]
     pub fn add_with(&mut self, other: &Distribution, weight: f32, mean_only: bool) {
         if !self.exists() {
             self.start = other.start;

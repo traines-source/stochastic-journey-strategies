@@ -101,6 +101,7 @@ impl<'a> Connection {
 		}	
 	}
 
+	#[inline(always)]
 	pub fn is_consecutive(&self, next: &Connection) -> bool {
 		self.trip_id == next.trip_id && self.route_idx == next.route_idx && self.arrival.scheduled <= next.departure.scheduled && self.id != next.id && self.to_idx == next.from_idx
 	}
@@ -119,6 +120,7 @@ impl StopInfo {
 		StopInfo { scheduled: scheduled, delay: delay, scheduled_track: "".to_owned(), projected_track: "".to_owned() }
 	}
 
+	#[inline(always)]
     pub fn projected(&self) -> types::Mtime {
         match self.delay {
             Some(d) => self.scheduled + d as types::Mtime,
