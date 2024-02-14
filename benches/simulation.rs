@@ -9,6 +9,7 @@ use serde::Serialize;
 use stost::connection;
 use stost::gtfs::GtfsTimetable;
 use stost::gtfs::OriginDestinationSample;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::io::Write;
 use std::fs;
@@ -20,7 +21,7 @@ use stost::gtfs;
 use stost::distribution;
 use stost::query::topocsa;
 use ndarray;
-use noisy_float::types::{n64, N64};
+use noisy_float::types::{n64, n32, N64, N32};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct SimulationConfig {
@@ -179,8 +180,8 @@ fn manual_test() -> Result<i32, Box<dyn std::error::Error>> {
         }
         let origin_deps = &station_labels[pair.0];
         let mut i = 0;
-        for dep in origin_deps.iter().rev() {
-            let c = &tt.connections[dep.connection_idx];
+        for dep in origin_deps.iter() {
+            let c = &tt.connections[dep.1.connection_idx];
             i += 1;
             if c.departure.projected() >= minutes {
                 println!(
@@ -189,7 +190,7 @@ fn manual_test() -> Result<i32, Box<dyn std::error::Error>> {
                     start_ts+c.departure.projected() as u64*60,
                     c.destination_arrival.borrow().as_ref().unwrap().mean,
                     start_ts+c.destination_arrival.borrow().as_ref().unwrap().mean as u64*60,
-                    i, dep.connection_idx
+                    i, dep.1.connection_idx
                 );
             }
         }
@@ -253,7 +254,7 @@ pub struct SimulationRun {
 }
 
 struct StochActions {
-    station_labels: Vec<Vec<topocsa::ConnectionLabel>>,
+    station_labels: Vec<BTreeMap<(N32, usize), topocsa::ConnectionLabel>>,
     connection_pairs: HashMap<usize, usize>,
     connection_pairs_reverse: HashMap<usize, usize>
 }
@@ -337,7 +338,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                     println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch.get(pair.0).is_some_and(|s| s.len() > 0));
                 } else {
                     det_actions.insert(*pair, min_journey.unwrap());
-                    let mut relevant_stations = env.relevant_stations(pair.2, pair.0, pair.1, &stoch);
+                    /*let mut relevant_stations = env.relevant_stations(pair.2, pair.0, pair.1, &stoch);
                     println!("Enriching relevant stations...");
                     for l in &det_actions[pair].legs {
                         println!("{} {} {:?}", l.from_location_idx, tt.stations[l.from_location_idx].name, relevant_stations.insert(l.from_location_idx, 1000.0));
@@ -348,7 +349,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                         station_labels: stoch,
                         connection_pairs_reverse: relevant_pairs.iter().map(|(k,v)| (*v,*k)).collect(),
                         connection_pairs: relevant_pairs
-                    });
+                    });*/
                 }
                 det_log.insert(*pair, vec![]);
                 stoch_log.insert(*pair, vec![]);
@@ -519,16 +520,16 @@ fn get_stoch_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, stoch_act
         }
         println!("label len: {} {} {} {}", current_stop_idx, stoch_actions.station_labels.iter().filter(|l| l.len() > 0).count(), station_labels.unwrap().len(), stoch_actions.connection_pairs.len());
         alternatives.extend(station_labels.unwrap().iter().filter_map(|l| {
-            if l.destination_arrival.mean == 0.0 {
+            if l.1.destination_arrival.mean == 0.0 {
                 panic!("weirdly 0");
             }
-            if l.destination_arrival.feasible_probability < 0.5 {
+            if l.1.destination_arrival.feasible_probability < 0.5 {
                 return None // TODO properly use transfer strategy?
             }
             Some(Alternative{
-                from_conn_idx: l.connection_idx,
-                to_conn_idx: stoch_actions.connection_pairs_reverse[&l.connection_idx],
-                proj_dest_arr: l.destination_arrival.mean
+                from_conn_idx: l.1.connection_idx,
+                to_conn_idx: stoch_actions.connection_pairs_reverse[&l.1.connection_idx],
+                proj_dest_arr: l.1.destination_arrival.mean
             })
         }));
     }
