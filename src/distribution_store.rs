@@ -1,14 +1,17 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::fs::File;
 use csv;
 use serde::{Serialize, Deserialize};
 use rustc_hash::FxHashMap;
+use itertools::Itertools;
 
 use crate::distribution;
 use crate::connection;
 use crate::types;
 
+const PRODUCT_TYPES_NUM: i16 = 13;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Debug, Clone)]
 struct DelayKey {
@@ -37,10 +40,14 @@ pub struct Store {
     delay_lower: i16,
     delay_upper: (i16, i16),
     ttl_buckets: Vec<(i16, i16)>,
+    hot_ttl_buckets: Vec<i16>,
+    hot_ttl_buckets_num: usize,
     ttl_lower: i16,
     reachability: FxHashMap<ReachabilityKey, f32>,
+    hot_reachability: Vec<f32>,
     min_delay_diff: i16,
     min_epsilon_delay_diff: i16,
+    delay_range_size: usize,
     hits: usize,
     misses: usize
 }
@@ -53,10 +60,14 @@ impl Store {
             delay_lower: 0,
             delay_upper: (0,0),
             ttl_buckets: vec![],
+            hot_ttl_buckets: vec![],
+            hot_ttl_buckets_num: 0,
             ttl_lower: 0,
             reachability: FxHashMap::default(),
+            hot_reachability: vec![],
             min_delay_diff: -180,
             min_epsilon_delay_diff: -180,
+            delay_range_size: 0,
             hits: 0,
             misses: 0
         };
@@ -222,6 +233,25 @@ impl Store {
         }
         self.min_delay_diff = (min_max_delay.0-min_max_delay.1) as i16;
         self.min_epsilon_delay_diff = (epsilon_min_max_delay.0-epsilon_min_max_delay.1) as i16;
+        self.delay_range_size = self.min_delay_diff.abs() as usize*2;
+        self.create_hot_reachability();
+    }
+
+    fn create_hot_reachability(&mut self) {
+        let map: HashMap<(i16, i16), i16> = HashMap::from_iter(self.ttl_buckets.iter().unique().map(|t| *t).sorted_by(|a,b| {
+            if *a == (0,0) {
+                Ordering::Less
+            } else if *b == (0,0) {
+                Ordering::Greater
+            } else {
+                a.cmp(&b)
+            }
+        }).enumerate().map(|t| (t.1, t.0 as i16+1)));
+        println!("{:?}",map);
+        self.hot_ttl_buckets_num = map.len()+1;
+        self.hot_ttl_buckets = self.ttl_buckets.iter().map(|b| map[b]).collect();
+        let len = 2*(PRODUCT_TYPES_NUM*PRODUCT_TYPES_NUM) as usize*self.hot_ttl_buckets_num*self.hot_ttl_buckets_num*self.delay_range_size;
+        self.hot_reachability = vec![-1.0; len];
     }
 
     fn insert_fallback_distributions(&mut self) {
@@ -272,15 +302,40 @@ impl Store {
         self.raw_delay_distribution(self.delay_bucket(stop_info.delay, ttl), is_departure, product_type, ttl).shift(stop_info.projected())
     }
 
-    fn calculate_before_probability(&mut self, key: ReachabilityKey) -> f32 {
+    fn calculate_before_probability(&mut self, key: ReachabilityKey, from_prior_ttl: i32, to_prior_ttl: i32) -> f32 {
         let a = self.raw_delay_distribution(key.from_prior_delay, key.from_is_departure, key.from_product_type, key.from_prior_ttl);
         let d = self.raw_delay_distribution(key.to_prior_delay, true, key.to_product_type, key.to_prior_ttl);
         let mut p = a.before_probability(d, -key.diff as i32);
         if !key.from_is_departure {
             p *= d.feasible_probability;
         }
+        if key.from_prior_delay == (0,0) && key.to_prior_delay == (0,0) && !self.hot_reachability.is_empty()
+            && key.from_product_type < PRODUCT_TYPES_NUM
+            && key.to_product_type < PRODUCT_TYPES_NUM  {
+            let hot_idx = self.resolve_hot_reachability_index(key.diff, key.from_product_type, key.to_product_type, key.from_is_departure, from_prior_ttl, to_prior_ttl);
+            self.hot_reachability[hot_idx] = p;
+        } 
         self.reachability.insert(key, p);
         p
+    }
+
+    fn resolve_hot_ttl_bucket(&self, ttl: i32) -> usize {
+        *self.hot_ttl_buckets.get((ttl-self.ttl_lower as i32) as usize).unwrap_or(&0) as usize
+    }
+
+    fn resolve_hot_reachability_index(&self, diff: i16, from_product_type: i16, to_product_type: i16, from_is_departure: bool, from_prior_ttl: i32, to_prior_ttl: i32) -> usize {
+        let mut index = (diff-self.min_delay_diff) as usize;
+        let mut prod = self.delay_range_size;
+        index += to_product_type as usize*prod;
+        prod *= PRODUCT_TYPES_NUM as usize;
+        index += from_is_departure as usize*prod;
+        prod *= 2;
+        index += self.resolve_hot_ttl_bucket(to_prior_ttl)*prod;
+        prod *= self.hot_ttl_buckets_num;
+        index += self.resolve_hot_ttl_bucket(from_prior_ttl)*prod;
+        prod *= self.hot_ttl_buckets_num;
+        index += from_product_type as usize*prod;
+        index        
     }
 
     pub fn before_probability(&mut self, from: &connection::StopInfo, from_product_type: i16, from_is_departure: bool, to: &connection::StopInfo, to_product_type: i16, transfer_time: i32, now: types::Mtime) -> f32 {
@@ -290,15 +345,25 @@ impl Store {
         } else if diff > self.min_delay_diff.abs() {
             return 1.0;
         }
-        let from_ttl = self.ttl_bucket(from.projected()-now);
-        let to_ttl = self.ttl_bucket(to.projected()-now);
+        let from_ttl = from.projected()-now;
+        let to_ttl = to.projected()-now;
+        if from.delay.is_none() && to.delay.is_none() && !self.hot_reachability.is_empty()
+            && from_product_type < PRODUCT_TYPES_NUM
+            && to_product_type < PRODUCT_TYPES_NUM {
+            let p = self.hot_reachability[self.resolve_hot_reachability_index(diff, from_product_type, to_product_type, from_is_departure, from_ttl, to_ttl)];
+            if p >= 0.0 {
+                return p
+            }
+        }
+        let from_ttl_bucket = self.ttl_bucket(from_ttl);
+        let to_ttl_bucket = self.ttl_bucket(to_ttl);
         let key = ReachabilityKey{
             from_product_type,
             to_product_type,
-            from_prior_delay: self.delay_bucket(from.delay, from_ttl),
-            to_prior_delay: self.delay_bucket(to.delay, to_ttl),
-            from_prior_ttl: from_ttl,
-            to_prior_ttl: to_ttl,
+            from_prior_delay: self.delay_bucket(from.delay, from_ttl_bucket),
+            to_prior_delay: self.delay_bucket(to.delay, to_ttl_bucket),
+            from_prior_ttl: from_ttl_bucket,
+            to_prior_ttl: to_ttl_bucket,
             diff: diff,
             from_is_departure: from_is_departure
         };
@@ -309,7 +374,7 @@ impl Store {
             },
             None => {
                 self.misses += 1;
-                self.calculate_before_probability(key)
+                self.calculate_before_probability(key, from_ttl, to_ttl)
             }
         }
     }
