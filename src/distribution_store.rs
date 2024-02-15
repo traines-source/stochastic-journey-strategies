@@ -50,6 +50,7 @@ pub struct Store {
     min_epsilon_delay_diff: i16,
     delay_range_size: usize,
     hits: usize,
+    hot_hits: usize,
     misses: usize
 }
 
@@ -71,6 +72,7 @@ impl Store {
             min_epsilon_delay_diff: -180,
             delay_range_size: 0,
             hits: 0,
+            hot_hits: 0,
             misses: 0
         };
         s.insert_fallback_distributions();
@@ -78,7 +80,7 @@ impl Store {
     }
 
     pub fn print_stats(&self) {
-        println!("store: min_delay_diff: {} epsilon_min_delay_diff: {} reachability entries: {} hits: {} misses: {}", self.min_delay_diff, self.min_epsilon_delay_diff, self.reachability.len(), self.hits, self.misses);
+        println!("store: min_delay_diff: {} epsilon_min_delay_diff: {} reachability entries: {} hits: {} hot_hits: {} misses: {}", self.min_delay_diff, self.min_epsilon_delay_diff, self.reachability.len(), self.hits, self.hot_hits, self.misses);
     }
 
     pub fn reachability_len(&self) -> usize {
@@ -251,7 +253,6 @@ impl Store {
                 a.cmp(&b)
             }
         }).enumerate().map(|t| (t.1, t.0 as i16+1)));
-        println!("{:?}",map);
         self.hot_ttl_buckets_num = map.len()+1;
         self.hot_ttl_buckets = self.ttl_buckets.iter().map(|b| map[b]).collect();
         let len = 2*(PRODUCT_TYPES_NUM*PRODUCT_TYPES_NUM) as usize*self.hot_ttl_buckets_num*self.hot_ttl_buckets_num*self.delay_range_size;
@@ -361,6 +362,7 @@ impl Store {
             && to_product_type < PRODUCT_TYPES_NUM {
             let p = self.hot_reachability[self.resolve_hot_reachability_index(diff, from_product_type, to_product_type, from_is_departure, from_ttl, to_ttl)];
             if p >= 0.0 {
+                self.hot_hits += 1;
                 return p
             }
         }
