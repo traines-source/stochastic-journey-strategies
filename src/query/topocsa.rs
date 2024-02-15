@@ -92,7 +92,7 @@ struct CsaInstrumentation {
 
 impl<'a, 'b> Environment<'b> {
 
-    fn dfs(&mut self, anchor_id: usize, topo_idx: &mut usize, labels: &mut Vec<DfsConnectionLabel>, visited: &mut Vec<i16>, instr: &mut Instrumentation) {
+    fn dfs(&mut self, anchor_id: usize, topo_idx: &mut usize, labels: &mut Vec<DfsConnectionLabel>, visited: &mut Vec<i16>, stops_completed_up: &mut Vec<usize>, instr: &mut Instrumentation) {
         let mut stack: IndexSet<usize> = IndexSet::with_capacity(1000);
         stack.insert(anchor_id);
         while !stack.is_empty() {
@@ -101,21 +101,36 @@ impl<'a, 'b> Environment<'b> {
             let c = &self.connections[c_id];
             let c_label = labels.get_mut(c_id).unwrap();
             let footpaths = &self.stations[c.to_idx].footpaths;
-            let stop_idx = if c_label.footpath_i == footpaths.len() { c.to_idx } else { footpaths[c_label.footpath_i].target_location_idx };
+            let mut stop_idx = if c_label.footpath_i == footpaths.len() { c.to_idx } else { footpaths[c_label.footpath_i].target_location_idx };
             let mut deps = &self.stations[stop_idx].departures;
+            let mut streak = false;
+            if c_label.i >= stops_completed_up[stop_idx] {
+                c_label.i = stops_completed_up[stop_idx];
+                streak = true;
+            }
             visited[c_id] = 1;
             let mut found = false;
             loop {
                 if c_label.i > 0 {
                     c_label.i -= 1;
                 } else if c_label.footpath_i > 0 {
+                    if streak {
+                        stops_completed_up[stop_idx] = 0;
+                        streak = false;
+                    }
                     c_label.footpath_i -= 1;
-                    let stop_idx = footpaths[c_label.footpath_i].target_location_idx;
+                    stop_idx = footpaths[c_label.footpath_i].target_location_idx;
                     deps = &self.stations[stop_idx].departures;
-                    if deps.is_empty() {
+                    c_label.i = deps.len();
+                    if c_label.i >= stops_completed_up[stop_idx] {
+                        c_label.i = stops_completed_up[stop_idx];
+                        streak = true;
+                    }
+                    if c_label.i == 0 {
+                        streak = false;
                         continue;
                     }
-                    c_label.i = deps.len()-1;
+                    c_label.i -= 1;
                 } else {
                     break;
                 }
@@ -124,6 +139,10 @@ impl<'a, 'b> Environment<'b> {
                 if dep_visited == 2 {
                     instr.encounter_2 += 1;
                 } else {
+                    if streak {
+                        stops_completed_up[stop_idx] = c_label.i+1;
+                        streak = false;
+                    }
                     found = true;
                     let dep = &self.connections[dep_id];
                     let is_continuing = if c_label.footpath_i == footpaths.len() { c.is_consecutive(dep) } else { false };
@@ -189,6 +208,10 @@ impl<'a, 'b> Environment<'b> {
             }
             if !found {
                 let c_label = labels.get_mut(c_id).unwrap();
+                assert_eq!(c_label.i, 0);
+                if streak {
+                    stops_completed_up[stop_idx] = 0;
+                }
                 c_label.order = *topo_idx;
                 *topo_idx += 1;
                 visited[c_id] = 2;
@@ -220,13 +243,17 @@ impl<'a, 'b> Environment<'b> {
                 order: 0
             });
         }
+        let mut stops_completed_up: Vec<usize> = Vec::with_capacity(self.stations.len());
+        for s in &*self.stations {
+            stops_completed_up.push(s.departures.len());
+        }
         let mut visited = vec![0; self.connections.len()];
         println!("Start dfs... {}", start.elapsed().as_millis());
         self.store.borrow().print_stats();
         for idx in 0..self.connections.len() {
             let id = conn_ids[idx];
             if visited[id] != 2 {
-                self.dfs(id, &mut topo_idx, &mut labels, &mut visited, &mut instr);
+                self.dfs(id, &mut topo_idx, &mut labels, &mut visited, &mut stops_completed_up, &mut instr);
                 //println!("connections {} cycles found {} labels {} done {} {}", self.connections.len(), self.cut.len(), self.order.len(), idx, id);
             }
         }
