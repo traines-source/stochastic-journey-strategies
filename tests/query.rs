@@ -41,7 +41,7 @@ fn non_stochastic() {
     station1.add_departure(2);
     let stations = vec![station0, station1, station2];
 
-    stost::query::query(&mut store, &mut connections, &stations, &stations[0], &stations[2], 0, 100, 5);
+    stost::query::query(&mut store, &mut connections, &stations, 0, 2, 0, 100, 5);
 
     let c0 = connections.iter().filter(|c| c.id == 0).last().unwrap();
     let c1 = connections.iter().filter(|c| c.id == 1).last().unwrap();    
@@ -87,7 +87,7 @@ fn zero_minutes_transfer() {
     station1.add_departure(1);
     let stations = vec![station0, station1, station2];
 
-    stost::query::query(&mut store, &mut connections, &stations, &stations[0], &stations[2], 0, 100, 5);
+    stost::query::query(&mut store, &mut connections, &stations, 0, 2, 0, 100, 5);
 
     let c0 = connections.iter().filter(|c| c.id == 0).last().unwrap();
     let c1 = connections.iter().filter(|c| c.id == 1).last().unwrap();
@@ -120,7 +120,7 @@ fn zero_minutes_transfer_same_trip() {
     station1.add_departure(1);
     let stations = vec![station0, station1, station2];
 
-    stost::query::query(&mut store, &mut connections, &stations, &stations[0], &stations[2], 0, 100, 5);
+    stost::query::query(&mut store, &mut connections, &stations, 0, 2, 0, 100, 5);
     
     let c0 = connections.iter().filter(|c| c.id == 0).last().unwrap();
     let c1 = connections.iter().filter(|c| c.id == 1).last().unwrap();    
@@ -167,7 +167,7 @@ fn with_cancelled_probability() {
     d.feasible_probability = 0.5;
     store.insert_from_distribution(0..5, 0..20, true, 1, d);
 
-    stost::query::query(&mut store, &mut connections, &stations, &stations[0], &stations[2], 0, 100, 5);
+    stost::query::query(&mut store, &mut connections, &stations, 0, 2, 0, 100, 5);
 
     let c0 = connections.iter().filter(|c| c.id == 0).last().unwrap();
     let c1 = connections.iter().filter(|c| c.id == 1).last().unwrap();    
@@ -220,7 +220,7 @@ fn with_uniform() {
     store.insert_from_distribution(0..5, 0..15, false, 1, distribution::Distribution::uniform(-5, 10));
     store.insert_from_distribution(0..5, 35..45, false, 1, distribution::Distribution::uniform(-2, 6));
 
-    stost::query::query(&mut store, &mut connections, &stations, &stations[0], &stations[2], 0, 100, 5);
+    stost::query::query(&mut store, &mut connections, &stations, 0, 2, 0, 100, 5);
 
     let c0 = connections.iter().filter(|c| c.id == 0).last().unwrap();
 
@@ -267,7 +267,7 @@ fn infinite_loop() {
     store.insert_from_distribution(0..5, 0..20, false, 1, distribution::Distribution::uniform(-5, 9));
     store.insert_from_distribution(0..5, 0..20, true, 1, distribution::Distribution::uniform(-5, 9));
 
-    stost::query::query(&mut store, &mut connections, &stations, &stations[0], &stations[2], 0, 100, 5);
+    stost::query::query(&mut store, &mut connections, &stations, 0, 2, 0, 100, 5);
 
     let c0 = connections.iter().filter(|c| c.id == 0).last().unwrap();
     let c1 = connections.iter().filter(|c| c.id == 1).last().unwrap();    
@@ -330,7 +330,7 @@ fn infinite_loop_cut_at_lowest_reachability() {
     store.insert_from_distribution(0..5, 0..20, false, 1, distribution::Distribution::uniform(-5, 8));
     store.insert_from_distribution(0..5, 0..20, true, 1, distribution::Distribution::uniform(-5, 9));
 
-    stost::query::query(&mut store, &mut connections, &stations, &stations[0], &stations[2], 0, 100, 5);
+    stost::query::query(&mut store, &mut connections, &stations, 0, 2, 0, 100, 5);
 
     let c0 = connections.iter().filter(|c| c.id == 0).last().unwrap();
     let c1 = connections.iter().filter(|c| c.id == 1).last().unwrap();    
@@ -418,7 +418,7 @@ fn infinite_loop_cut_and_revisit() {
     store.insert_from_distribution(0..5, 0..20, false, 1, distribution::Distribution::uniform(-5, 9));
     store.insert_from_distribution(0..5, 0..20, true, 1, distribution::Distribution::uniform(-5, 9));
 
-    stost::query::query(&mut store, &mut connections, &stations, &stations[0], &stations[2], 0, 100, 5);
+    stost::query::query(&mut store, &mut connections, &stations, 0, 2, 0, 100, 5);
 
     //let c0 = connections.iter().filter(|c| c.id == 0).last().unwrap();
     let c1 = connections.iter().filter(|c| c.id == 1).last().unwrap();    
@@ -490,7 +490,7 @@ fn revisit_completed() {
     store.insert_from_distribution(1..5, 0..20, false, 1, distribution::Distribution::uniform(-5, 9));
     store.insert_from_distribution(1..5, 0..20, true, 1, distribution::Distribution::uniform(-5, 9));
     
-    stost::query::query(&mut store, &mut connections, &stations, &stations[0], &stations[2], 0, 100, 5);
+    stost::query::query(&mut store, &mut connections, &stations, 0, 2, 0, 100, 5);
 
     let c0 = connections.iter().filter(|c| c.id == 0).last().unwrap();
     let c1 = connections.iter().filter(|c| c.id == 1).last().unwrap();    
@@ -544,7 +544,7 @@ fn partial_feasibility() {
     store.insert_from_distribution(0..5, 0..40, false, 1, distribution::Distribution::uniform(-5, 8));
     store.insert_from_distribution(0..5, 0..40, true, 1, distribution::Distribution::uniform(-5, 8));
 
-    stost::query::query(&mut store, &mut connections, &stations, &stations[0], &stations[2], 0, 100, 5);
+    stost::query::query(&mut store, &mut connections, &stations, 0, 2, 0, 100, 5);
 
     let c0 = connections.iter().filter(|c| c.id == 0).last().unwrap();
     let c1 = connections.iter().filter(|c| c.id == 1).last().unwrap();    
@@ -595,7 +595,7 @@ fn with_cancelled() {
     store.insert_from_distribution(0..5, 0..15, false, 1, distribution::Distribution::uniform(-5, 10));
     store.insert_from_distribution(0..5, 35..45, false, 1, distribution::Distribution::uniform(-2, 6));
 
-    stost::query::query(&mut store, &mut connections, &stations, &stations[0], &stations[2], 0, 100, 5);
+    stost::query::query(&mut store, &mut connections, &stations, 0, 2, 0, 100, 5);
     
     let c0 = connections.iter().filter(|c| c.id == 0).last().unwrap();
     let c1 = connections.iter().filter(|c| c.id == 1).last().unwrap();

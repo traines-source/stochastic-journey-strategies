@@ -44,7 +44,7 @@ fn main() {
         println!("querying...");
         let o = &stations[o_idx];
         let d = &stations[d_idx];
-        query::query(&mut s, &mut connections, &stations, o, d, 0, 100, serde::to_mtime(now, start_time));
+        query::query(&mut s, &mut connections, &stations, o_idx, d_idx, 0, 100, serde::to_mtime(now, start_time));
         println!("finished querying.");
         let bytes = serde::serialize_protobuf(&stations, &routes, &connections, o, d, start_time);
         Response::from_data("application/octet-stream", bytes)

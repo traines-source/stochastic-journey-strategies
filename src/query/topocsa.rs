@@ -36,7 +36,7 @@ pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'
     e
 }
 
-pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], origin: &'a connection::Station, destination: &'a connection::Station, _start_time: types::Mtime, _max_time: types::Mtime, now: types::Mtime, epsilon: f32, mean_only: bool) -> FxHashSet<(usize, usize)>  {
+pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], origin: usize, destination: usize, _start_time: types::Mtime, _max_time: types::Mtime, now: types::Mtime, epsilon: f32, mean_only: bool) -> FxHashSet<(usize, usize)>  {
     let mut order = Vec::with_capacity(connections.len());
     let mut e = prepare(store, connections, stations, &mut order, now, epsilon, mean_only);
     e.query(origin, destination);
@@ -278,12 +278,12 @@ impl<'a, 'b> Environment<'b> {
             c.arrival.delay = Some(delay);
         }
     }
-    pub fn query(&mut self, _origin: &'a connection::Station, destination: &'a connection::Station) -> Vec<BTreeMap<(N32, usize), ConnectionLabel>> {
+    pub fn query(&mut self, _origin: usize, destination: usize) -> Vec<BTreeMap<(N32, usize), ConnectionLabel>> {
         let pairs = HashMap::new();
         self.pair_query(_origin, destination, &pairs)
     }
 
-    pub fn pair_query(&mut self, _origin: &'a connection::Station, destination: &'a connection::Station, connection_pairs: &HashMap<usize, usize>) -> Vec<BTreeMap<(N32, usize), ConnectionLabel>> {
+    pub fn pair_query(&mut self, _origin: usize, destination: usize, connection_pairs: &HashMap<usize, usize>) -> Vec<BTreeMap<(N32, usize), ConnectionLabel>> {
         let mut instr = CsaInstrumentation {
             looked_at_count: 0,
             selected_count: 0,
@@ -301,7 +301,7 @@ impl<'a, 'b> Environment<'b> {
                 continue;
             }            
             let mut new_distribution = distribution::Distribution::empty(c.arrival.scheduled);
-            if self.stations[c.to_idx].id == destination.id {
+            if c.to_idx == destination {
                 // TODO cancelled prob twice??
                 new_distribution = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now);
             } else {
@@ -309,7 +309,7 @@ impl<'a, 'b> Environment<'b> {
                 let footpaths = &self.stations[c.to_idx].footpaths;
                 for f in footpaths {
                     let mut footpath_dest_arr = distribution::Distribution::empty(0);
-                    if self.stations[f.target_location_idx].id == destination.id {
+                    if f.target_location_idx == destination {
                         // TODO cancelled prob twice??
                         footpath_dest_arr = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now).shift(f.duration as i32);
                     } else {
@@ -580,7 +580,7 @@ mod tests {
         let stations = vec![s];
         let mut connections: Vec<connection::Connection> = vec![];
 
-        let cut = prepare_and_query(&mut store, &mut connections, &stations, &stations[0], &stations[0], 0, 0, 0, 0.0, false);
+        let cut = prepare_and_query(&mut store, &mut connections, &stations, 0, 0, 0, 0, 0, 0.0, false);
         assert_eq!(cut.len(), 0);
     }
 }

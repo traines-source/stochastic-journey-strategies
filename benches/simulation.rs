@@ -139,7 +139,7 @@ fn manual_test() -> Result<i32, Box<dyn std::error::Error>> {
                 env.update(connection_id, is_departure, delay, cancelled)
             },
         );
-        let station_labels = env.query(&tt.stations[pair.0], &tt.stations[pair.1]);
+        let station_labels = env.query(pair.0, pair.1);
         let deterministic = t.get_journeys(pair.0, pair.1, minutes, false);
 
         let mut i = 0;
@@ -329,7 +329,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                     true,
                 );
                 let start = Instant::now();
-                let stoch = env.query(&tt.stations[pair.0], &tt.stations[pair.1]);
+                let stoch = env.query(pair.0, pair.1);
                 let timing_stoch = start.elapsed().as_millis();
                 let start = Instant::now();
                 let min_journey = t.get_journeys(pair.0, pair.1, current_time, false).journeys.into_iter().reduce(|a, b| if a.dest_time < b.dest_time {a} else {b});
@@ -406,7 +406,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                     0.01,
                     true,
                 );
-                let stoch = env.pair_query(&tt.stations[pair.0], &tt.stations[pair.1], &stoch_actions[pair].connection_pairs);
+                let stoch = env.pair_query(pair.0, pair.1, &stoch_actions[pair].connection_pairs);
                 stoch_actions.get_mut(pair).unwrap().station_labels = stoch;
                 println!("relevant topocsa done.");
             }

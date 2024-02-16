@@ -94,7 +94,7 @@ fn gtfs() {
     let o = 10000;
     let d = 20000;
     println!("querying...");
-    let station_labels = env.query(&tt.stations[o], &tt.stations[d]);
+    let station_labels = env.query(o, d);
     let origin_deps = &station_labels[o];
     let mut it = origin_deps.iter();
     let best_conn = it.next().unwrap().1;
@@ -119,7 +119,7 @@ fn gtfs_with_rt() {
     let o = 10000;
     let d = 20000;
     println!("querying...");
-    let station_labels = env.query(&tt.stations[o], &tt.stations[d]);
+    let station_labels = env.query(o, d);
     let origin_deps = &station_labels[o];
     let mut it = origin_deps.iter();
     let best_conn = it.next().unwrap().1;
@@ -152,7 +152,7 @@ fn load_only_gtfs_with_rt() {
     let o = 10000;
     let d = 20000;
     println!("querying...");
-    let station_labels = env.query(&tt.stations[o], &tt.stations[d]);
+    let station_labels = env.query(o, d);
     let origin_deps = &station_labels[o];
     let mut it = origin_deps.iter();
     let best_conn = it.next().unwrap().1;
@@ -182,7 +182,7 @@ fn gtfs_small() {
     println!("{:?} {:?} {:?} {:?}", stations[o].id, stations[o].name, stations[d].id, stations[d].name);
     assert_eq!(stations[d].footpaths.len(), 3);
 
-    let station_labels = env.query(&stations[o], &stations[d]);
+    let station_labels = env.query(o, d);
     let origin_deps = &station_labels[o];
     let mut it = origin_deps.iter();
     let best_conn = it.next().unwrap().1;
