@@ -19,6 +19,21 @@ pub struct GtfsTimetable {
     pub transport_and_day_to_connection_id: HashMap<(usize, u16), usize>
 }
 
+#[derive(Debug)]
+pub struct StationContraction {
+    pub stop_to_group: Vec<usize>,
+    pub stop_to_group_idx: Vec<usize>,
+    max_group_size: usize,
+    pub transfer_times: Vec<u32>,
+}
+
+impl StationContraction {
+    #[inline(always)]
+    pub fn get_transfer_time(&self, from_stop_idx: usize, to_stop_idx: usize) -> u32 {
+        self.transfer_times[from_stop_idx*self.max_group_size+self.stop_to_group_idx[to_stop_idx]]
+    }
+}
+
 pub fn load_timetable<'a, 'b>(gtfs_path: &str, start_date: chrono::NaiveDate, end_date: chrono::NaiveDate) -> Timetable {
     Timetable::load(gtfs_path, start_date, end_date)
 }
@@ -34,6 +49,7 @@ pub fn retrieve<'a, 'b>(t: &Timetable, stations: &'a mut Vec<connection::Station
             lat: l.lat,
             lon: l.lon,
             transfer_time: l.transfer_time,
+            parent_idx: l.parent_idx,
             footpaths: vec![]
         };
         station.footpaths.append(&mut l.footpaths);
@@ -67,6 +83,38 @@ pub fn retrieve<'a, 'b>(t: &Timetable, stations: &'a mut Vec<connection::Station
         station.departures.sort_unstable_by(|a,b| connections[*a].departure.projected().cmp(&connections[*b].departure.projected()));
     }
     gtfs_connections.into()
+}
+
+pub fn get_station_contraction(stations: &[connection::Station]) -> StationContraction {
+    let max_group_size = stations.iter().map(|s| s.footpaths.len()).max().unwrap()+1;
+    let mut contr = StationContraction {
+        stop_to_group: vec![0; stations.len()],
+        stop_to_group_idx: vec![0; stations.len()],
+        max_group_size: max_group_size,
+        transfer_times: vec![0; stations.len()*max_group_size]
+    };
+    let mut max_dur = 0;
+    let mut max_dur_info = "".to_owned();
+    for station in stations.iter().enumerate() {
+        if contr.stop_to_group[station.0] == 0 {
+            contr.stop_to_group[station.0] = if station.1.parent_idx != 0 { station.1.parent_idx } else { station.0 };
+            contr.stop_to_group_idx[station.0] = 0;
+            for f in station.1.footpaths.iter().enumerate() {
+                contr.stop_to_group[f.1.target_location_idx] = contr.stop_to_group[station.0];
+                contr.stop_to_group_idx[f.1.target_location_idx] = f.0+1;
+                if max_dur < f.1.duration {
+                    max_dur = f.1.duration;
+                    max_dur_info = format!("{} {}", station.1.name, stations[f.1.target_location_idx].name);
+                }
+            }
+        }
+        contr.transfer_times[station.0*contr.max_group_size+contr.stop_to_group_idx[station.0]] = 1; //station.1.transfer_time;
+        for f in station.1.footpaths.iter().enumerate() {
+            contr.transfer_times[station.0*contr.max_group_size+contr.stop_to_group_idx[f.1.target_location_idx]] = f.1.duration;
+        }
+    }
+    println!("max group size {} max dur {} between {}", contr.max_group_size, max_dur, max_dur_info);
+    contr
 }
 
 pub fn load_realtime<F: FnMut(usize, bool, i16, bool)>(gtfsrt_path: &str, t: &Timetable, transport_and_day_to_connection_id: &HashMap<(usize, u16), usize>, mut callback: F) {

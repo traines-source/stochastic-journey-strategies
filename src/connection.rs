@@ -34,6 +34,7 @@ pub struct Station {
 	pub lat: f32,
 	pub lon: f32,
 	pub transfer_time: u16,
+	pub parent_idx: usize,
 	pub footpaths: Vec<motis_nigiri::Footpath>
 }
 
@@ -47,6 +48,7 @@ impl<'a> Station {
 			lat: 0.,
 			lon: 0.,
 			transfer_time: 0,
+			parent_idx: 0,
 			footpaths: vec![]
 		}
 	}

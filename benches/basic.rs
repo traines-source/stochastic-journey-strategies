@@ -52,6 +52,8 @@ fn from_gtfs(c: &mut Criterion) {
 
     let mut tt = gtfs::load_gtfs_cache("./tests/fixtures/timetable.ign.cache");
     let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.order, 0, 0.01, true);
+    let contr = gtfs::get_station_contraction(&tt.stations);
+    env.set_station_contraction(&contr);
     let o = 10000;
     let d = 20000;
     println!("querying...");

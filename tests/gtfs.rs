@@ -104,6 +104,29 @@ fn gtfs() {
 
 #[test]
 #[ignore]
+fn gtfs_with_contr() {
+    let mut store = distribution_store::Store::new();
+    store.load_distributions("./data/ch_sbb.csv");
+
+    let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
+    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.order, 0, 0.01, true);
+    let contr = gtfs::get_station_contraction(&tt.stations);
+    env.set_station_contraction(&contr);
+    let o = 10000;
+    let d = 20000;
+    println!("querying...");
+    let station_labels = env.query(o, d);
+    let origin_deps = &station_labels[contr.stop_to_group[o]];
+    let mut it = origin_deps.iter();
+    let best_conn = it.next().unwrap().1;
+    let second_best_conn = it.next().unwrap().1;
+    //println!("{:?}", contr);
+
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
+}
+
+#[test]
+#[ignore]
 fn gtfs_with_rt() {
     let mut store = distribution_store::Store::new();
     store.load_distributions("./data/ch_sbb.csv");
