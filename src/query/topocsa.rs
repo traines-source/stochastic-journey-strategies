@@ -1,10 +1,7 @@
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::time::Instant;
 use rustc_hash::FxHashSet;
-use noisy_float::types::{n32, N32};
-
 
 
 use indexmap::IndexSet;
@@ -286,19 +283,19 @@ impl<'a, 'b> Environment<'b> {
             c.arrival.delay = Some(delay);
         }
     }
-    pub fn query(&mut self, _origin: usize, destination: usize) -> Vec<BTreeMap<(N32, usize), ConnectionLabel>> {
+    pub fn query(&mut self, _origin: usize, destination: usize) -> Vec<Vec<ConnectionLabel>> {
         let pairs = HashMap::new();
         self.pair_query(_origin, destination, &pairs)
     }
 
-    pub fn pair_query(&mut self, _origin: usize, destination: usize, connection_pairs: &HashMap<usize, usize>) -> Vec<BTreeMap<(N32, usize), ConnectionLabel>> {
+    pub fn pair_query(&mut self, _origin: usize, destination: usize, connection_pairs: &HashMap<usize, usize>) -> Vec<Vec<ConnectionLabel>> {
         let mut instr = CsaInstrumentation {
             looked_at_count: 0,
             selected_count: 0,
             next_dep_time: 0,
             new_dist_time: 0
         };
-        let mut station_labels: Vec<BTreeMap<(N32, usize), ConnectionLabel>> = (0..self.stations.len()).map(|i| BTreeMap::new()).collect();
+        let mut station_labels: Vec<Vec<ConnectionLabel>> = (0..self.stations.len()).map(|i| Vec::new()).collect();
         let empty_vec = vec![];
         for i in 0..self.connections.len() {
             if connection_pairs.len() > 0 && !connection_pairs.contains_key(&i) {
@@ -358,8 +355,7 @@ impl<'a, 'b> Environment<'b> {
             let departures = station_labels.get_mut(departure_station_idx).unwrap();
             //departure_conn.destination_arrival.replace(Some(new_distribution.clone())); // TODO remove
             if new_distribution.feasible_probability > self.epsilon {
-                departures.insert((n32(new_distribution.mean), c.id), ConnectionLabel{connection_idx: departure_conn_idx, destination_arrival: new_distribution});
-                /*let mut j = departures.len() as i32-1;
+                let mut j = departures.len() as i32-1;
                 while j >= 0 {
                     let dom_dest_dist = &departures[j as usize].destination_arrival;
                     if new_distribution.mean < dom_dest_dist.mean {
@@ -378,7 +374,7 @@ impl<'a, 'b> Environment<'b> {
                 }
                 if do_insert {
                     departures.insert((j+1) as usize, ConnectionLabel{connection_idx: departure_conn_idx, destination_arrival: new_distribution});
-                }*/
+                }
             }
         }
         println!("instr {:?}", instr);
@@ -386,16 +382,16 @@ impl<'a, 'b> Environment<'b> {
     }
 
     #[inline]
-    fn new_destination_arrival<'c>(&'c self, station_idx: usize, c_idx: usize, from_trip_id: i32, from_route_idx: usize, from_product_type: i16, from_arrival: &connection::StopInfo, transfer_time: i32, station_labels: &[BTreeMap<(N32, usize), ConnectionLabel>], footpath_distributions: &[distribution::Distribution], new_distribution: &mut distribution::Distribution, instr: &mut CsaInstrumentation) {
+    fn new_destination_arrival<'c>(&'c self, station_idx: usize, c_idx: usize, from_trip_id: i32, from_route_idx: usize, from_product_type: i16, from_arrival: &connection::StopInfo, transfer_time: i32, station_labels: &[Vec<ConnectionLabel>], footpath_distributions: &[distribution::Distribution], new_distribution: &mut distribution::Distribution, instr: &mut CsaInstrumentation) {
         let mut remaining_probability = 1.0;
         let mut last_departure: Option<&connection::StopInfo> = None;
         let mut last_product_type: i16 = 0;
         let departures = station_labels.get(station_idx).unwrap();
 
-        let mut departures_i = departures.iter().peekable();
+        let mut departures_i = 0;
         let mut footpaths_i = 0;
         let c = &self.connections[c_idx];
-        while departures_i.peek().is_some() || footpaths_i < footpath_distributions.len() {
+        while departures_i < departures.len() || footpaths_i < footpath_distributions.len() {
             let mut dest_arr_dist = None;
             let mut departure = None;
             let mut departure_product_type = 0;
@@ -407,18 +403,18 @@ impl<'a, 'b> Environment<'b> {
                 departure_product_type = c.product_type;
                 is_continuing = true;
             }
-            if departures_i.peek().is_some() {
-                let label = departures_i.peek().unwrap().1;
+            if departures_i < departures.len() {
+                let dep_i = departures.len()-1-departures_i;
+                let label = &departures[dep_i];
                 let dep = &self.connections[label.connection_idx];
-                /*if self.cut.contains(&(c.id, dep.id)) {
-                    departures_i.next();
+                /*if self.cut.contains(&(c_id, dep.id)) {
+                    departures_i += 1;
                     continue;
                 }*/
-
                 if dest_arr_dist.is_some_and(|d| label.destination_arrival.mean > d.mean) {
                     footpaths_i += 1;
                 } else {
-                    departures_i.next();
+                    departures_i += 1;
                     dest_arr_dist = Some(&label.destination_arrival);
                     departure = Some(&dep.departure);
                     departure_product_type = dep.product_type;
@@ -461,7 +457,7 @@ impl<'a, 'b> Environment<'b> {
     }
 
     #[inline]
-    fn new_contr_destination_arrival<'c>(&'c self, station_idx: usize, c_idx: usize, station_labels: &[BTreeMap<(N32, usize), ConnectionLabel>], new_distribution: &mut distribution::Distribution, instr: &mut CsaInstrumentation) {
+    fn new_contr_destination_arrival<'c>(&'c self, station_idx: usize, c_idx: usize, station_labels: &[Vec<ConnectionLabel>], new_distribution: &mut distribution::Distribution, instr: &mut CsaInstrumentation) {
         let mut remaining_probability = 1.0;
         let mut last_departure: Option<&connection::StopInfo> = None;
         let mut last_product_type: i16 = 0;
@@ -470,9 +466,9 @@ impl<'a, 'b> Environment<'b> {
 
         let c = &self.connections[c_idx];
         let mut store = self.store.borrow_mut();
-        for dep_label in departures {
-            let mut p: f32 = dep_label.1.destination_arrival.feasible_probability;
-            let dep = &self.connections[dep_label.1.connection_idx];
+        for dep_label in departures.iter().rev() {
+            let mut p: f32 = dep_label.destination_arrival.feasible_probability;
+            let dep = &self.connections[dep_label.connection_idx];
             if last_departure.is_some() {
                 p *= store.before_probability(last_departure.unwrap(), last_product_type, true, &dep.departure, dep.product_type, 1, self.now);
             }
@@ -481,7 +477,7 @@ impl<'a, 'b> Environment<'b> {
                 p *= store.before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
             }
             if p > 0.0 {
-                new_distribution.add_with(&dep_label.1.destination_arrival, p*remaining_probability, self.mean_only);
+                new_distribution.add_with(&dep_label.destination_arrival, p*remaining_probability, self.mean_only);
                 remaining_probability = (1.0-p)*remaining_probability;
                 if remaining_probability <= self.epsilon {
                     break;

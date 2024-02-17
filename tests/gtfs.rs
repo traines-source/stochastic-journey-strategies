@@ -96,9 +96,8 @@ fn gtfs() {
     println!("querying...");
     let station_labels = env.query(o, d);
     let origin_deps = &station_labels[o];
-    let mut it = origin_deps.iter();
-    let best_conn = it.next().unwrap().1;
-    let second_best_conn = it.next().unwrap().1;
+    let best_conn = origin_deps.last().unwrap();
+    let second_best_conn = &origin_deps[origin_deps.len()/3];
     println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
 }
 
@@ -117,9 +116,8 @@ fn gtfs_with_contr() {
     println!("querying...");
     let station_labels = env.query(o, d);
     let origin_deps = &station_labels[contr.stop_to_group[o]];
-    let mut it = origin_deps.iter();
-    let best_conn = it.next().unwrap().1;
-    let second_best_conn = it.next().unwrap().1;
+    let best_conn = origin_deps.last().unwrap();
+    let second_best_conn = &origin_deps[origin_deps.len()/3];
     //println!("{:?}", contr);
 
     println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
@@ -144,9 +142,8 @@ fn gtfs_with_rt() {
     println!("querying...");
     let station_labels = env.query(o, d);
     let origin_deps = &station_labels[o];
-    let mut it = origin_deps.iter();
-    let best_conn = it.next().unwrap().1;
-    let second_best_conn = it.next().unwrap().1;
+    let best_conn = origin_deps.last().unwrap();
+    let second_best_conn = &origin_deps[origin_deps.len()/3];
     println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
 }
 
@@ -177,9 +174,8 @@ fn load_only_gtfs_with_rt() {
     println!("querying...");
     let station_labels = env.query(o, d);
     let origin_deps = &station_labels[o];
-    let mut it = origin_deps.iter();
-    let best_conn = it.next().unwrap().1;
-    let second_best_conn = it.next().unwrap().1;
+    let best_conn = origin_deps.last().unwrap();
+    let second_best_conn = &origin_deps[origin_deps.len()/3];
     println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
 }
 
@@ -207,9 +203,8 @@ fn gtfs_small() {
 
     let station_labels = env.query(o, d);
     let origin_deps = &station_labels[o];
-    let mut it = origin_deps.iter();
-    let best_conn = it.next().unwrap().1;
-    let second_best_conn = it.next().unwrap().1;
+    let best_conn = origin_deps.last().unwrap();
+    let second_best_conn = &origin_deps[origin_deps.len()/3];
     println!("{:?} {:?} {:?} {:?} {:?}{:?}", stations[o].name, stations[d].name, &connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
     
 }
