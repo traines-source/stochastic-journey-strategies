@@ -24,7 +24,7 @@ fn from_relevant(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("once");
     //measurement_time(Duration::from_secs(10))
-    group.bench_function("from_relevant", |b| b.iter(|| env.query(black_box(o), black_box(d))));
+    group.bench_function("from_relevant", |b| b.iter(|| env.query(black_box(o), black_box(d), black_box(7200), black_box(8640))));
     group.finish();
 }
 
@@ -59,7 +59,7 @@ fn from_gtfs(c: &mut Criterion) {
     println!("querying...");
     let mut group = c.benchmark_group("once");
     group.sample_size(10);
-    group.bench_function("from_gtfs", |b| b.iter(|| env.query(black_box(o), black_box(d))));
+    group.bench_function("from_gtfs", |b| b.iter(|| env.query(black_box(o), black_box(d), black_box(7200), black_box(8640))));
     group.finish();
 }
 

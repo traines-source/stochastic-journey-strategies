@@ -48,6 +48,7 @@ pub struct Store {
     hot_reachability_factors: [usize; 5],
     min_delay_diff: i16,
     min_epsilon_delay_diff: i16,
+    pub max_delay: i16,
     delay_range_size: usize,
     hits: usize,
     hot_hits: usize,
@@ -70,6 +71,7 @@ impl Store {
             hot_reachability_factors: [0; 5],
             min_delay_diff: -180,
             min_epsilon_delay_diff: -180,
+            max_delay: 0,
             delay_range_size: 0,
             hits: 0,
             hot_hits: 0,
@@ -237,8 +239,9 @@ impl Store {
             }
             latest_sample_delays.push((latest_sample_delay, sample_count));
         }
-        self.min_delay_diff = (min_max_delay.0-min_max_delay.1) as i16;
-        self.min_epsilon_delay_diff = (epsilon_min_max_delay.0-epsilon_min_max_delay.1) as i16;
+        self.min_delay_diff = min_max_delay.0-min_max_delay.1;
+        self.max_delay = min_max_delay.1;
+        self.min_epsilon_delay_diff = epsilon_min_max_delay.0-epsilon_min_max_delay.1;
         self.delay_range_size = self.min_delay_diff.abs() as usize*2;
         self.create_hot_reachability();
     }

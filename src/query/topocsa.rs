@@ -36,10 +36,10 @@ pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'
     e
 }
 
-pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], origin: usize, destination: usize, _start_time: types::Mtime, _max_time: types::Mtime, now: types::Mtime, epsilon: f32, mean_only: bool) -> FxHashSet<(usize, usize)>  {
+pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: f32, mean_only: bool) -> FxHashSet<(usize, usize)>  {
     let mut order = Vec::with_capacity(connections.len());
     let mut e = prepare(store, connections, stations, &mut order, now, epsilon, mean_only);
-    e.query(origin, destination);
+    e.query(origin, destination, start_time, max_time);
     e.store.borrow_mut().clear_reachability();
     println!("Done.");
     e.cut
@@ -285,12 +285,12 @@ impl<'a, 'b> Environment<'b> {
             c.arrival.delay = Some(delay);
         }
     }
-    pub fn query(&mut self, _origin: usize, destination: usize) -> Vec<Vec<ConnectionLabel>> {
+    pub fn query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime) -> Vec<Vec<ConnectionLabel>> {
         let pairs = HashMap::new();
-        self.pair_query(_origin, destination, &pairs)
+        self.pair_query(_origin, destination, start_time, max_time, &pairs)
     }
 
-    pub fn pair_query(&mut self, _origin: usize, destination: usize, connection_pairs: &HashMap<usize, usize>) -> Vec<Vec<ConnectionLabel>> {
+    pub fn pair_query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<usize, usize>) -> Vec<Vec<ConnectionLabel>> {
         let mut instr = CsaInstrumentation {
             inserted: 0,
             dep_len: 0,
@@ -299,12 +299,15 @@ impl<'a, 'b> Environment<'b> {
         };
         let mut station_labels: Vec<Vec<ConnectionLabel>> = (0..self.stations.len()).map(|i| Vec::new()).collect();
         let empty_vec = vec![];
+        let max_delay = self.store.borrow().max_delay as types::Mtime;
         for i in 0..self.connections.len() {
             if connection_pairs.len() > 0 && !connection_pairs.contains_key(&i) {
                 continue;
             }
             let c = &self.connections[i];
-            if c.cancelled {
+            if c.departure.projected()+max_delay < start_time
+                || c.arrival.projected()+max_delay > max_time
+                || c.cancelled {
                 //c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
                 continue;
             }
@@ -370,7 +373,7 @@ impl<'a, 'b> Environment<'b> {
                     j -= 1;
                 }
                 instr.dep_len += departures.len();
-                instr.inserted += j;
+                instr.inserted += (departures.len()as i32-j);
                 instr.selected_count += 1;
                 let mut do_insert = true;
                 if self.domination && ((j+1) as usize) < departures.len() {
