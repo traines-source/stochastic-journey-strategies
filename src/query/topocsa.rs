@@ -22,6 +22,7 @@ pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mu
         now: now,
         epsilon: epsilon,
         mean_only: mean_only,
+        domination: false,
         cut: cut,
         order: order,
         contraction: None
@@ -52,6 +53,7 @@ pub struct Environment<'b> {
     now: types::Mtime,
     epsilon: f32,
     mean_only: bool,
+    domination: bool,
     pub cut: FxHashSet<(usize, usize)>,
     order: &'b mut Vec<usize>,
     contraction: Option<&'b StationContraction>
@@ -85,10 +87,10 @@ pub struct Instrumentation {
 
 #[derive(Debug)]
 struct CsaInstrumentation {
-    looked_at_count: usize,
+    inserted: i32,
+    dep_len: usize,
     selected_count: usize,
-    next_dep_time: u128,
-    new_dist_time: u128,
+    infeas_iter: usize,
 }
 
 impl<'a, 'b> Environment<'b> {
@@ -290,10 +292,10 @@ impl<'a, 'b> Environment<'b> {
 
     pub fn pair_query(&mut self, _origin: usize, destination: usize, connection_pairs: &HashMap<usize, usize>) -> Vec<Vec<ConnectionLabel>> {
         let mut instr = CsaInstrumentation {
-            looked_at_count: 0,
+            inserted: 0,
+            dep_len: 0,
             selected_count: 0,
-            next_dep_time: 0,
-            new_dist_time: 0
+            infeas_iter: 0
         };
         let mut station_labels: Vec<Vec<ConnectionLabel>> = (0..self.stations.len()).map(|i| Vec::new()).collect();
         let empty_vec = vec![];
@@ -305,8 +307,7 @@ impl<'a, 'b> Environment<'b> {
             if c.cancelled {
                 //c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
                 continue;
-            }            
-            let mut new_distribution = distribution::Distribution::empty(c.arrival.scheduled);
+            }
             let stop_idx = match self.contraction {
                 Some(contr) => contr.stop_to_group[c.to_idx],
                 None => c.to_idx
@@ -315,14 +316,18 @@ impl<'a, 'b> Environment<'b> {
                 Some(contr) => contr.stop_to_group[destination],
                 None => destination
             };
-            if stop_idx == dest_contr {
+            let new_distribution = if stop_idx == dest_contr {
                 // TODO cancelled prob twice??
-                new_distribution = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now);
+                let mut new_distribution = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now);
                 if c.to_idx != destination {
                     let contr = self.contraction.unwrap();
                     new_distribution = new_distribution.shift(contr.get_transfer_time(c.to_idx, destination) as i32);
                 }
+                new_distribution
+            } else if station_labels[stop_idx].is_empty() {
+                continue;
             } else {
+                let mut new_distribution = distribution::Distribution::empty(c.arrival.scheduled);
                 if self.contraction.is_none() {
                     let mut footpath_distributions = vec![];
                     let footpaths = &self.stations[stop_idx].footpaths;
@@ -343,8 +348,9 @@ impl<'a, 'b> Environment<'b> {
                     self.new_destination_arrival(stop_idx, i, c.trip_id, c.route_idx, c.product_type, &c.arrival, 1, &station_labels, &footpath_distributions, &mut new_distribution, &mut instr);   
                 } else {
                     self.new_contr_destination_arrival(stop_idx, i, &station_labels, &mut new_distribution, &mut instr);   
-                }        
-            }
+                }
+                new_distribution   
+            };
 
             let departure_conn_idx = if connection_pairs.len() == 0 { i } else { connection_pairs[&i] };
             let departure_conn = if connection_pairs.len() == 0 { c } else { &self.connections[departure_conn_idx] };
@@ -363,15 +369,23 @@ impl<'a, 'b> Environment<'b> {
                     }
                     j -= 1;
                 }
+                instr.dep_len += departures.len();
+                instr.inserted += j;
+                instr.selected_count += 1;
                 let mut do_insert = true;
-                if ((j+1) as usize) < departures.len() {
+                if self.domination && ((j+1) as usize) < departures.len() {
                     let reference = &self.connections[departures[(j+1) as usize].connection_idx];
                     let dep_dist_ref = self.store.borrow_mut().delay_distribution(&reference.departure, true, reference.product_type, self.now).mean; // TODO opt
                     let dep_dist_c = self.store.borrow_mut().delay_distribution(&departure_conn.departure, true, departure_conn.product_type, self.now).mean; // TODO opt
                     if dep_dist_c < dep_dist_ref {
-                        //do_insert = false;
+                        do_insert = false;
                     }
-                }
+                } /* else if !self.domination && ((j+1) as usize) < departures.len(){
+                    let reference = &self.connections[departures[(j+1) as usize].connection_idx];
+                    if self.store.borrow_mut().before_probability(&reference.departure, reference.product_type, true, &departure_conn.departure, departure_conn.product_type, 1, self.now) <= self.epsilon {
+                        do_insert = false;
+                    }
+                }*/
                 if do_insert {
                     departures.insert((j+1) as usize, ConnectionLabel{connection_idx: departure_conn_idx, destination_arrival: new_distribution});
                 }
@@ -427,20 +441,16 @@ impl<'a, 'b> Environment<'b> {
             } else {
                 footpaths_i += 1;
             }
-            instr.looked_at_count += 1;
+            instr.inserted += 1;
             let mut p: f32 = dest_arr_dist.unwrap().feasible_probability;
-            if expect_float_absolute_eq!(dest_arr_dist.unwrap().mean, 0.0, 1e-3).is_ok() {
-                panic!("mean 0 with high feasibility");
-            }
-            //assert_float_absolute_eq!(dest.as_ref().unwrap().mean, dest.as_ref().unwrap().mean(), 1e-3);
-            if last_departure.is_some() {
+            if !self.domination && last_departure.is_some() {
                 p *= self.store.borrow_mut().before_probability(last_departure.unwrap(), last_product_type, true, departure.unwrap(), departure_product_type, 1, self.now);
             }
             if p > 0.0 && !is_continuing {
                 p *= self.store.borrow_mut().before_probability(from_arrival, from_product_type, false, departure.unwrap(), departure_product_type, transfer_time, self.now);
             }
             if p > 0.0 {
-                instr.selected_count += 1;
+                instr.dep_len += 1;
                 new_distribution.add_with(dest_arr_dist.as_ref().unwrap(), p*remaining_probability, self.mean_only);
                 remaining_probability = (1.0-p).clamp(0.0,1.0)*remaining_probability;
                 last_departure = departure;
@@ -469,7 +479,7 @@ impl<'a, 'b> Environment<'b> {
         for dep_label in departures.iter().rev() {
             let mut p: f32 = dep_label.destination_arrival.feasible_probability;
             let dep = &self.connections[dep_label.connection_idx];
-            if last_departure.is_some() {
+            if !self.domination && last_departure.is_some() {
                 p *= store.before_probability(last_departure.unwrap(), last_product_type, true, &dep.departure, dep.product_type, 1, self.now);
             }
             if p > 0.0 && !c.is_consecutive(dep) {
