@@ -11,10 +11,13 @@ pub struct Distribution {
     pub feasible_probability: f32
 }
 
+const EMPTY_HISTOGRAM: Vec<f32> = vec![];
+
 impl Distribution {
 
+    #[inline(always)]
 	pub fn exists(&self) -> bool {
-        self.histogram.len() > 0 || self.mean != 0.0
+        self.mean != 0.0 || self.histogram.len() > 0
     }
 
     pub fn assert(&self) {
@@ -25,9 +28,10 @@ impl Distribution {
         self.start+self.histogram.len() as types::Mtime
     }
 
+    #[inline(always)]
     pub fn empty(start: types::Mtime) -> Distribution {
         Distribution{
-            histogram: vec![],
+            histogram: EMPTY_HISTOGRAM,
             start: start,
             mean: 0.,
             feasible_probability: 0.0
