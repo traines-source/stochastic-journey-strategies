@@ -15,6 +15,9 @@ use crate::gtfs::StationContraction;
 use crate::types;
 
 pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], cut: FxHashSet<(usize, usize)>, order: &'b mut Vec<usize>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
+    if order.is_empty() {
+        order.extend(0..connections.len());
+    }
     Environment {
         store: RefCell::new(store),
         connections: connections,
@@ -100,14 +103,14 @@ impl<'a, 'b> Environment<'b> {
         self.contraction = Some(contr);
     }
 
-    fn dfs(&mut self, anchor_id: usize, topo_idx: &mut usize, labels: &mut Vec<DfsConnectionLabel>, visited: &mut Vec<i16>, stops_completed_up: &mut Vec<usize>, instr: &mut Instrumentation) {
+    fn dfs(&mut self, anchor_idx: usize, topo_idx: &mut usize, labels: &mut Vec<DfsConnectionLabel>, visited: &mut Vec<i16>, stops_completed_up: &mut Vec<usize>, instr: &mut Instrumentation) {
         let mut stack: IndexSet<usize> = IndexSet::with_capacity(1000);
-        stack.insert(anchor_id);
+        stack.insert(anchor_idx);
         while !stack.is_empty() {
             instr.iterations += 1;
-            let c_id = *stack.last().unwrap();
-            let c = &self.connections[c_id];
-            let c_label = labels.get_mut(c_id).unwrap();
+            let c_idx = *stack.last().unwrap();
+            let c = &self.connections[c_idx];
+            let c_label = labels.get_mut(c_idx).unwrap();
             let footpaths = &self.stations[c.to_idx].footpaths;
             let mut stop_idx = if c_label.footpath_i == footpaths.len() { c.to_idx } else { footpaths[c_label.footpath_i].target_location_idx };
             let mut deps = &self.stations[stop_idx].departures;
@@ -116,7 +119,7 @@ impl<'a, 'b> Environment<'b> {
                 c_label.i = stops_completed_up[stop_idx];
                 streak = true;
             }
-            visited[c_id] = 1;
+            visited[c_idx] = 1;
             let mut found = false;
             loop {
                 if c_label.i > 0 {
@@ -142,8 +145,8 @@ impl<'a, 'b> Environment<'b> {
                 } else {
                     break;
                 }
-                let dep_id = deps[c_label.i];
-                let dep_visited = visited[dep_id];
+                let dep_idx = self.order[deps[c_label.i]];
+                let dep_visited = visited[dep_idx];
                 if dep_visited == 2 {
                     instr.encounter_2 += 1;
                 } else {
@@ -152,7 +155,7 @@ impl<'a, 'b> Environment<'b> {
                         streak = false;
                     }
                     found = true;
-                    let dep = &self.connections[dep_id];
+                    let dep = &self.connections[dep_idx];
                     let is_continuing = if c_label.footpath_i == footpaths.len() { c.is_consecutive(dep) } else { false };
                     if !is_continuing {
                         let transfer_time = if c_label.footpath_i == footpaths.len() { 1 } else { footpaths[c_label.footpath_i].duration as i32 };
@@ -163,9 +166,8 @@ impl<'a, 'b> Environment<'b> {
                     }
                     
                     if dep_visited == 1 {
-                        let trace_idx = stack.get_index_of(&dep_id);
+                        let trace_idx = stack.get_index_of(&dep_idx);
                         if trace_idx.is_some() {
-                            let c = &self.connections[c_id];
                             let transfer_time = dep.departure.projected()-c.arrival.projected();
                             let mut min_transfer = if c.is_consecutive(dep) { 1 } else { transfer_time };
                             let mut min_i = stack.len();
@@ -187,8 +189,8 @@ impl<'a, 'b> Environment<'b> {
                                 }
                             }
                             if min_i == stack.len() {
-                                self.cut.insert((c_id, dep_id));
-                                if c_id == dep_id {
+                                self.cut.insert((c.id, dep.id));
+                                if c.id == dep.id {
                                     instr.cycle_self_count += 1;
                                 }
                                 continue;
@@ -198,33 +200,33 @@ impl<'a, 'b> Environment<'b> {
                             self.cut.insert((*cut_after, *cut_before));
                             instr.unraveling_no += stack.len()-min_i;
                             for _ in min_i..stack.len() {
-                                let id = stack.pop().unwrap();
-                                let label = labels.get_mut(id).unwrap();
+                                let idx = stack.pop().unwrap();
+                                let label = labels.get_mut(idx).unwrap();
                                 label.i += 1;
-                                visited[id] = 0;
+                                visited[idx] = 0;
                             }
                             break;
                         } else {
-                            panic!("marked as visited but not in trace {:?} {:?}", dep_id, stack);
+                            panic!("marked as visited but not in trace {:?} {:?}", dep_idx, stack);
                         }
                     } else if dep_visited != 0 {
                         panic!("unexpected visited state");
                     }
-                    stack.insert(dep_id);
+                    stack.insert(dep_idx);
                     break;
                 }
             }
             if !found {
-                let c_label = labels.get_mut(c_id).unwrap();
+                let c_label = labels.get_mut(c_idx).unwrap();
                 assert_eq!(c_label.i, 0);
                 if streak {
                     stops_completed_up[stop_idx] = 0;
                 }
                 c_label.order = *topo_idx;
                 *topo_idx += 1;
-                visited[c_id] = 2;
+                visited[c_idx] = 2;
                 let p = stack.pop().unwrap();
-                assert_eq!(p, c_id);
+                assert_eq!(p, c_idx);
             }
             if stack.len() > instr.max_trace {
                 instr.max_trace = stack.len();
@@ -235,8 +237,8 @@ impl<'a, 'b> Environment<'b> {
     
     pub fn preprocess(&mut self) {
         println!("Start preprocessing...");
-        let mut conn_ids: Vec<usize> = (0..self.connections.len()).collect();
-        conn_ids.sort_unstable_by(|a,b| self.connections[*a].departure.projected().cmp(&self.connections[*b].departure.projected()));
+        let mut conn_idxs: Vec<usize> = (0..self.connections.len()).collect();
+        conn_idxs.sort_unstable_by(|a,b| self.connections[*a].departure.projected().cmp(&self.connections[*b].departure.projected()));
 
         let mut topo_idx = 0;
         
@@ -258,20 +260,21 @@ impl<'a, 'b> Environment<'b> {
         let mut visited = vec![0; self.connections.len()];
         println!("Start dfs... {}", start.elapsed().as_millis());
         self.store.borrow().print_stats();
-        for idx in 0..self.connections.len() {
-            let id = conn_ids[idx];
-            if visited[id] != 2 {
-                self.dfs(id, &mut topo_idx, &mut labels, &mut visited, &mut stops_completed_up, &mut instr);
+        for i in 0..self.connections.len() {
+            let idx = conn_idxs[i];
+            if visited[idx] != 2 {
+                self.dfs(idx, &mut topo_idx, &mut labels, &mut visited, &mut stops_completed_up, &mut instr);
                 //println!("connections {} cycles found {} labels {} done {} {}", self.connections.len(), self.cut.len(), self.order.len(), idx, id);
             }
         }
         println!("instr: {:?}", instr);
         self.store.borrow().print_stats();
         println!("Done DFSing. {}", start.elapsed().as_millis());
-        self.order.extend(labels.iter().map(|l|l.order));
         self.connections.sort_unstable_by(|a, b|
-            labels[a.id].order.partial_cmp(&labels[b.id].order).unwrap()
+            labels[self.order[a.id]].order.partial_cmp(&labels[self.order[b.id]].order).unwrap()
         );
+        self.order.clear();
+        self.order.extend(labels.iter().map(|l|l.order));
         println!("Done preprocessing.");
         println!("connections: {} topoidx: {} cut: {}", self.connections.len(), topo_idx, self.cut.len());
     }
