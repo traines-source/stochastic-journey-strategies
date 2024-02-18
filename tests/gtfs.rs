@@ -130,7 +130,7 @@ fn gtfs_with_rt() {
     store.load_distributions("./data/ch_sbb.csv");
 
     let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
-    let t = gtfs::load_timetable(GTFS_PATH, day(2023, 11, 1), day(2023, 11, 2));
+    let t = gtfs::load_timetable(GTFS_PATH, day(2023, 11, 2), day(2023, 11, 3));
     let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.order, 0, 0.01, true);
     let path = format!("{}2023-11-01T16:00:02+01:00.gtfsrt", GTFSRT_PATH);
     gtfs::load_realtime(&path, &t, &tt.transport_and_day_to_connection_id,
@@ -161,10 +161,10 @@ fn load_only_gtfs_with_rt() {
         transport_and_day_to_connection_id: HashMap::new()
     };
     let mut routes = vec![];
-    let t = gtfs::load_timetable("/gtfs/swiss-gtfs/2024-01-15", day(2023, 1, 15), day(2024, 1, 16));
-    let mapping = gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);
+    let t = gtfs::load_timetable("/gtfs/swiss-gtfs/2024-01-15/", day(2024, 1, 15), day(2024, 1, 16));
+    let mapping = gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);    
     let path = "/gtfs/swiss-gtfs-rt/2024-01-15/2024-01-15T01:32:01+01:00.gtfsrt";
-    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.order, 0, 0.01, true);
+    let mut env = topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, &mut tt.order, 0, 0.01, true);
     gtfs::load_realtime(&path, &t, &mapping,
         |connection_id: usize, is_departure: bool, delay: i16, cancelled: bool| env.update(connection_id, is_departure, delay, cancelled)
     );
