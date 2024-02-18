@@ -99,8 +99,8 @@ impl Distribution {
 
     #[inline]
     pub fn add_with(&mut self, other: &Distribution, weight: f32, mean_only: bool) {
-        self.mean = self.mean + other.mean*weight;
         if mean_only {
+            self.mean += other.mean*weight;
             return;
         }
         if !self.exists() {
@@ -125,6 +125,7 @@ impl Distribution {
         }
         self.histogram = h;
 		self.start = start as types::Mtime;
+        self.mean += other.mean*weight;
     }
 
     pub fn shift(&self, start: types::Mtime) -> Distribution {

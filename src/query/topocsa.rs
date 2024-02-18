@@ -309,7 +309,7 @@ impl<'a, 'b> Environment<'b> {
                 continue;
             }
             let c = &self.connections[i];
-            if c.arrival.projected()+max_delay > max_time // TODO topo dependency
+            if c.arrival.projected()-max_delay > max_time // TODO topo dependency
                 || c.cancelled {
                 //c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
                 continue;
