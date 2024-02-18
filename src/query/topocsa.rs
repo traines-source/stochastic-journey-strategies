@@ -291,7 +291,7 @@ impl<'a, 'b> Environment<'b> {
         self.pair_query(_origin, destination, start_time, max_time, &pairs)
     }
 
-    pub fn pair_query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<usize, usize>) -> Vec<Vec<ConnectionLabel>> {
+    pub fn pair_query(&mut self, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<usize, usize>) -> Vec<Vec<ConnectionLabel>> {
         let mut instr = CsaInstrumentation {
             inserted: 0,
             dep_len: 0,
@@ -306,8 +306,7 @@ impl<'a, 'b> Environment<'b> {
                 continue;
             }
             let c = &self.connections[i];
-            if c.departure.projected()+max_delay < start_time
-                || c.arrival.projected()+max_delay > max_time
+            if c.arrival.projected()+max_delay > max_time // TODO topo dependency
                 || c.cancelled {
                 //c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
                 continue;
@@ -320,6 +319,13 @@ impl<'a, 'b> Environment<'b> {
                 Some(contr) => contr.stop_to_group[destination],
                 None => destination
             };
+            let orig_contr = match self.contraction {
+                Some(contr) => contr.stop_to_group[origin],
+                None => destination
+            };
+            if stop_idx == orig_contr && c.arrival.projected()+max_delay < start_time {
+                break;
+            }
             let new_distribution = if stop_idx == dest_contr {
                 // TODO cancelled prob twice??
                 let mut new_distribution = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now);
@@ -367,15 +373,11 @@ impl<'a, 'b> Environment<'b> {
             if new_distribution.feasible_probability > self.epsilon {
                 let mut j = departures.len() as i32-1;
                 while j >= 0 {
-                    let dom_dest_dist = &departures[j as usize].destination_arrival;
-                    if new_distribution.mean < dom_dest_dist.mean {
+                    if new_distribution.mean < departures[j as usize].destination_arrival.mean {
                         break;
                     }
                     j -= 1;
                 }
-                instr.dep_len += departures.len();
-                instr.inserted += (departures.len()as i32-j);
-                instr.selected_count += 1;
                 let mut prob_after = 1.0;
 
                 if self.domination {
@@ -459,7 +461,6 @@ impl<'a, 'b> Environment<'b> {
             } else {
                 footpaths_i += 1;
             }
-            instr.inserted += 1;
             let mut p: f32 = dest_arr_dist.unwrap().feasible_probability;
             if !self.domination && last_departure.is_some() {
                 p *= self.store.borrow_mut().before_probability(last_departure.unwrap(), last_product_type, true, departure.unwrap(), departure_product_type, 1, self.now);
@@ -468,7 +469,6 @@ impl<'a, 'b> Environment<'b> {
                 p *= self.store.borrow_mut().before_probability(from_arrival, from_product_type, false, departure.unwrap(), departure_product_type, transfer_time, self.now);
             }
             if p > 0.0 {
-                instr.dep_len += 1;
                 new_distribution.add_with(dest_arr_dist.as_ref().unwrap(), p*remaining_probability, self.mean_only);
                 remaining_probability = (1.0-p).clamp(0.0,1.0)*remaining_probability;
                 last_departure = departure;

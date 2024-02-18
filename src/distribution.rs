@@ -99,31 +99,32 @@ impl Distribution {
 
     #[inline]
     pub fn add_with(&mut self, other: &Distribution, weight: f32, mean_only: bool) {
+        self.mean = self.mean + other.mean*weight;
+        if mean_only {
+            return;
+        }
         if !self.exists() {
             self.start = other.start;
         }
         let self_start = self.start;
         let other_start = other.start;
         let start = cmp::min(self_start, other_start);
-        if !mean_only {
-            let end = cmp::max(self_start+self.histogram.len() as i32, other_start+other.histogram.len() as i32);
-            let self_offset = (self_start-start) as usize;
-            let other_offset = (other_start-start) as usize;
-            let new_len = (end-start) as usize;
-            let mut h = vec![0.; new_len];
+        let end = cmp::max(self_start+self.histogram.len() as i32, other_start+other.histogram.len() as i32);
+        let self_offset = (self_start-start) as usize;
+        let other_offset = (other_start-start) as usize;
+        let new_len = (end-start) as usize;
+        let mut h = vec![0.; new_len];
 
-            for i in 0..new_len {
-                if i >= self_offset && i-self_offset < self.histogram.len() {
-                    h[i] += self.histogram[i-self_offset];
-                }
-                if i >= other_offset && i-other_offset < other.histogram.len() {
-                    h[i] += other.histogram[i-other_offset]*weight;
-                }
+        for i in 0..new_len {
+            if i >= self_offset && i-self_offset < self.histogram.len() {
+                h[i] += self.histogram[i-self_offset];
             }
-            self.histogram = h;
+            if i >= other_offset && i-other_offset < other.histogram.len() {
+                h[i] += other.histogram[i-other_offset]*weight;
+            }
         }
+        self.histogram = h;
 		self.start = start as types::Mtime;
-        self.mean = self.mean + other.mean*weight;
     }
 
     pub fn shift(&self, start: types::Mtime) -> Distribution {
