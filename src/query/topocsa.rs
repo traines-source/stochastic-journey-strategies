@@ -337,8 +337,6 @@ impl<'a, 'b> Environment<'b> {
                     new_distribution = new_distribution.shift(contr.get_transfer_time(c.to_idx, destination) as i32);
                 }
                 new_distribution
-            } else if station_labels[stop_idx].is_empty() {
-                continue;
             } else {
                 let mut new_distribution = distribution::Distribution::empty(c.arrival.scheduled);
                 if self.contraction.is_none() {
@@ -360,6 +358,9 @@ impl<'a, 'b> Environment<'b> {
                     footpath_distributions.sort_unstable_by(|a, b| a.mean.partial_cmp(&b.mean).unwrap());
                     self.new_destination_arrival(stop_idx, i, c.trip_id, c.route_idx, c.product_type, &c.arrival, 1, &station_labels, &footpath_distributions, &mut new_distribution, &mut instr);   
                 } else {
+                    if station_labels[stop_idx].is_empty() {
+                        continue;
+                    } 
                     self.new_contr_destination_arrival(stop_idx, i, &station_labels, &mut new_distribution, &mut instr);   
                 }
                 new_distribution   
