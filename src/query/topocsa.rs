@@ -68,7 +68,8 @@ pub struct DfsConnectionLabel {
 
 pub struct ConnectionLabel {
     pub connection_idx: usize,
-    pub destination_arrival: distribution::Distribution
+    pub destination_arrival: distribution::Distribution,
+    pub prob_after: f32
 }
 
 #[derive(Debug)]
@@ -375,26 +376,40 @@ impl<'a, 'b> Environment<'b> {
                 instr.dep_len += departures.len();
                 instr.inserted += (departures.len()as i32-j);
                 instr.selected_count += 1;
-                let mut do_insert = true;
-                if self.domination && ((j+1) as usize) < departures.len() {
-                    let reference = &self.connections[departures[(j+1) as usize].connection_idx];
-                    let dep_dist_ref = self.store.borrow_mut().delay_distribution(&reference.departure, true, reference.product_type, self.now).mean; // TODO opt
-                    let dep_dist_c = self.store.borrow_mut().delay_distribution(&departure_conn.departure, true, departure_conn.product_type, self.now).mean; // TODO opt
-                    if dep_dist_c < dep_dist_ref {
-                        do_insert = false;
+                let mut prob_after = 1.0;
+
+                if self.domination {
+                    if ((j+1) as usize) < departures.len() {
+                        let reference = &self.connections[departures[(j+1) as usize].connection_idx];
+                        let dep_dist_ref = self.store.borrow_mut().delay_distribution(&reference.departure, true, reference.product_type, self.now).mean; // TODO opt
+                        let dep_dist_c = self.store.borrow_mut().delay_distribution(&departure_conn.departure, true, departure_conn.product_type, self.now).mean; // TODO opt
+                        if dep_dist_c < dep_dist_ref {
+                            prob_after = 0.0;
+                        }
                     }
-                } /* else if !self.domination && ((j+1) as usize) < departures.len(){
-                    let reference = &self.connections[departures[(j+1) as usize].connection_idx];
-                    if self.store.borrow_mut().before_probability(&reference.departure, reference.product_type, true, &departure_conn.departure, departure_conn.product_type, 1, self.now) <= self.epsilon {
-                        do_insert = false;
+                } else if self.contraction.is_some() {
+                    if ((j+1) as usize) < departures.len() { 
+                        let ref_label = &departures[(j+1) as usize];
+                        let reference = &self.connections[ref_label.connection_idx];
+                        prob_after = self.store.borrow_mut().before_probability(&reference.departure, reference.product_type, true, &departure_conn.departure, departure_conn.product_type, 1, self.now)
                     }
-                }*/
-                if do_insert {
-                    departures.insert((j+1) as usize, ConnectionLabel{connection_idx: departure_conn_idx, destination_arrival: new_distribution});
+                    if prob_after > 0.0 && j >= 0 {
+                        let ref_label = departures.get_mut(j as usize).unwrap();
+                        let reference = &self.connections[ref_label.connection_idx];
+                        ref_label.prob_after = self.store.borrow_mut().before_probability(&departure_conn.departure, departure_conn.product_type, true, &reference.departure, reference.product_type, 1, self.now);
+                    }
+                }
+                if prob_after > 0.0 {                    
+                    departures.insert((j+1) as usize, ConnectionLabel{
+                        connection_idx: departure_conn_idx,
+                        destination_arrival: new_distribution,
+                        prob_after: prob_after
+                    });
                 }
             }
         }
         println!("instr {:?}", instr);
+        self.store.borrow().print_stats();
         station_labels
     }
 
@@ -472,20 +487,15 @@ impl<'a, 'b> Environment<'b> {
     #[inline]
     fn new_contr_destination_arrival<'c>(&'c self, station_idx: usize, c_idx: usize, station_labels: &[Vec<ConnectionLabel>], new_distribution: &mut distribution::Distribution, instr: &mut CsaInstrumentation) {
         let mut remaining_probability = 1.0;
-        let mut last_departure: Option<&connection::StopInfo> = None;
-        let mut last_product_type: i16 = 0;
         let departures = &station_labels[station_idx];
         let contr = self.contraction.unwrap();
 
         let c = &self.connections[c_idx];
         let mut store = self.store.borrow_mut();
         for dep_label in departures.iter().rev() {
-            let mut p: f32 = dep_label.destination_arrival.feasible_probability;
             let dep = &self.connections[dep_label.connection_idx];
-            if !self.domination && last_departure.is_some() {
-                p *= store.before_probability(last_departure.unwrap(), last_product_type, true, &dep.departure, dep.product_type, 1, self.now);
-            }
-            if p > 0.0 && !c.is_consecutive(dep) {
+            let mut p: f32 = dep_label.destination_arrival.feasible_probability*dep_label.prob_after;
+            if !c.is_consecutive(dep) {
                 let transfer_time = contr.get_transfer_time(c.to_idx, dep.from_idx) as i32;
                 p *= store.before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
             }
@@ -495,8 +505,6 @@ impl<'a, 'b> Environment<'b> {
                 if remaining_probability <= self.epsilon {
                     break;
                 }
-                last_departure = Some(&dep.departure);
-                last_product_type = dep.product_type;
             }
         }
         new_distribution.feasible_probability = (1.0-remaining_probability).clamp(0.0, 1.0);
