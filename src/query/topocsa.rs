@@ -159,7 +159,7 @@ impl<'a, 'b> Environment<'b> {
                     let dep = &self.connections[dep_idx];
                     let is_continuing = if c_label.footpath_i == footpaths.len() { c.is_consecutive(dep) } else { false };
                     if !is_continuing {
-                        let transfer_time = if c_label.footpath_i == footpaths.len() { 1 } else { footpaths[c_label.footpath_i].duration as i32 };
+                        let transfer_time = if c_label.footpath_i == footpaths.len() { self.stations[stop_idx].transfer_time } else { footpaths[c_label.footpath_i].duration } as i32;
                         let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
                         if reachable <= self.epsilon {
                             if reachable == 0.0 {
@@ -177,8 +177,8 @@ impl<'a, 'b> Environment<'b> {
                         instr.encounter_1 += 1;
                         let trace_idx = stack.get_index_of(&dep_idx);
                         if trace_idx.is_some() {
-                            let transfer_time = dep.departure.projected()-c.arrival.projected();
-                            let mut min_transfer = if c.is_consecutive(dep) { 1 } else { transfer_time };
+                            let actual_transfer_time = dep.departure.projected()-c.arrival.projected();
+                            let mut min_transfer = if c.is_consecutive(dep) { 1 } else { actual_transfer_time };
                             let mut min_i = stack.len();
                             let start = trace_idx.unwrap()+1 as usize;
                             instr.cycle_sum_len += stack.len()-start;
@@ -363,7 +363,7 @@ impl<'a, 'b> Environment<'b> {
                     }
                     //println!("{:?} {:?}", footpath_distributions.len(), footpaths.len());
                     footpath_distributions.sort_unstable_by(|a, b| a.mean.partial_cmp(&b.mean).unwrap());
-                    self.new_destination_arrival(stop_idx, i, c.trip_id, c.route_idx, c.product_type, &c.arrival, 1, &station_labels, &footpath_distributions, &mut new_distribution, &mut instr);   
+                    self.new_destination_arrival(stop_idx, i, c.trip_id, c.route_idx, c.product_type, &c.arrival, self.stations[stop_idx].transfer_time as i32, &station_labels, &footpath_distributions, &mut new_distribution, &mut instr);   
                 } else {
                     if station_labels[stop_idx].is_empty() {
                         continue;
@@ -545,7 +545,7 @@ impl<'a, 'b> Environment<'b> {
             }
 
             let mut departures = vec![&station_labels[station_idx]];
-            let mut transfer_times = vec![1];
+            let mut transfer_times = vec![self.stations[station_idx].transfer_time as i32];
             let footpaths = &self.stations[station_idx].footpaths;
             for i in 0..footpaths.len() {
                 let stop_idx = footpaths[i].target_location_idx;

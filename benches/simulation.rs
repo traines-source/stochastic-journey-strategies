@@ -71,31 +71,6 @@ fn resolve_connection_idx(
     order[connid]
 }
 
-fn update_footpaths(t: &Timetable, tt: &mut GtfsTimetable) {
-    let mut i = 0;
-    for s in &mut tt.stations {
-        s.footpaths.clear();
-        s.footpaths.append(&mut t.get_location(i).footpaths);
-        i += 1;
-    }
-}
-
-fn geodist_meters(stop1: &connection::Station, stop2: &connection::Station) -> f32 {       
-    let r = 6371e3;
-    let x = (stop2.lon.to_radians()-stop1.lon.to_radians()) * ((stop1.lat.to_radians()+stop2.lat.to_radians())/2 as f32).cos();
-    let y = stop2.lat.to_radians()-stop1.lat.to_radians();
-    (x*x + y*y).sqrt() * r
-}
-
-fn shorten_footpaths(tt: &mut GtfsTimetable) {
-    for i in 0..tt.stations.len() {
-        for j in 0..tt.stations[i].footpaths.len() {
-            let dur = (geodist_meters(&tt.stations[i], &tt.stations[tt.stations[i].footpaths[j].target_location_idx])/1.5/60.0).round() as u32;
-            tt.stations[i].footpaths[j].duration = std::cmp::min(std::cmp::max(dur, 1), tt.stations[i].footpaths[j].duration);
-        }
-    }
-}
-
 fn manual_test() -> Result<i32, Box<dyn std::error::Error>> {
     let conf = load_config("./benches/config/config.json");
 
@@ -266,9 +241,8 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
 
     let mut tt = gtfs::load_gtfs_cache(&conf.gtfs_cache_path);
     let t = gtfs::load_timetable(&conf.gtfs_path, day(2023, 11, 2), day(2023, 11, 3));
-    //update_footpaths(&t, &mut tt);
     if conf.transfer == "short" {
-        shorten_footpaths(&mut tt);
+        gtfs::shorten_footpaths(&mut tt.stations);
     }
     let start_ts = t.get_start_day_ts() as u64;
 
@@ -548,7 +522,7 @@ fn step(current_time: i32, start_time: i32, current_stop_idx: usize, alternative
     if current_time >= arrival_time {
         for alt in alternatives {
             let next_c = &connections[alt.from_conn_idx];
-            let transfer_time = if log.len() == 0 {0} else {get_transfer_time(current_stop_idx, next_c.from_idx, stations)}; // TODO intiial footpaths? 
+            let transfer_time = get_transfer_time(current_stop_idx, next_c.from_idx, log.is_empty(), stations); 
             if next_c.departure.projected() >= arrival_time+transfer_time || (log.len() > 0 && connections[log.last().unwrap().conn_idx].is_consecutive(next_c)) {    
                 if current_time >= next_c.departure.projected() { // TODO require not too long ago?
                     if log.len() > 0 {
@@ -603,9 +577,12 @@ fn update_connections_taken(result: &mut SimulationResult, connection: &connecti
     result.broken = false;
 }
 
-fn get_transfer_time(from_stop_idx: usize, to_stop_idx: usize, stations: &[connection::Station]) -> i32 {
+fn get_transfer_time(from_stop_idx: usize, to_stop_idx: usize, is_first: bool, stations: &[connection::Station]) -> i32 {
     if from_stop_idx == to_stop_idx {
-        return 1;
+        if is_first {
+            return 0;
+        }
+        return stations[from_stop_idx].transfer_time as i32;
     }
     for f in &stations[from_stop_idx].footpaths {
         if f.target_location_idx == to_stop_idx {

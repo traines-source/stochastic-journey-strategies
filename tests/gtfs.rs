@@ -108,6 +108,7 @@ fn gtfs_with_contr() {
     store.load_distributions("./data/ch_sbb.csv");
 
     let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
+    //gtfs::shorten_footpaths(&mut tt.stations);
     let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.order, 0, 0.01, true);
     let contr = gtfs::get_station_contraction(&tt.stations);
     env.set_station_contraction(&contr);

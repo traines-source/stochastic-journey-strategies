@@ -24,12 +24,12 @@ pub struct StationContraction {
     pub stop_to_group: Vec<usize>,
     pub stop_to_group_idx: Vec<usize>,
     max_group_size: usize,
-    pub transfer_times: Vec<u32>,
+    pub transfer_times: Vec<u16>,
 }
 
 impl StationContraction {
     #[inline(always)]
-    pub fn get_transfer_time(&self, from_stop_idx: usize, to_stop_idx: usize) -> u32 {
+    pub fn get_transfer_time(&self, from_stop_idx: usize, to_stop_idx: usize) -> u16 {
         self.transfer_times[from_stop_idx*self.max_group_size+self.stop_to_group_idx[to_stop_idx]]
     }
 }
@@ -108,13 +108,32 @@ pub fn get_station_contraction(stations: &[connection::Station]) -> StationContr
                 }
             }
         }
-        contr.transfer_times[station.0*contr.max_group_size+contr.stop_to_group_idx[station.0]] = 1; //station.1.transfer_time;
+        contr.transfer_times[station.0*contr.max_group_size+contr.stop_to_group_idx[station.0]] = station.1.transfer_time;
         for f in station.1.footpaths.iter().enumerate() {
             contr.transfer_times[station.0*contr.max_group_size+contr.stop_to_group_idx[f.1.target_location_idx]] = f.1.duration;
         }
     }
     println!("max group size {} max dur {} between {}", contr.max_group_size, max_dur, max_dur_info);
     contr
+}
+
+fn geodist_meters(stop1: &connection::Station, stop2: &connection::Station) -> f32 {       
+    let r = 6371e3;
+    let x = (stop2.lon.to_radians()-stop1.lon.to_radians()) * ((stop1.lat.to_radians()+stop2.lat.to_radians())/2 as f32).cos();
+    let y = stop2.lat.to_radians()-stop1.lat.to_radians();
+    (x*x + y*y).sqrt() * r
+}
+
+const WALKING_METRES_PER_SECOND: f32 = 1.5;
+
+pub fn shorten_footpaths(stations: &mut Vec<connection::Station>) {
+    for i in 0..stations.len() {
+        for j in 0..stations[i].footpaths.len() {
+            let dur = (geodist_meters(&stations[i], &stations[stations[i].footpaths[j].target_location_idx])/WALKING_METRES_PER_SECOND/60.0).round() as u16;
+            stations[i].footpaths[j].duration = std::cmp::min(std::cmp::max(dur, 1), stations[i].footpaths[j].duration);
+        }
+        stations[i].transfer_time = 1;
+    }
 }
 
 pub fn load_realtime<F: FnMut(usize, bool, i16, bool)>(gtfsrt_path: &str, t: &Timetable, transport_and_day_to_connection_id: &HashMap<(usize, u16), usize>, mut callback: F) {

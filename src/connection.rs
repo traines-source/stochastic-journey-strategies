@@ -47,7 +47,7 @@ impl<'a> Station {
 			departures: departures,
 			lat: 0.,
 			lon: 0.,
-			transfer_time: 0,
+			transfer_time: 1,
 			parent_idx: 0,
 			footpaths: vec![]
 		}
