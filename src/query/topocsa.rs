@@ -297,7 +297,10 @@ impl<'a, 'b> Environment<'b> {
     }
     pub fn query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime) -> Vec<Vec<ConnectionLabel>> {
         let pairs = HashMap::new();
-        self.pair_query(_origin, destination, start_time, max_time, &pairs)
+        let start_ts = Instant::now();
+        let r = self.pair_query(_origin, destination, start_time, max_time, &pairs);
+        println!("elapsed: {}", start_ts.elapsed().as_millis());
+        r
     }
 
     pub fn pair_query(&mut self, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<usize, usize>) -> Vec<Vec<ConnectionLabel>> {

@@ -163,16 +163,21 @@ fn load_only_gtfs_with_rt() {
     let mut routes = vec![];
     let t = gtfs::load_timetable("/gtfs/swiss-gtfs/2024-01-15/", day(2024, 1, 15), day(2024, 1, 16));
     let mapping = gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);    
+    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.order, 0, 0.01, true);
     let path = "/gtfs/swiss-gtfs-rt/2024-01-15/2024-01-15T01:32:01+01:00.gtfsrt";
-    let mut env = topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, &mut tt.order, 0, 0.01, true);
     gtfs::load_realtime(&path, &t, &mapping,
         |connection_id: usize, is_departure: bool, delay: i16, cancelled: bool| env.update(connection_id, is_departure, delay, cancelled)
     );
+    let path = "/gtfs/swiss-gtfs-rt/2024-01-15/2024-01-15T15:38:03+01:00.gtfsrt";
+    gtfs::load_realtime(&path, &t, &mapping,
+        |connection_id: usize, is_departure: bool, delay: i16, cancelled: bool| env.update(connection_id, is_departure, delay, cancelled)
+    );
+    let mut env = topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, &mut tt.order, 8300, 0.01, true);
 
     let o = 10000;
     let d = 20000;
     println!("querying...");
-    let station_labels = env.query(o, d, 7200, 8640);
+    let station_labels = env.query(o, d, 8100, 8640);
     let origin_deps = &station_labels[o];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];

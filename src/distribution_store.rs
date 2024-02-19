@@ -328,12 +328,10 @@ impl Store {
         if !key.from_is_departure {
             p *= d.feasible_probability;
         }
-        if key.from_prior_delay == (0,0) && key.to_prior_delay == (0,0) && !self.hot_reachability.is_empty()
-            && key.from_product_type < PRODUCT_TYPES_NUM
-            && key.to_product_type < PRODUCT_TYPES_NUM  {
+        if self.hot_reachability_eligible(&key) {
             let hot_idx = self.resolve_hot_reachability_index(key.diff, key.from_product_type, key.to_product_type, key.from_is_departure, from_prior_ttl, to_prior_ttl);
             self.hot_reachability[hot_idx] = p;
-        } 
+        }
         self.reachability.insert(key, p);
         p
     }
@@ -353,6 +351,13 @@ impl Store {
         + from_product_type as usize*self.hot_reachability_factors[4]
     }
 
+    #[inline(always)]
+    fn hot_reachability_eligible(&self, key: &ReachabilityKey) -> bool {
+        key.from_prior_delay == (0,0) && key.to_prior_delay == (0,0) && !self.hot_reachability.is_empty()
+        && key.from_product_type < PRODUCT_TYPES_NUM
+        && key.to_product_type < PRODUCT_TYPES_NUM
+    }
+
     #[inline]
     pub fn before_probability(&mut self, from: &connection::StopInfo, from_product_type: i16, from_is_departure: bool, to: &connection::StopInfo, to_product_type: i16, transfer_time: i32, now: types::Mtime) -> f32 {
         let diff = (to.projected()-from.projected()-transfer_time) as i16;
@@ -363,20 +368,11 @@ impl Store {
         }
         let from_ttl = from.projected()-now;
         let to_ttl = to.projected()-now;
-        if from.delay.is_none() && to.delay.is_none() && !self.hot_reachability.is_empty()
-            && from_product_type < PRODUCT_TYPES_NUM
-            && to_product_type < PRODUCT_TYPES_NUM {
-            let p = self.hot_reachability[self.resolve_hot_reachability_index(diff, from_product_type, to_product_type, from_is_departure, from_ttl, to_ttl)];
-            if p >= 0.0 {
-                self.hot_hits += 1;
-                return p
-            }
-        }
         let from_ttl_bucket = self.ttl_bucket(from_ttl);
         let to_ttl_bucket = self.ttl_bucket(to_ttl);
         let key = ReachabilityKey{
-            from_product_type,
-            to_product_type,
+            from_product_type: from_product_type,
+            to_product_type: to_product_type,
             from_prior_delay: self.delay_bucket(from.delay, from_ttl_bucket),
             to_prior_delay: self.delay_bucket(to.delay, to_ttl_bucket),
             from_prior_ttl: from_ttl_bucket,
@@ -384,6 +380,15 @@ impl Store {
             diff: diff,
             from_is_departure: from_is_departure
         };
+        if self.hot_reachability_eligible(&key) {
+            let p = self.hot_reachability[self.resolve_hot_reachability_index(diff, from_product_type, to_product_type, from_is_departure, from_ttl, to_ttl)];
+            if p >= 0.0 {
+                self.hot_hits += 1;
+                return p
+            }
+            self.misses += 1;
+            return self.calculate_before_probability(key, from_ttl, to_ttl);
+        }
         match self.reachability.get(&key) {
             Some(p) => {
                 self.hits += 1;
