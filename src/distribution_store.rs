@@ -46,7 +46,7 @@ pub struct Store {
     reachability: FxHashMap<ReachabilityKey, f32>,
     hot_reachability: Vec<f32>,
     hot_reachability_factors: [usize; 5],
-    min_delay_diff: i16,
+    pub min_delay_diff: i16,
     min_epsilon_delay_diff: i16,
     pub max_delay: i16,
     delay_range_size: usize,

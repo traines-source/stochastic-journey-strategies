@@ -77,8 +77,8 @@ pub struct ConnectionLabel {
 
 #[derive(Debug)]
 pub struct Instrumentation {
-    max_stack: usize,
-    max_trace: usize,
+    found: usize,
+    encounter_1: usize,
     unraveling_time: u128,
     before_prob_time: u128,
     unraveling_no: usize,
@@ -155,17 +155,26 @@ impl<'a, 'b> Environment<'b> {
                         streak = false;
                     }
                     found = true;
+                    instr.found += 1;
                     let dep = &self.connections[dep_idx];
                     let is_continuing = if c_label.footpath_i == footpaths.len() { c.is_consecutive(dep) } else { false };
                     if !is_continuing {
                         let transfer_time = if c_label.footpath_i == footpaths.len() { 1 } else { footpaths[c_label.footpath_i].duration as i32 };
                         let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
                         if reachable <= self.epsilon {
+                            if reachable == 0.0 {
+                                let diff = (dep.departure.projected()-c.arrival.projected()-transfer_time) as i16;
+                                if diff < self.store.borrow().min_delay_diff {
+                                    c_label.i = 0;
+                                    continue;
+                                }
+                            }
                             continue;
                         }
                     }
                     
                     if dep_visited == 1 {
+                        instr.encounter_1 += 1;
                         let trace_idx = stack.get_index_of(&dep_idx);
                         if trace_idx.is_some() {
                             let transfer_time = dep.departure.projected()-c.arrival.projected();
@@ -228,9 +237,6 @@ impl<'a, 'b> Environment<'b> {
                 let p = stack.pop().unwrap();
                 assert_eq!(p, c_idx);
             }
-            if stack.len() > instr.max_trace {
-                instr.max_trace = stack.len();
-            }
         }
         //println!("instr: {:?}", instr);
     }
@@ -242,7 +248,7 @@ impl<'a, 'b> Environment<'b> {
 
         let mut topo_idx = 0;
         
-        let mut instr = Instrumentation { max_stack: 0, max_trace: 0, unraveling_time: 0, before_prob_time: 0, unraveling_no: 0, cycle_sum_len: 0, cycle_max_len: 0, cycle_self_count: 0, encounter_2: 0, iterations: 0 };
+        let mut instr = Instrumentation { found: 0, encounter_1: 0, unraveling_time: 0, before_prob_time: 0, unraveling_no: 0, cycle_sum_len: 0, cycle_max_len: 0, cycle_self_count: 0, encounter_2: 0, iterations: 0 };
         let start = Instant::now();
         let mut labels: Vec<DfsConnectionLabel> = Vec::with_capacity(self.connections.len());
         for c in &*self.connections {
