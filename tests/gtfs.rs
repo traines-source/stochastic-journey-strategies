@@ -135,7 +135,9 @@ fn gtfs_with_rt() {
     let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.order, 0, 0.01, true);
     let path = format!("{}2023-11-01T16:00:02+01:00.gtfsrt", GTFSRT_PATH);
     gtfs::load_realtime(&path, &t, &tt.transport_and_day_to_connection_id,
-        |connection_id: usize, is_departure: bool, delay: i16, cancelled: bool| env.update(connection_id, is_departure, delay, cancelled)
+        |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
+            env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
+        }
     );
 
     let o = 10000;
@@ -167,11 +169,15 @@ fn load_only_gtfs_with_rt() {
     let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.order, 0, 0.01, true);
     let path = "/gtfs/swiss-gtfs-rt/2024-01-15/2024-01-15T01:32:01+01:00.gtfsrt";
     gtfs::load_realtime(&path, &t, &mapping,
-        |connection_id: usize, is_departure: bool, delay: i16, cancelled: bool| env.update(connection_id, is_departure, delay, cancelled)
+        |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
+            env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
+        }
     );
     let path = "/gtfs/swiss-gtfs-rt/2024-01-15/2024-01-15T15:38:03+01:00.gtfsrt";
     gtfs::load_realtime(&path, &t, &mapping,
-        |connection_id: usize, is_departure: bool, delay: i16, cancelled: bool| env.update(connection_id, is_departure, delay, cancelled)
+        |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
+            env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
+        }
     );
     let mut env = topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, &mut tt.order, 8300, 0.01, true);
 
@@ -199,7 +205,9 @@ fn gtfs_small() {
 
     let mut env = topocsa::prepare(&mut store, &mut connections, &stations, &mut order, 0, 0.01, false);
     gtfs::load_realtime("./tests/fixtures/2024-01-02T01_48_02+01_00.gtfsrt", &t, &map, 
-        |connection_id: usize, is_departure: bool, delay: i16, cancelled: bool| env.update(connection_id, is_departure, delay, cancelled)
+        |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
+            env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
+        }
     );
 
     let o = 11;

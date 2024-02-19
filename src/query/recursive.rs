@@ -129,7 +129,7 @@ impl<'a, 'b> Query<'a> {
             println!("finished iterating {} {} len: {} cycles: {} cut: {} direct: {} conns: {} reachs: {}", stations[c.to_idx].name, stations[c.to_idx].id, self.visited.len(), self.cycles_found, self.cut.len(), self.cycles_cut_direct, self.connections, self.store.reachability_len());
             self.visited.insert(c.to_idx, self.visited.len());
         }
-        if c.cancelled {
+        if !c.departure.in_out_allowed && !c.arrival.in_out_allowed {
             c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled)));
             self.connections += 1;
             return None;

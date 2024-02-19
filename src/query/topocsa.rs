@@ -285,14 +285,28 @@ impl<'a, 'b> Environment<'b> {
         println!("connections: {} topoidx: {} cut: {}", self.connections.len(), topo_idx, self.cut.len());
     }
 
-    pub fn update(&mut self, connection_id: usize, is_departure: bool, delay: i16, cancelled: bool) {
+    pub fn update(&mut self, connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>) {
         let c = &mut self.connections[self.order[connection_id]];
-        if cancelled {
-            c.cancelled = true;            
-        } else if is_departure {
-            c.departure.delay = Some(delay);
-        } else {
-            c.arrival.delay = Some(delay);
+        if location_idx.is_some() {
+            if is_departure {
+                c.from_idx = location_idx.unwrap();
+            } else {
+                c.to_idx = location_idx.unwrap();
+            }           
+        }
+        if in_out_allowed.is_some() {
+            if is_departure {
+                c.departure.in_out_allowed = in_out_allowed.unwrap();
+            } else {
+                c.arrival.in_out_allowed = in_out_allowed.unwrap();
+            }           
+        }
+        if delay.is_some() {
+            if is_departure {
+                c.departure.delay = delay;
+            } else {
+                c.arrival.delay = delay;
+            }
         }
     }
     pub fn query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime) -> Vec<Vec<ConnectionLabel>> {
@@ -318,9 +332,7 @@ impl<'a, 'b> Environment<'b> {
                 continue;
             }
             let c = &self.connections[i];
-            if c.arrival.projected()-max_delay > max_time // TODO topo dependency
-                || c.cancelled {
-                //c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
+            if c.arrival.projected()-max_delay > max_time { // TODO topo dependency
                 continue;
             }
             let stop_idx = match self.contraction {
@@ -339,6 +351,10 @@ impl<'a, 'b> Environment<'b> {
                 break;
             }
             let new_distribution = if stop_idx == dest_contr {
+                if !c.arrival.in_out_allowed {
+                    //c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
+                    continue;
+                }
                 let mut new_distribution = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now);
                 if c.to_idx != destination {
                     let contr = self.contraction.unwrap();
@@ -353,6 +369,10 @@ impl<'a, 'b> Environment<'b> {
                     for f in footpaths {
                         let mut footpath_dest_arr = distribution::Distribution::empty(0);
                         if f.target_location_idx == destination {
+                            if !c.arrival.in_out_allowed {
+                                //c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
+                                continue;
+                            }
                             footpath_dest_arr = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now).shift(f.duration as i32);
                         } else {
                             self.new_destination_arrival(f.target_location_idx, i, -1, 0, c.product_type, &c.arrival, f.duration as i32, &station_labels, &empty_vec, &mut footpath_dest_arr, &mut instr);   
@@ -506,7 +526,7 @@ impl<'a, 'b> Environment<'b> {
         for dep_label in departures.iter().rev() {
             let dep = &self.connections[dep_label.connection_idx];
             let mut p: f32 = dep_label.destination_arrival.feasible_probability*dep_label.prob_after;
-            if !c.is_consecutive(dep) {
+            if !c.is_consecutive(dep) { 
                 let transfer_time = contr.get_transfer_time(c.to_idx, dep.from_idx) as i32;
                 p *= store.before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
             }
@@ -525,12 +545,7 @@ impl<'a, 'b> Environment<'b> {
     }
 
     pub fn relevant_stations(&mut self, start_time: types::Mtime, origin_idx: usize, destination_idx: usize, station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, f32> {
-        let origin = connection::StopInfo {
-            scheduled: start_time,
-            delay: None,
-            scheduled_track: "".to_string(),
-            projected_track: "".to_string()
-        };
+        let origin = connection::StopInfo::new(start_time, None);
         println!("from {} {} to {} {}", origin_idx, self.stations[origin_idx].name, destination_idx, self.stations[destination_idx].name);
         let mut stack = vec![(self.order[self.stations[origin_idx].arrivals[0]], 1.0)];
         println!("starting: {}", self.stations[self.connections[stack[0].0].to_idx].name);

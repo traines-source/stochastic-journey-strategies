@@ -71,11 +71,14 @@ pub fn retrieve<'a, 'b>(t: &Timetable, stations: &'a mut Vec<connection::Station
         let r = t.get_route(c.route_idx);
         let from_idx = c.from_idx.try_into().unwrap();
         let to_idx = c.to_idx.try_into().unwrap();
-        connections.push(connection::Connection::new(
+        let mut conn = connection::Connection::new(
             id, c.route_idx.try_into().unwrap(), r.clasz.try_into().unwrap(), c.trip_id.try_into().unwrap(), false,
             from_idx, c.departure.try_into().unwrap(), None,
             to_idx, c.arrival.try_into().unwrap(), None
-        ));
+        );
+        conn.departure.in_out_allowed = c.in_allowed;
+        conn.arrival.in_out_allowed = c.out_allowed;
+        connections.push(conn);
         stations[from_idx].departures.push(id);
         stations[to_idx].arrivals.push(id);
     }
@@ -136,8 +139,8 @@ pub fn shorten_footpaths(stations: &mut Vec<connection::Station>) {
     }
 }
 
-pub fn load_realtime<F: FnMut(usize, bool, i16, bool)>(gtfsrt_path: &str, t: &Timetable, transport_and_day_to_connection_id: &HashMap<(usize, u16), usize>, mut callback: F) {
-    t.update_with_rt(gtfsrt_path, |e| callback(transport_and_day_to_connection_id[&(e.transport_idx, e.day_idx)]+e.stop_idx as usize, e.is_departure, e.delay, e.cancelled));
+pub fn load_realtime<F: FnMut(usize, bool, Option<usize>, Option<bool>, Option<i16>)>(gtfsrt_path: &str, t: &Timetable, transport_and_day_to_connection_id: &HashMap<(usize, u16), usize>, mut callback: F) {
+    t.update_with_rt(gtfsrt_path, |e| callback(transport_and_day_to_connection_id[&(e.transport_idx, e.day_idx)]+e.stop_idx as usize, e.is_departure, e.location_idx, e.in_out_allowed, e.delay));
 }
 
 pub fn load_gtfs_cache(cache_path: &str) -> GtfsTimetable {

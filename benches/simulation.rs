@@ -109,8 +109,8 @@ fn manual_test() -> Result<i32, Box<dyn std::error::Error>> {
             &path,
             &t,
             &tt.transport_and_day_to_connection_id,
-            |connection_id: usize, is_departure: bool, delay: i16, cancelled: bool| {
-                env.update(connection_id, is_departure, delay, cancelled)
+            |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
+                env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
             },
         );
         let station_labels = env.query(pair.0, pair.1, start_time, start_time+1440);
@@ -283,8 +283,8 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
             &path,
             &t,
             &tt.transport_and_day_to_connection_id,
-            |connection_id: usize, is_departure: bool, delay: i16, cancelled: bool| {
-                env.update(connection_id, is_departure, delay, cancelled)
+            |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
+                env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
             },
         );
         let mut do_continue = false;
@@ -496,7 +496,7 @@ fn get_stoch_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, stoch_act
             if l.destination_arrival.mean == 0.0 {
                 panic!("weirdly 0");
             }
-            if l.destination_arrival.feasible_probability < 0.5 {
+            if l.destination_arrival.feasible_probability < 0.5 || !tt.connections[l.connection_idx].departure.in_out_allowed {
                 return None // TODO properly use transfer strategy?
             }
             Some(Alternative{

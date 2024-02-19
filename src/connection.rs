@@ -69,7 +69,6 @@ pub struct Connection {
 	pub departure: StopInfo,
 	pub arrival: StopInfo,
 	pub message: String,
-	pub cancelled: bool,
 	pub product_type: i16,
 	pub destination_arrival: RefCell<Option<distribution::Distribution>>	
 }
@@ -87,17 +86,18 @@ impl<'a> Connection {
 			departure: StopInfo {
 				scheduled: from_scheduled,
 				delay: from_delay,
+				in_out_allowed: !cancelled,
 				scheduled_track: "".to_string(),
 				projected_track: "".to_string()
 			},
 			arrival: StopInfo {
 				scheduled: to_scheduled,
 				delay: to_delay,
+				in_out_allowed: !cancelled,
 				scheduled_track: "".to_string(),
 				projected_track: "".to_string()
 			},
 			message: "".to_string(),
-			cancelled: cancelled,
 			product_type: product_type,
 			destination_arrival: RefCell::new(None)
 		}	
@@ -113,13 +113,14 @@ impl<'a> Connection {
 pub struct StopInfo {
 	pub scheduled: types::Mtime,
 	pub delay: Option<i16>,
+	pub in_out_allowed: bool,
 	pub scheduled_track: String,
 	pub projected_track: String
 }
 
 impl StopInfo {
 	pub fn new(scheduled: types::Mtime, delay: Option<i16>) -> StopInfo {
-		StopInfo { scheduled: scheduled, delay: delay, scheduled_track: "".to_owned(), projected_track: "".to_owned() }
+		StopInfo { scheduled: scheduled, delay: delay, in_out_allowed: true, scheduled_track: "".to_owned(), projected_track: "".to_owned() }
 	}
 
 	#[inline(always)]
@@ -138,22 +139,12 @@ mod tests {
 
     #[test]
     fn projected_delay() {
-        let s = StopInfo{
-			scheduled: 5,
-			delay: Some(3),
-			scheduled_track: "".to_string(),
-			projected_track: "".to_string()
-		};
+        let s = StopInfo::new(5, Some(3));
 		assert_eq!(s.projected(), 8);
     }
 	#[test]
 	fn projected_wo_delay() {
-        let s = StopInfo{
-			scheduled: 5,
-			delay: None,
-			scheduled_track: "".to_string(),
-			projected_track: "".to_string()
-		};
+		let s = StopInfo::new(5, None);
 		assert_eq!(s.projected(), 5);
     }
 }

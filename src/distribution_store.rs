@@ -361,7 +361,7 @@ impl Store {
     #[inline]
     pub fn before_probability(&mut self, from: &connection::StopInfo, from_product_type: i16, from_is_departure: bool, to: &connection::StopInfo, to_product_type: i16, transfer_time: i32, now: types::Mtime) -> f32 {
         let diff = (to.projected()-from.projected()-transfer_time) as i16;
-        if diff < self.min_delay_diff {
+        if diff < self.min_delay_diff || !from_is_departure && (!from.in_out_allowed || !to.in_out_allowed) {
             return 0.0;
         } else if diff > self.min_delay_diff.abs() {
             return 1.0;
@@ -447,12 +447,7 @@ mod tests {
     #[test]
     fn distribution_with_delay() {
         let s = setup();
-        let d = s.delay_distribution(&connection::StopInfo{
-            scheduled: 55,
-            delay: Some(7),
-            scheduled_track: "".to_string(),
-            projected_track: "".to_string()
-        }, true, 1, 21);
+        let d = s.delay_distribution(&connection::StopInfo::new(55, Some(7)), true, 1, 21);
         assert_eq!(d.start, 60);
         assert_eq!(d.mean, 61.0);
         assert_eq!(d.histogram.len(), 3);
@@ -462,12 +457,7 @@ mod tests {
     fn distribution_with_high_delay() {
         let s = setup();
         assert_eq!(s.delay_upper, (5,10));
-        let d = s.delay_distribution(&connection::StopInfo{
-            scheduled: 55,
-            delay: Some(100),
-            scheduled_track: "".to_string(),
-            projected_track: "".to_string()
-        }, true, 1, 120);
+        let d = s.delay_distribution(&connection::StopInfo::new(55, Some(100)), true, 1, 120);
         assert_eq!(d.start, 153);
         assert_eq!(d.mean, 154.0);
         assert_eq!(d.histogram.len(), 3);
@@ -476,12 +466,7 @@ mod tests {
     #[test]
     fn distribution_with_nonexistant_delay() {
         let s = setup();
-        let d = s.delay_distribution(&connection::StopInfo{
-            scheduled: 55,
-            delay: Some(1),
-            scheduled_track: "".to_string(),
-            projected_track: "".to_string()
-        }, true, 1, 15);
+        let d = s.delay_distribution(&connection::StopInfo::new(55, Some(1)), true, 1, 15);
         assert_eq!(d.start, 53);
         assert_eq!(d.mean, 54.5);
         assert_eq!(d.histogram.len(), 4);
@@ -490,12 +475,7 @@ mod tests {
     #[test]
     fn distribution_with_no_delay() {
         let s = setup();
-        let d = s.delay_distribution(&connection::StopInfo{
-            scheduled: 55,
-            delay: None,
-            scheduled_track: "".to_string(),
-            projected_track: "".to_string()
-        }, true, 1, 14);
+        let d = s.delay_distribution(&connection::StopInfo::new(55, None), true, 1, 14);
         assert_eq!(d.start, 52);
         assert_eq!(d.mean, 53.5);
         assert_eq!(d.histogram.len(), 4);
@@ -504,12 +484,7 @@ mod tests {
     #[test]
     fn distribution_with_nonexistant_product() {
         let s = setup();
-        let d = s.delay_distribution(&connection::StopInfo{
-            scheduled: 55,
-            delay: Some(1),
-            scheduled_track: "".to_string(),
-            projected_track: "".to_string()
-        }, true, 555, 15);
+        let d = s.delay_distribution(&connection::StopInfo::new(55, Some(1)), true, 555, 15);
         assert_eq!(d.start, 56);
         assert_eq!(d.mean, 56.0);
         assert_eq!(d.histogram.len(), 1);
@@ -553,12 +528,7 @@ mod tests {
         assert_eq!(s.delay_upper, (91,91));
         //assert_eq!(s.delay_buckets.len(), 106);
         assert_eq!(s.ttl_buckets.len(), 380);
-        let d = s.delay_distribution(&connection::StopInfo{
-            scheduled: 55,
-            delay: Some(65),
-            scheduled_track: "".to_string(),
-            projected_track: "".to_string()
-        }, true, 4, 15);
+        let d = s.delay_distribution(&connection::StopInfo::new(55, Some(65)), true, 4, 15);
         assert_eq!(d.start, 45);
         assert_float_absolute_eq!(d.mean, 133.21875);
         assert_eq!(d.histogram.len(), 136);

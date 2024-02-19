@@ -580,16 +580,23 @@ fn with_cancelled() {
     let c1 = connection::Connection::new(1, 0, 1, 2, true,
         1, 20, None,
         2, 30, None);
-    
-    let c2 = connection::Connection::new(2, 0, 1, 3, false,
+
+    let mut c2 = connection::Connection::new(2, 0, 1, 1, false,
         1, 30, None,
         2, 40, Some(1));
+    c2.departure.in_out_allowed = false;
 
-    let mut connections = vec![c0, c1, c2];
+    let mut c3 = connection::Connection::new(3, 0, 1, 3, false,
+        1, 25, None,
+        2, 35, Some(1));
+    c3.departure.in_out_allowed = false;
+
+    let mut connections = vec![c0, c1, c2, c3];
     
     station0.add_departure(0);
     station1.add_departure(1);
     station1.add_departure(2);
+    station1.add_departure(3);
     let stations = vec![station0, station1, station2];
     
     store.insert_from_distribution(0..5, 0..15, false, 1, distribution::Distribution::uniform(-5, 10));
@@ -610,4 +617,44 @@ fn with_cancelled() {
     let binding = c1.destination_arrival.borrow();
     let a = binding.as_ref().unwrap();
     assert_eq!(a.exists(), false);
+}
+
+
+#[test]
+fn with_out_disallowed() {
+    let (mut store, route, mut station0, mut station1, station2) = setup();
+
+    let mut c0 = connection::Connection::new(0, 0, 1, 1, false,
+        0, 10, None,
+        1, 15, Some(3));
+    c0.arrival.in_out_allowed = false;
+    
+    let c1 = connection::Connection::new(1, 0, 1, 2, false,
+        1, 20, None,
+        2, 30, None);
+
+    let mut c2 = connection::Connection::new(2, 0, 1, 1, false,
+        1, 30, None,
+        2, 40, Some(1));
+    c2.departure.in_out_allowed = false;
+
+    let mut connections = vec![c0, c1, c2];
+    
+    station0.add_departure(0);
+    station1.add_departure(1);
+    station1.add_departure(2);
+    let stations = vec![station0, station1, station2];
+    
+    store.insert_from_distribution(0..5, 0..15, false, 1, distribution::Distribution::uniform(-5, 10));
+
+    stost::query::query(&mut store, &mut connections, &stations, 0, 2, 0, 100, 5);
+    
+    let c0 = connections.iter().filter(|c| c.id == 0).last().unwrap();
+    
+    let binding = c0.destination_arrival.borrow();
+    let a = binding.as_ref().unwrap();
+    assert_eq!(a.start, 41);
+    assert_float_relative_eq!(a.mean, 41.0);
+    assert_float_relative_eq!(a.feasible_probability, 1.0);
+    assert_eq!(a.histogram.len(), 1);
 }
