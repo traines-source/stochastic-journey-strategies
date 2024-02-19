@@ -336,7 +336,6 @@ impl<'a, 'b> Environment<'b> {
                 break;
             }
             let new_distribution = if stop_idx == dest_contr {
-                // TODO cancelled prob twice??
                 let mut new_distribution = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now);
                 if c.to_idx != destination {
                     let contr = self.contraction.unwrap();
@@ -351,7 +350,6 @@ impl<'a, 'b> Environment<'b> {
                     for f in footpaths {
                         let mut footpath_dest_arr = distribution::Distribution::empty(0);
                         if f.target_location_idx == destination {
-                            // TODO cancelled prob twice??
                             footpath_dest_arr = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now).shift(f.duration as i32);
                         } else {
                             self.new_destination_arrival(f.target_location_idx, i, -1, 0, c.product_type, &c.arrival, f.duration as i32, &station_labels, &empty_vec, &mut footpath_dest_arr, &mut instr);   

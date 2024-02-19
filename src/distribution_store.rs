@@ -159,7 +159,10 @@ impl Store {
             //println!("Skipping {:?} {:?}", delay_key, latest_sample_delays);
             return None;
         }
-        let d = distribution::Distribution::from_buckets(latest_sample_delays, total_feasible_sample_count);
+        let mut d = distribution::Distribution::from_buckets(latest_sample_delays, total_feasible_sample_count);
+        if !delay_key.is_departure {
+            d.feasible_probability = 1.0;
+        }
         self.insert_delay_key(delay_key.clone(), d);
         Some(self.raw_delay_distribution_by_key(delay_key))
     }
