@@ -14,7 +14,7 @@ use crate::connection;
 use crate::gtfs::StationContraction;
 use crate::types;
 
-pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], cut: &'b mut FxHashSet<(usize, usize)>, order: &'b mut Vec<usize>, now: types::Mtime, epsilon_reachable: f32, epsilon_feasible: f32, mean_only: bool, domination: bool) -> Environment<'b> {
+pub fn new<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon_reachable: f32, epsilon_feasible: f32, mean_only: bool, domination: bool) -> Environment<'a> {
     if order.is_empty() {
         order.extend(0..connections.len());
     }
@@ -33,14 +33,14 @@ pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mu
     }
 }
 
-pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], cut: &'b mut FxHashSet<(usize, usize)>, order: &'b mut Vec<usize>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
+pub fn prepare<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'a> {
     let mut e = new(store, connections, stations, cut, order, now, epsilon, epsilon, mean_only, false);    
     println!("Starting topocsa...");
     e.preprocess();
     e
 }
 
-pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], cut: &'b mut FxHashSet<(usize, usize)>, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: f32, mean_only: bool) {
+pub fn prepare_and_query<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: f32, mean_only: bool) {
     let mut order = Vec::with_capacity(connections.len());
     let mut e = prepare(store, connections, stations, cut, &mut order, now, epsilon, mean_only);
     e.query(origin, destination, start_time, max_time);
@@ -49,18 +49,18 @@ pub fn prepare_and_query<'a, 'b>(store: &'b mut distribution_store::Store, conne
 }
 
 #[derive(Debug)]
-pub struct Environment<'b> {
-    store: RefCell<&'b mut distribution_store::Store>,
-    connections: &'b mut Vec<connection::Connection>,
-    stations: &'b [connection::Station],
+pub struct Environment<'a> {
+    store: RefCell<&'a mut distribution_store::Store>,
+    connections: &'a mut Vec<connection::Connection>,
+    stations: &'a [connection::Station],
     now: types::Mtime,
     epsilon_reachable: f32,
     epsilon_feasible: f32,
     mean_only: bool,
     domination: bool,
-    cut: &'b mut FxHashSet<(usize, usize)>,
-    order: &'b mut Vec<usize>,
-    contraction: Option<&'b StationContraction>
+    cut: &'a mut FxHashSet<(usize, usize)>,
+    order: &'a mut Vec<usize>,
+    contraction: Option<&'a StationContraction>
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -98,9 +98,9 @@ struct CsaInstrumentation {
     infeas_iter: usize,
 }
 
-impl<'a, 'b> Environment<'b> {
+impl<'a> Environment<'a> {
 
-    pub fn set_station_contraction(&mut self, contr: &'b StationContraction) {
+    pub fn set_station_contraction(&mut self, contr: &'a StationContraction) {
         self.contraction = Some(contr);
     }
 
