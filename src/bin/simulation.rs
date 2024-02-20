@@ -184,16 +184,7 @@ fn run_simulation(config_file: &str) -> Result<i32, Box<dyn std::error::Error>> 
         if current_time < conf.start_mams[0]+reference_offset {
             continue;
         }
-        let mut env = new_env(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &conf, current_time);
-        println!("Loading GTFSRT {}", path);
-        gtfs::load_realtime(
-            &path,
-            t.as_ref().unwrap(),
-            &tt.transport_and_day_to_connection_id,
-            |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
-                env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
-            },
-        );
+        load_gtfsrt(&mut store, &mut tt, &conf, current_time, path, &t);
         let mut timing_preprocessing = 0;
         let mut do_continue = false;
         for pair in &stop_pairs {
@@ -211,13 +202,17 @@ fn run_simulation(config_file: &str) -> Result<i32, Box<dyn std::error::Error>> 
                     println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch.get(pair.0).is_some_and(|s| s.len() > 0));
                 } else {
                     det_actions.insert(*pair, min_journey.unwrap());
-                    let mut relevant_stations = env.relevant_stations(pair.2, pair.0, pair.1, &stoch);
-                    println!("Enriching relevant stations...");
-                    for l in &det_actions[pair].legs {
-                        println!("{} {} {:?}", l.from_location_idx, tt.stations[l.from_location_idx].name, relevant_stations.insert(l.from_location_idx, 1000.0));
-                        println!("{} {} {:?}", l.to_location_idx, tt.stations[l.to_location_idx].name, relevant_stations.insert(l.to_location_idx, 1000.0));
-                    }
-                    let relevant_pairs = env.relevant_connection_pairs(relevant_stations);
+                    let relevant_pairs = if conf.stoch_simulation == "adaptive_online_relevant" {
+                        let mut relevant_stations = env.relevant_stations(pair.2, pair.0, pair.1, &stoch);
+                        println!("Enriching relevant stations...");
+                        for l in &det_actions[pair].legs {
+                            println!("{} {} {:?}", l.from_location_idx, tt.stations[l.from_location_idx].name, relevant_stations.insert(l.from_location_idx, 1000.0));
+                            println!("{} {} {:?}", l.to_location_idx, tt.stations[l.to_location_idx].name, relevant_stations.insert(l.to_location_idx, 1000.0));
+                        }
+                        env.relevant_connection_pairs(relevant_stations)
+                    } else {
+                        HashMap::new()
+                    };
                     stoch_actions.insert(*pair, StochActions{
                         station_labels: stoch,
                         connection_pairs_reverse: relevant_pairs.iter().map(|(k,v)| (*v,*k)).collect(),
@@ -269,13 +264,19 @@ fn run_simulation(config_file: &str) -> Result<i32, Box<dyn std::error::Error>> 
                     }
                 }
             }
-            if conf.stoch_simulation == "adaptive_online_relevant" {
-                println!("relevant topocsa...");
-                let mut env = new_env(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &conf, current_time);
-                preprocess_if_necessary(&mut env, &mut timing_preprocessing);
-                let stoch = env.pair_query(pair.0, pair.1, pair.2, pair.2+conf.query_window, &stoch_actions[pair].connection_pairs);
-                stoch_actions.get_mut(pair).unwrap().station_labels = stoch;
-                println!("relevant topocsa done.");
+            let arrival_time = get_arrival_time(&stoch_log[&pair], pair.2, &tt.connections);
+            if current_time >= arrival_time && results[&pair].stoch.actual_dest_arrival.is_none() {           
+                if conf.stoch_simulation == "adaptive_online_relevant" {
+                    let mut env = new_env(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &conf, current_time);
+                    preprocess_if_necessary(&mut env, &mut timing_preprocessing);
+                    let stoch = env.pair_query(pair.0, pair.1, pair.2, pair.2+conf.query_window, &stoch_actions[pair].connection_pairs);
+                    stoch_actions.get_mut(pair).unwrap().station_labels = stoch;
+                } else if conf.stoch_simulation == "adaptive_online" {
+                    let mut env = new_env(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &conf, current_time);
+                    preprocess_if_necessary(&mut env, &mut timing_preprocessing);
+                    let stoch = env.query(pair.0, pair.1, pair.2, pair.2+conf.query_window);
+                    stoch_actions.get_mut(pair).unwrap().station_labels = stoch;
+                }
             }
             let mut repeat = true;
             while repeat {
@@ -299,6 +300,7 @@ fn run_simulation(config_file: &str) -> Result<i32, Box<dyn std::error::Error>> 
                     }
                 }
             }
+            clear_stoch_actions_if_necessary(stoch_actions.get_mut(pair).unwrap(), &conf);
             if !results[pair].is_completed() {
                 do_continue = true;
             }
@@ -307,15 +309,29 @@ fn run_simulation(config_file: &str) -> Result<i32, Box<dyn std::error::Error>> 
             println!("All simulations completed for the day. Stopping at current_time {}.", current_time);
             write_results(simulation_run_at, &conf, results, day_idx);
             results = HashMap::new();
+            stop_pairs.clear();
             day_idx += 1;
+            next_start_mam_idx = 0;
             if day_idx >= conf.num_days {
                 break;
             }
-            stop_pairs.clear();
-            next_start_mam_idx = 0;
         }
     }
     Ok(0)
+}
+
+
+fn load_gtfsrt(store: &mut distribution_store::Store, tt: &mut GtfsTimetable, conf: &SimulationConfig, current_time: i32, path: String, t: &Option<Timetable>) {
+    let mut env = new_env(store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, conf, current_time);
+    println!("Loading GTFSRT {}", path);
+    gtfs::load_realtime(
+        &path,
+        t.as_ref().unwrap(),
+        &tt.transport_and_day_to_connection_id,
+        |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
+            env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
+        },
+    );
 }
 
 fn preprocess_if_necessary(env: &mut topocsa::Environment, timing_preprocessing: &mut u128) {
@@ -455,7 +471,7 @@ fn get_stoch_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, stoch_act
             if l.destination_arrival.mean == 0.0 {
                 panic!("weirdly 0");
             }
-            if l.destination_arrival.feasible_probability < 0.5 || !tt.connections[l.connection_idx].departure.in_out_allowed {
+            if l.destination_arrival.feasible_probability < 0.5 {
                 return None // TODO properly use transfer strategy?
             }
             Some(Alternative{
@@ -470,19 +486,20 @@ fn get_stoch_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, stoch_act
     alternatives
 }
 
+fn clear_stoch_actions_if_necessary(stoch_actions: &mut StochActions, conf: &SimulationConfig) {
+    if conf.stoch_simulation == "adaptive_online_relevant" || conf.stoch_simulation == "adaptive_online" {
+        stoch_actions.station_labels.clear();
+    }
+} 
+
 fn step(current_time: i32, start_time: i32, current_stop_idx: usize, alternatives: &[Alternative], log: &mut Vec<LogEntry>, result: &mut SimulationResult, connections: &[connection::Connection], stations: &[connection::Station]) -> bool {
-    let arrival_time = if log.len() == 0 {
-        start_time
-    } else {
-        let c = &connections[log.last().unwrap().conn_idx];
-        std::cmp::max(std::cmp::max(c.arrival.projected(), c.departure.projected()), log.last().unwrap().arrival_time_lower_bound) // TODO enforce while gtfsrt updating?
-    };
+    let arrival_time = get_arrival_time(log, start_time, connections);
     let mut alternatives_still_available = false;
     if current_time >= arrival_time {
         for alt in alternatives {
             let next_c = &connections[alt.from_conn_idx];
             let transfer_time = get_transfer_time(current_stop_idx, next_c.from_idx, log.is_empty(), stations); 
-            if next_c.departure.projected() >= arrival_time+transfer_time || (log.len() > 0 && connections[log.last().unwrap().conn_idx].is_consecutive(next_c)) {    
+            if can_take(next_c, arrival_time, transfer_time, log, connections) {    
                 if current_time >= next_c.departure.projected() { // TODO require not too long ago?
                     if log.len() > 0 {
                         update_connections_taken_from_last_log(result, log, connections, stations);
@@ -514,6 +531,31 @@ fn step(current_time: i32, start_time: i32, current_stop_idx: usize, alternative
         }
     }
     return false;
+}
+
+fn get_arrival_time(log: &Vec<LogEntry>, start_time: i32, connections: &[connection::Connection]) -> i32 {
+    if log.len() == 0 {
+        start_time
+    } else {
+        let c = &connections[log.last().unwrap().conn_idx];
+        std::cmp::max(std::cmp::max(c.arrival.projected(), c.departure.projected()), log.last().unwrap().arrival_time_lower_bound) // TODO enforce while gtfsrt updating?
+    }
+}
+
+fn can_take(next_c: &connection::Connection, arrival_time: i32, transfer_time: i32, log: &mut Vec<LogEntry>, connections: &[connection::Connection]) -> bool {
+    if log.len() > 0 {
+        let c = &connections[log.last().unwrap().conn_idx];
+        if c.is_consecutive(next_c) {
+            return true;
+        }
+        if !c.arrival.in_out_allowed {
+            return false;
+        }
+    }
+    if !next_c.departure.in_out_allowed {
+        return false;
+    }
+    next_c.departure.projected() >= arrival_time+transfer_time
 }
 
 fn update_connections_taken_from_last_log(result: &mut SimulationResult, log: &[LogEntry], connections: &[connection::Connection], stations: &[connection::Station]) {
