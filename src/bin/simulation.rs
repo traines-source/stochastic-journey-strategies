@@ -233,7 +233,7 @@ struct StochActions {
 }
 
 fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
-    let conf = load_config("./benches/config/config.json");
+    let conf = load_config("./simulation/config/config.json");
 
     let mut store = distribution_store::Store::new();
     store.load_distributions(&conf.distributions_path);
@@ -414,7 +414,7 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
             break;
         }
     }
-    let filename = format!("./benches/runs/{}.{}.{}.{}.ign.json", simulation_run_at, conf.det_simulation, conf.stoch_simulation, conf.transfer);
+    let filename = format!("./simulation/runs/{}.{}.{}.{}.ign.json", simulation_run_at, conf.det_simulation, conf.stoch_simulation, conf.transfer);
     let run = SimulationRun {
         simulation_run_at: simulation_run_at,
         comment: "".to_string(),
@@ -614,7 +614,7 @@ fn summary(values: Vec<f32>, name: &str) {
 }
 
 pub fn analyze_simulation() {
-    let run = load_simulation_run("./benches/runs/1706891316.priori_online_broken.adaptive_online_relevant.short.ign.json");
+    let run = load_simulation_run("./simulation/runs/1706891316.priori_online_broken.adaptive_online_relevant.short.ign.json");
     let mut a = SimulationAnalysis {
         det_infeasible: 0,
         det_broken: 0,
