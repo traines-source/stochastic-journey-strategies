@@ -14,7 +14,7 @@ use crate::connection;
 use crate::gtfs::StationContraction;
 use crate::types;
 
-pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], cut: FxHashSet<(usize, usize)>, order: &'b mut Vec<usize>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
+pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], cut: FxHashSet<(usize, usize)>, order: &'b mut Vec<usize>, now: types::Mtime, epsilon_reachable: f32, epsilon_feasible: f32, mean_only: bool, domination: bool) -> Environment<'b> {
     if order.is_empty() {
         order.extend(0..connections.len());
     }
@@ -22,18 +22,19 @@ pub fn new<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mu
         store: RefCell::new(store),
         connections: connections,
         stations: stations,
-        now: now,
-        epsilon: epsilon,
-        mean_only: mean_only,
-        domination: false,
-        cut: cut,
-        order: order,
+        now,
+        epsilon_reachable,
+        epsilon_feasible,
+        mean_only,
+        domination,
+        cut,
+        order,
         contraction: None
     }
 }
 
 pub fn prepare<'a, 'b>(store: &'b mut distribution_store::Store, connections: &'b mut Vec<connection::Connection>, stations: &'b [connection::Station], order: &'b mut Vec<usize>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'b> {
-    let mut e = new(store, connections, stations, FxHashSet::default(), order, now, epsilon, mean_only);    
+    let mut e = new(store, connections, stations, FxHashSet::default(), order, now, epsilon, epsilon, mean_only, false);    
     println!("Starting topocsa...");
     e.preprocess();
     e
@@ -54,7 +55,8 @@ pub struct Environment<'b> {
     connections: &'b mut Vec<connection::Connection>,
     stations: &'b [connection::Station],
     now: types::Mtime,
-    epsilon: f32,
+    epsilon_reachable: f32,
+    epsilon_feasible: f32,
     mean_only: bool,
     domination: bool,
     pub cut: FxHashSet<(usize, usize)>,
@@ -161,7 +163,7 @@ impl<'a, 'b> Environment<'b> {
                     if !is_continuing {
                         let transfer_time = if c_label.footpath_i == footpaths.len() { self.stations[stop_idx].transfer_time } else { footpaths[c_label.footpath_i].duration } as i32;
                         let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
-                        if reachable <= self.epsilon {
+                        if reachable <= self.epsilon_reachable {
                             if reachable == 0.0 {
                                 let diff = (dep.departure.projected()-c.arrival.projected()-transfer_time) as i16;
                                 if diff < self.store.borrow().min_delay_diff {
@@ -196,7 +198,7 @@ impl<'a, 'b> Environment<'b> {
                             instr.cycle_max_len = stack.len()-i;
                         }
                         if min_i == stack.len() {
-                            if self.epsilon == 0.0 {
+                            if self.epsilon_reachable == 0.0 {
                                 self.cut.insert((c.id, dep.id));
                             }
                             if c.id == dep.id {
@@ -204,7 +206,7 @@ impl<'a, 'b> Environment<'b> {
                             }
                             continue;
                         }
-                        if self.epsilon == 0.0 {
+                        if self.epsilon_reachable == 0.0 {
                             let cut_predecessor = stack[min_i-1];
                             let cut_successor = stack[min_i];
                             self.cut.insert((cut_predecessor, cut_successor));
@@ -401,7 +403,7 @@ impl<'a, 'b> Environment<'b> {
             };
             let departures = station_labels.get_mut(departure_station_idx).unwrap();
             //departure_conn.destination_arrival.replace(Some(new_distribution.clone())); // TODO remove
-            if new_distribution.feasible_probability > self.epsilon {
+            if new_distribution.feasible_probability > self.epsilon_feasible {
                 let mut j = departures.len() as i32-1;
                 while j >= 0 {
                     if new_distribution.mean < departures[j as usize].destination_arrival.mean {
@@ -504,7 +506,7 @@ impl<'a, 'b> Environment<'b> {
                 remaining_probability = (1.0-p).clamp(0.0,1.0)*remaining_probability;
                 last_departure = departure;
                 last_product_type = departure_product_type;
-                if remaining_probability <= self.epsilon {
+                if remaining_probability <= self.epsilon_feasible {
                     break;
                 }
             }
@@ -536,7 +538,7 @@ impl<'a, 'b> Environment<'b> {
             if p > 0.0 {
                 new_distribution.add_with(&dep_label.destination_arrival, p*remaining_probability, self.mean_only);
                 remaining_probability = (1.0-p)*remaining_probability;
-                if remaining_probability <= self.epsilon {
+                if remaining_probability <= self.epsilon_feasible {
                     break;
                 }
             }
@@ -579,7 +581,7 @@ impl<'a, 'b> Environment<'b> {
             }
             let mut is = vec![0; transfer_times.len()];
             let mut remaining_probability = 1.0;
-            while remaining_probability > self.epsilon {
+            while remaining_probability > self.epsilon_feasible {
                 let mut min_mean = 1440.0*100.0;
                 let mut min_k = 0;
                 let mut found = false;
@@ -609,7 +611,7 @@ impl<'a, 'b> Environment<'b> {
                 } else if p > 0.0 && !c.is_consecutive(dep) {
                     p *= self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_times[min_k], self.now);
                 }
-                if p <= self.epsilon {
+                if p <= self.epsilon_feasible {
                     continue;
                 }
                 let dep_prob = p*remaining_probability*conn_with_prob.1;
@@ -626,7 +628,7 @@ impl<'a, 'b> Environment<'b> {
 
                     }
                 }
-                if dep_prob > self.epsilon*self.epsilon {
+                if dep_prob > self.epsilon_reachable*self.epsilon_reachable {
                     stack.push((dep_label.connection_idx, dep_prob));
                 }
                 remaining_probability = (1.0-p).clamp(0.0,1.0)*remaining_probability;

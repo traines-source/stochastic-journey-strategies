@@ -1,3 +1,4 @@
+use std::env;
 use glob::glob;
 use motis_nigiri::Timetable;
 use ndarray_stats::Quantile1dExt;
@@ -31,6 +32,9 @@ struct SimulationConfig {
     det_simulation: String,
     stoch_simulation: String,
     transfer: String,
+    epsilon_reachable: f32,
+    epsilon_feasible: f32,
+    transfer_strategy: String,
     samples: usize
 }
 
@@ -101,8 +105,10 @@ fn manual_test() -> Result<i32, Box<dyn std::error::Error>> {
             tt.cut.clone(),
             &mut tt.order,
             start_time,
-            0.01,
+            conf.epsilon_reachable,
+            conf.epsilon_feasible,
             true,
+            conf.transfer_strategy == "domination"
         );
         gtfs::load_realtime(
             &path,
@@ -232,8 +238,8 @@ struct StochActions {
     connection_pairs_reverse: HashMap<usize, usize>
 }
 
-fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
-    let conf = load_config("./simulation/config/config.json");
+fn run_simulation(config_file: &str) -> Result<i32, Box<dyn std::error::Error>> {
+    let conf = load_config(config_file);
 
     let mut store = distribution_store::Store::new();
     store.load_distributions(&conf.distributions_path);
@@ -274,8 +280,10 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
             tt.cut.clone(),
             &mut tt.order,
             start_time,
-            0.01,
+            conf.epsilon_reachable,
+            conf.epsilon_feasible,
             true,
+            conf.transfer_strategy == "domination"
         );
         println!("Loading {}", path);
         gtfs::load_realtime(
@@ -297,8 +305,10 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                     tt.cut.clone(),
                     &mut tt.order,
                     start_time,
-                    0.01,
+                    conf.epsilon_reachable,
+                    conf.epsilon_feasible,
                     true,
+                    conf.transfer_strategy == "domination"
                 );
                 let start = Instant::now();
                 let stoch = env.query(pair.0, pair.1, start_time, start_time+1440);
@@ -375,8 +385,10 @@ fn run_simulation() -> Result<i32, Box<dyn std::error::Error>> {
                     tt.cut.clone(),
                     &mut tt.order,
                     current_time,
-                    0.01,
+                    conf.epsilon_reachable,
+                    conf.epsilon_feasible,
                     true,
+                    conf.transfer_strategy == "domination"
                 );
                 let stoch = env.pair_query(pair.0, pair.1, start_time, start_time+1440, &stoch_actions[pair].connection_pairs);
                 stoch_actions.get_mut(pair).unwrap().station_labels = stoch;
@@ -613,8 +625,8 @@ fn summary(values: Vec<f32>, name: &str) {
     println!("{}: mean {} stddev {} min {} 5% {} max {} 95% {}", name, arr.mean().unwrap(), arr.std(1.0), arr.min().unwrap(), q5, arr.max().unwrap(), q95);
 }
 
-pub fn analyze_simulation() {
-    let run = load_simulation_run("./simulation/runs/1706891316.priori_online_broken.adaptive_online_relevant.short.ign.json");
+pub fn analyze_simulation(run_file: &str) {
+    let run = load_simulation_run(run_file);
     let mut a = SimulationAnalysis {
         det_infeasible: 0,
         det_broken: 0,
@@ -666,7 +678,19 @@ pub fn analyze_simulation() {
     summary(a.stoch_actual_travel_time, "stoch_actual_travel_time");
 }
 
-pub fn main() {
-    //run_simulation().unwrap();
-    analyze_simulation();
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 3 {
+        println!("Usage: simulation (run|analyze) FILE");
+        return;
+    }
+    match args[1].as_str() {
+        "run" => {
+            run_simulation(&args[2]).unwrap();
+        },
+        "analyze" => {
+            analyze_simulation(&args[2]);
+        },
+        _ => println!("Usage: simulation (run|analyze) FILE") 
+    };
 }
