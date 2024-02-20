@@ -1,4 +1,3 @@
-use criterion::{black_box, criterion_group, Criterion};
 use glob::glob;
 use motis_nigiri::Timetable;
 use ndarray_stats::Quantile1dExt;
@@ -667,15 +666,7 @@ pub fn analyze_simulation() {
     summary(a.stoch_actual_travel_time, "stoch_actual_travel_time");
 }
 
-#[ignore]
-pub fn simulation(c: &mut Criterion) {
+pub fn main() {
     //run_simulation().unwrap();
     analyze_simulation();
-    //manual_test().unwrap();
-    /*let mut group = c.benchmark_group("once");
-    group.sample_size(10); //measurement_time(Duration::from_secs(10))
-    group.bench_function("basic", |b| b.iter(|| dummy(black_box(r))));
-    group.finish();*/
 }
-
-criterion_group!(benches, simulation);
