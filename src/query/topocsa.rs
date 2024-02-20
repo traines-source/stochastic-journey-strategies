@@ -196,15 +196,19 @@ impl<'a, 'b> Environment<'b> {
                             instr.cycle_max_len = stack.len()-i;
                         }
                         if min_i == stack.len() {
-                            self.cut.insert((c.id, dep.id));
+                            if self.epsilon == 0.0 {
+                                self.cut.insert((c.id, dep.id));
+                            }
                             if c.id == dep.id {
                                 instr.cycle_self_count += 1;
                             }
                             continue;
                         }
-                        let cut_predecessor = stack[min_i-1];
-                        let cut_successor = stack[min_i];
-                        self.cut.insert((cut_predecessor, cut_successor));
+                        if self.epsilon == 0.0 {
+                            let cut_predecessor = stack[min_i-1];
+                            let cut_successor = stack[min_i];
+                            self.cut.insert((cut_predecessor, cut_successor));
+                        }
                         instr.unraveling_no += stack.len()-min_i;
                         let cut_len = min_i..stack.len();
                         for _ in cut_len {
@@ -468,10 +472,10 @@ impl<'a, 'b> Environment<'b> {
                 let dep_i = departures.len()-1-departures_i;
                 let label = &departures[dep_i];
                 let dep = &self.connections[label.connection_idx];
-                /*if self.cut.contains(&(c_id, dep.id)) {
+                if self.cut.contains(&(c.id, dep.id)) {
                     departures_i += 1;
                     continue;
-                }*/
+                }
                 if dest_arr_dist.is_some_and(|d| label.destination_arrival.mean > d.mean) {
                     footpaths_i += 1;
                 } else {
@@ -521,6 +525,9 @@ impl<'a, 'b> Environment<'b> {
         let mut store = self.store.borrow_mut();
         for dep_label in departures.iter().rev() {
             let dep = &self.connections[dep_label.connection_idx];
+            if self.cut.contains(&(c.id, dep.id)) {
+                continue;
+            }
             let mut p: f32 = dep_label.destination_arrival.feasible_probability*dep_label.prob_after;
             if !c.is_consecutive(dep) { 
                 let transfer_time = contr.get_transfer_time(c.to_idx, dep.from_idx) as i32;
