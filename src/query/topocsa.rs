@@ -104,8 +104,8 @@ impl<'a, 'b> Environment<'b> {
     }
 
     fn dfs(&mut self, anchor_idx: usize, topo_idx: &mut usize, labels: &mut Vec<DfsConnectionLabel>, visited: &mut Vec<i16>, stops_completed_up: &mut Vec<usize>, instr: &mut Instrumentation) {
-        let mut stack: IndexSet<usize> = IndexSet::with_capacity(1000);
-        stack.insert(anchor_idx);
+        let mut stack: Vec<usize> = Vec::with_capacity(1000);
+        stack.push(anchor_idx);
         while !stack.is_empty() {
             instr.iterations += 1;
             let c_idx = *stack.last().unwrap();
@@ -166,7 +166,6 @@ impl<'a, 'b> Environment<'b> {
                                 let diff = (dep.departure.projected()-c.arrival.projected()-transfer_time) as i16;
                                 if diff < self.store.borrow().min_delay_diff {
                                     c_label.i = 0;
-                                    continue;
                                 }
                             }
                             continue;
@@ -175,53 +174,50 @@ impl<'a, 'b> Environment<'b> {
                     
                     if dep_visited == 1 {
                         instr.encounter_1 += 1;
-                        let trace_idx = stack.get_index_of(&dep_idx);
-                        if trace_idx.is_some() {
-                            let actual_transfer_time = dep.departure.projected()-c.arrival.projected();
-                            let mut min_transfer = if c.is_consecutive(dep) { 1 } else { actual_transfer_time };
-                            let mut min_i = stack.len();
-                            let start = trace_idx.unwrap()+1 as usize;
-                            instr.cycle_sum_len += stack.len()-start;
-                            if stack.len()-start > instr.cycle_max_len {
-                                instr.cycle_max_len = stack.len()-start;
-                            }
-                            for i in start..stack.len() {
-                                let a = &self.connections[*stack.get_index(i-1).unwrap()];
-                                let b = &self.connections[*stack.get_index(i).unwrap()];
-                                if a.is_consecutive(b) {
-                                    continue;
-                                }
-                                let t = b.departure.projected()-a.arrival.projected();
-                                if t < min_transfer {
-                                    min_transfer = t;
-                                    min_i = i;
-                                }
-                            }
-                            if min_i == stack.len() {
-                                self.cut.insert((c.id, dep.id));
-                                if c.id == dep.id {
-                                    instr.cycle_self_count += 1;
-                                }
+                        let predicted_transfer_time = dep.departure.projected()-c.arrival.projected();
+                        let mut min_transfer = if c.is_consecutive(dep) { 1 } else { predicted_transfer_time };
+                        let mut min_i = stack.len();
+                        let mut i = stack.len();
+                        while stack[i-1] != dep_idx {
+                            i -= 1;
+                            let a = &self.connections[stack[i-1]];
+                            let b = &self.connections[stack[i]];
+                            if a.is_consecutive(b) {
                                 continue;
                             }
-                            let cut_before = stack.get_index(min_i).unwrap();
-                            let cut_after = stack.get_index(min_i-1).unwrap();
-                            self.cut.insert((*cut_after, *cut_before));
-                            instr.unraveling_no += stack.len()-min_i;
-                            for _ in min_i..stack.len() {
-                                let idx = stack.pop().unwrap();
-                                let label = labels.get_mut(idx).unwrap();
-                                label.i += 1;
-                                visited[idx] = 0;
+                            let predicted_transfer_time = b.departure.projected()-a.arrival.projected();
+                            if predicted_transfer_time < min_transfer {
+                                min_transfer = predicted_transfer_time;
+                                min_i = i;
                             }
-                            break;
-                        } else {
-                            panic!("marked as visited but not in trace {:?} {:?}", dep_idx, stack);
                         }
+                        instr.cycle_sum_len += stack.len()-i;
+                        if stack.len()-i > instr.cycle_max_len {
+                            instr.cycle_max_len = stack.len()-i;
+                        }
+                        if min_i == stack.len() {
+                            self.cut.insert((c.id, dep.id));
+                            if c.id == dep.id {
+                                instr.cycle_self_count += 1;
+                            }
+                            continue;
+                        }
+                        let cut_predecessor = stack[min_i-1];
+                        let cut_successor = stack[min_i];
+                        self.cut.insert((cut_predecessor, cut_successor));
+                        instr.unraveling_no += stack.len()-min_i;
+                        let cut_len = min_i..stack.len();
+                        for _ in cut_len {
+                            let idx = stack.pop().unwrap();
+                            let label = labels.get_mut(idx).unwrap();
+                            label.i += 1;
+                            visited[idx] = 0;
+                        }
+                        break;
                     } else if dep_visited != 0 {
                         panic!("unexpected visited state");
                     }
-                    stack.insert(dep_idx);
+                    stack.push(dep_idx);
                     break;
                 }
             }
