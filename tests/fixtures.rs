@@ -3,6 +3,7 @@ extern crate assert_float_eq;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 
 use stost::connection;
 use stost::distribution_store;
@@ -38,7 +39,8 @@ fn topocsa_recursive_identical() {
     let mut connections = vec![];
     let (start_time, o, d, now, _) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
     let mut connections_clone = connections.clone();
-    let cut = topocsa::prepare_and_query(&mut store, &mut connections, &stations, o, d, 0, 100, serde::to_mtime(now, start_time), 0.0, false);
+    let mut cut = FxHashSet::default();
+    topocsa::prepare_and_query(&mut store, &mut connections, &stations, &mut cut, o, d, 0, 100, serde::to_mtime(now, start_time), 0.0, false);
     recursive::query(&mut store, &mut connections_clone, &stations, &stations[o], &stations[d], 0, 100, serde::to_mtime(now, start_time), HashSet::from_iter(cut.into_iter()));
 
     compare_connections(&connections_clone, &connections);
@@ -56,7 +58,8 @@ fn topocsa_runs() {
     let mut routes = vec![];
     let mut connections = vec![];
     let (start_time, o, d, now, _) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
-    let _ = topocsa::prepare_and_query(&mut store, &mut connections, &stations, o, d, 0, 100, serde::to_mtime(now, start_time), 0.0, false);
+    let mut cut = FxHashSet::default();
+    topocsa::prepare_and_query(&mut store, &mut connections, &stations, &mut cut, o, d, 0, 100, serde::to_mtime(now, start_time), 0.0, false);
 
     let bytes: Vec<u8> = serde::read_protobuf("./tests/fixtures/basic_out.pb");
     let mut _stations = vec![];

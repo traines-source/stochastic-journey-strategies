@@ -113,6 +113,7 @@ impl<'a> Connection {
 pub struct StopInfo {
 	pub scheduled: types::Mtime,
 	pub delay: Option<i16>,
+	#[serde(default)]
 	pub in_out_allowed: bool,
 	pub scheduled_track: String,
 	pub projected_track: String

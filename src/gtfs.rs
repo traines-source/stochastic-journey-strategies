@@ -19,6 +19,18 @@ pub struct GtfsTimetable {
     pub transport_and_day_to_connection_id: HashMap<(usize, u16), usize>
 }
 
+impl GtfsTimetable {
+    pub fn new() -> GtfsTimetable {
+        GtfsTimetable {
+            stations: vec![],
+            connections: vec![],
+            cut: FxHashSet::default(),
+            order: vec![],
+            transport_and_day_to_connection_id: HashMap::new()
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct StationContraction {
     pub stop_to_group: Vec<usize>,

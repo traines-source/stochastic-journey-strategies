@@ -7,6 +7,7 @@ use stost::distribution_store;
 use stost::gtfs;
 use stost::wire::serde;
 use stost::query::topocsa;
+use rustc_hash::FxHashSet;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
@@ -19,8 +20,9 @@ fn from_relevant(c: &mut Criterion) {
     let mut routes = vec![];
     let mut connections = vec![];
     let mut order = vec![];
+    let mut cut = FxHashSet::default();
     let (start_time, o, d, now, _) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
-    let mut env = topocsa::prepare(&mut store, &mut connections, &stations, &mut order, serde::to_mtime(now, start_time), 0.0, true);
+    let mut env = topocsa::prepare(&mut store, &mut connections, &stations, &mut cut, &mut order, serde::to_mtime(now, start_time), 0.0, true);
 
     let mut group = c.benchmark_group("once");
     //measurement_time(Duration::from_secs(10))
@@ -36,12 +38,14 @@ fn measure_prepare(c: &mut Criterion) {
     let mut stations = vec![];
     let mut routes = vec![];
     let mut connections = vec![];
+    let mut cut = FxHashSet::default();
+
     let (start_time, o, d, now, _) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
 
     let mut group = c.benchmark_group("once");
     group.bench_function("measure_prepare", |b| b.iter(|| {
         let mut order = vec![];
-        topocsa::prepare(black_box(&mut store), black_box(&mut connections.clone()), black_box(&stations), black_box(&mut order), black_box(serde::to_mtime(now, start_time)), black_box(0.0), black_box(true));
+        topocsa::prepare(black_box(&mut store), black_box(&mut connections.clone()), black_box(&stations), black_box(&mut cut), black_box(&mut order), black_box(serde::to_mtime(now, start_time)), black_box(0.0), black_box(true));
     }));
     group.finish();
 }
@@ -51,7 +55,7 @@ fn from_gtfs(c: &mut Criterion) {
     store.load_distributions("./data/ch_sbb.csv");
 
     let mut tt = gtfs::load_gtfs_cache("./tests/fixtures/timetable.ign.cache");
-    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, tt.cut, &mut tt.order, 0, 0.01, 0.001, true, false);
+    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 0, 0.01, 0.001, true, false);
     let contr = gtfs::get_station_contraction(&tt.stations);
     env.set_station_contraction(&contr);
     let o = 10000;

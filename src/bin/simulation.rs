@@ -1,7 +1,10 @@
+use std::collections::HashSet;
 use std::env;
+use std::error::Error;
 use glob::glob;
 use motis_nigiri::Timetable;
 use ndarray_stats::Quantile1dExt;
+use rustc_hash::FxHashSet;
 use ndarray_stats::QuantileExt;
 use ndarray_stats::interpolate::Linear;
 use serde::Deserialize;
@@ -9,6 +12,7 @@ use serde::Serialize;
 use stost::connection;
 use stost::gtfs::GtfsTimetable;
 use stost::gtfs::OriginDestinationSample;
+use stost::types;
 use std::collections::HashMap;
 use std::io::Write;
 use std::fs;
@@ -32,10 +36,21 @@ struct SimulationConfig {
     det_simulation: String,
     stoch_simulation: String,
     transfer: String,
+	#[serde(default)]
     epsilon_reachable: f32,
+	#[serde(default)]
     epsilon_feasible: f32,
+	#[serde(default)]
     transfer_strategy: String,
-    samples: usize
+    samples: usize,
+	#[serde(default)]
+    start_mams: Vec<i32>,
+	#[serde(default)]
+    start_date: Vec<i32>,
+	#[serde(default)]
+    num_days: i32,
+    #[serde(default)]
+    query_window: i32
 }
 
 fn load_config(path: &str) -> SimulationConfig {
@@ -53,8 +68,8 @@ fn load_simulation_run(path: &str) -> SimulationRun {
     serde_json::from_slice(&buf).unwrap()
 }
 
-fn day(year: i32, month: u32, day: u32) -> chrono::NaiveDate {
-    chrono::NaiveDate::from_ymd_opt(year, month, day).unwrap()
+fn day(year: i32, month: i32, day: i32) -> chrono::NaiveDate {
+    chrono::NaiveDate::from_ymd_opt(year, month as u32, day as u32).unwrap()
 }
 
 fn resolve_connection_idx(
@@ -72,110 +87,6 @@ fn resolve_connection_idx(
             leg.from_stop_idx
         } as usize;
     order[connid]
-}
-
-fn manual_test() -> Result<i32, Box<dyn std::error::Error>> {
-    let conf = load_config("./benches/config/config.json");
-
-    let mut store = distribution_store::Store::new();
-    store.load_distributions(&conf.distributions_path);
-
-    let mut tt = gtfs::load_gtfs_cache(&conf.gtfs_cache_path);
-    let t = gtfs::load_timetable(&conf.gtfs_path, day(2023, 11, 1), day(2023, 11, 2));
-    let start_ts = t.get_start_day_ts() as u64;
-
-    let start_time = 8100;
-    let pair = (10000, 20000);
-    for f in glob(&conf.gtfsrt_glob).expect("Failed to read glob pattern") {
-        let path = f.as_ref().unwrap().to_str().unwrap().to_owned();
-        let minutes = ((fs::metadata(f?)?
-            .modified()?
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            - start_ts)
-            / 60) as i32;
-        if minutes < start_time {
-            continue;
-        }
-        let mut env = topocsa::new(
-            &mut store,
-            &mut tt.connections,
-            &tt.stations,
-            tt.cut.clone(),
-            &mut tt.order,
-            start_time,
-            conf.epsilon_reachable,
-            conf.epsilon_feasible,
-            true,
-            conf.transfer_strategy == "domination"
-        );
-        gtfs::load_realtime(
-            &path,
-            &t,
-            &tt.transport_and_day_to_connection_id,
-            |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
-                env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
-            },
-        );
-        let station_labels = env.query(pair.0, pair.1, start_time, start_time+1440);
-        let deterministic = t.get_journeys(pair.0, pair.1, minutes, false);
-
-        let mut i = 0;
-        for j in &deterministic.journeys {
-            let mut last_connid = 0;
-            for k in 0..j.legs.len() {
-                let leg = &j.legs[k];
-                if !leg.is_footpath {
-                    println!("leg {} {} {}", leg.from_location_idx, leg.to_location_idx, leg.transport_idx);
-                    println!("route {:?}", t.get_route(t.get_transport(leg.transport_idx).route_idx));
-                    for l in leg.from_stop_idx..(leg.to_stop_idx+1) {
-                        let connid = tt.transport_and_day_to_connection_id[&(leg.transport_idx, leg.day_idx)]+l as usize-1;
-                        let connidx_dep0 = tt.order[connid];
-                        println!(
-                            "debgu start:{} {} {} frm dd: frmcon {} {} {} {:?} tocon {} {} {} {:?} trip: {} {} {} mean {} cut: {} fp: {}",
-                            deterministic.journeys[0].start_time, i, connid,
-                            tt.connections[connidx_dep0].from_idx,
-                            tt.stations[tt.connections[connidx_dep0].from_idx].name,
-                            tt.connections[connidx_dep0].departure.projected(),
-                            tt.connections[connidx_dep0].departure.delay,
-                            tt.connections[connidx_dep0].to_idx,
-                            tt.stations[tt.connections[connidx_dep0].to_idx].name,
-                            tt.connections[connidx_dep0].arrival.projected(),
-                            tt.connections[connidx_dep0].arrival.delay,
-                            tt.connections[connidx_dep0].route_idx,
-                            tt.connections[connidx_dep0].trip_id,
-                            connidx_dep0, tt.connections[connidx_dep0].destination_arrival.borrow().as_ref().unwrap().mean,
-                            tt.cut.contains(&(last_connid, connid)),
-                            tt.stations[tt.connections[connidx_dep0].from_idx].footpaths.len()
-                        );
-                        last_connid = connid;
-                    }
-                } else {
-                    println!("footpath, dur: {}", leg.duration);
-                }
-            }
-            i += 1;
-        }
-        let origin_deps = &station_labels[pair.0];
-        let mut i = 0;
-        for dep in origin_deps.iter().rev() {
-            let c = &tt.connections[dep.connection_idx];
-            i += 1;
-            if c.departure.projected() >= minutes {
-                println!(
-                    "dest prediction:topocsa: {} {} {} {} i: {} {}",
-                    c.departure.projected(),
-                    start_ts+c.departure.projected() as u64*60,
-                    c.destination_arrival.borrow().as_ref().unwrap().mean,
-                    start_ts+c.destination_arrival.borrow().as_ref().unwrap().mean as u64*60,
-                    i, dep.connection_idx
-                );
-            }
-        }
-        break;
-    }
-    Ok(0)
 }
 
 struct LogEntry {
@@ -244,16 +155,18 @@ fn run_simulation(config_file: &str) -> Result<i32, Box<dyn std::error::Error>> 
     let mut store = distribution_store::Store::new();
     store.load_distributions(&conf.distributions_path);
 
-    let mut tt = gtfs::load_gtfs_cache(&conf.gtfs_cache_path);
-    let t = gtfs::load_timetable(&conf.gtfs_path, day(2023, 11, 2), day(2023, 11, 3));
+    let t = gtfs::load_timetable(&conf.gtfs_path, day(conf.start_date[0], conf.start_date[1], conf.start_date[2]), day(conf.start_date[0], conf.start_date[1], conf.start_date[2]));
+    let mut tt = gtfs::GtfsTimetable::new();
+    let mut routes = vec![];
+    gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);
     if conf.transfer == "short" {
         gtfs::shorten_footpaths(&mut tt.stations);
     }
-    let start_ts = t.get_start_day_ts() as u64;
-
-    let start_time = 8050;
-    let stop_pairs: Vec<(usize, usize, i32)> = load_samples(&conf.samples_config_path).into_iter().take(conf.samples).map(|s| (s.from_idx, s.to_idx, start_time)).collect();
-    //let stop_pairs = vec![(19337, 37262, 8050), (1423, 21135, 8050)];
+    let reference_ts = t.get_start_day_ts() as u64;
+    let reference_time = 5*1440;
+    let min_start_time = *conf.start_mams.iter().min().unwrap()+reference_time;
+    
+    let stop_pairs: Vec<(usize, usize, i32)> = load_samples(&conf.samples_config_path).iter().take(conf.samples).flat_map(|s| conf.start_mams.iter().map(|time| (s.from_idx, s.to_idx, *time+reference_time))).collect();
     let mut det_actions: HashMap<(usize, usize, i32), motis_nigiri::Journey> = HashMap::new();
     let mut stoch_actions: HashMap<(usize, usize, i32), StochActions> = HashMap::new();
     let mut det_log: HashMap<(usize, usize, i32), Vec<LogEntry>> = HashMap::new();
@@ -263,28 +176,11 @@ fn run_simulation(config_file: &str) -> Result<i32, Box<dyn std::error::Error>> 
     let simulation_run_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
     for f in glob(&conf.gtfsrt_glob).expect("Failed to read glob pattern") {
         let path = f.as_ref().unwrap().to_str().unwrap().to_owned();
-        let current_time = ((fs::metadata(f?)?
-            .modified()?
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            - start_ts)
-            / 60) as i32;
-        if current_time < start_time {
+        let current_time = get_current_time(f, reference_ts)?;
+        if current_time < min_start_time {
             continue;
         }
-        let mut env = topocsa::new(
-            &mut store,
-            &mut tt.connections,
-            &tt.stations,
-            tt.cut.clone(),
-            &mut tt.order,
-            start_time,
-            conf.epsilon_reachable,
-            conf.epsilon_feasible,
-            true,
-            conf.transfer_strategy == "domination"
-        );
+        let mut env = new_env(&mut store, &mut tt.connections, &mut tt.stations, &mut tt.cut, &mut tt.order, &conf, current_time);
         println!("Loading {}", path);
         gtfs::load_realtime(
             &path,
@@ -302,16 +198,16 @@ fn run_simulation(config_file: &str) -> Result<i32, Box<dyn std::error::Error>> 
                     &mut store,
                     &mut tt.connections,
                     &tt.stations,
-                    tt.cut.clone(),
+                    &mut tt.cut,
                     &mut tt.order,
-                    start_time,
+                    current_time,
                     conf.epsilon_reachable,
                     conf.epsilon_feasible,
                     true,
                     conf.transfer_strategy == "domination"
                 );
                 let start = Instant::now();
-                let stoch = env.query(pair.0, pair.1, start_time, start_time+1440);
+                let stoch = env.query(pair.0, pair.1, pair.2, pair.2+conf.query_window);
                 let timing_stoch = start.elapsed().as_millis();
                 let start = Instant::now();
                 let min_journey = t.get_journeys(pair.0, pair.1, current_time, false).journeys.into_iter().reduce(|a, b| if a.dest_time < b.dest_time {a} else {b});
@@ -337,7 +233,7 @@ fn run_simulation(config_file: &str) -> Result<i32, Box<dyn std::error::Error>> 
                 stoch_log.insert(*pair, vec![]);
                 results.insert(*pair, SimulationJourney {
                     pair: *pair,
-                    start_time: start_ts+pair.2 as u64*60,
+                    start_time: reference_ts+pair.2 as u64*60,
                     from_station: tt.stations[pair.0].id.clone(),
                     from_station_name: tt.stations[pair.0].name.clone(),
                     to_station: tt.stations[pair.1].id.clone(),
@@ -382,7 +278,7 @@ fn run_simulation(config_file: &str) -> Result<i32, Box<dyn std::error::Error>> 
                     &mut store,
                     &mut tt.connections,
                     &tt.stations,
-                    tt.cut.clone(),
+                    &mut tt.cut,
                     &mut tt.order,
                     current_time,
                     conf.epsilon_reachable,
@@ -390,7 +286,7 @@ fn run_simulation(config_file: &str) -> Result<i32, Box<dyn std::error::Error>> 
                     true,
                     conf.transfer_strategy == "domination"
                 );
-                let stoch = env.pair_query(pair.0, pair.1, start_time, start_time+1440, &stoch_actions[pair].connection_pairs);
+                let stoch = env.pair_query(pair.0, pair.1, pair.2, pair.2+conf.query_window, &stoch_actions[pair].connection_pairs);
                 stoch_actions.get_mut(pair).unwrap().station_labels = stoch;
                 println!("relevant topocsa done.");
             }
@@ -422,7 +318,7 @@ fn run_simulation(config_file: &str) -> Result<i32, Box<dyn std::error::Error>> 
         }
         is_first = false;
         if !do_continue {
-            println!("All simulations completed. Stopping for start_time {} at current_time {}.", start_time, current_time);
+            println!("All simulations completed. Stopping at current_time {}.", current_time);
             break;
         }
     }
@@ -441,6 +337,31 @@ fn run_simulation(config_file: &str) -> Result<i32, Box<dyn std::error::Error>> 
         .open(filename).expect("file not openable");
     file.write_all(&buf).expect("error writing file");
     Ok(0)
+}
+
+fn get_current_time(f: Result<std::path::PathBuf, glob::GlobError>, start_ts: u64) -> Result<i32, Box<dyn Error>> {
+    Ok(((fs::metadata(f?)?
+        .modified()?
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        - start_ts)
+        / 60) as i32)
+}
+
+fn new_env<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a mut Vec<connection::Station>, cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, conf: &'a SimulationConfig, now: types::Mtime) -> topocsa::Environment<'a> {
+    topocsa::new(
+        store,
+        connections,
+        stations,
+        cut,
+        order,
+        now,
+        conf.epsilon_reachable,
+        conf.epsilon_feasible,
+        true,
+        conf.transfer_strategy == "domination"
+    )
 }
 
 fn get_current_stop_idx(current_time: i32, pair: (usize, usize, i32), log: &mut Vec<LogEntry>, result: &mut SimulationResult, tt: &GtfsTimetable) -> Option<usize> {
