@@ -151,8 +151,14 @@ pub fn shorten_footpaths(stations: &mut Vec<connection::Station>) {
     }
 }
 
+fn to_connecion_id(e: &motis_nigiri::EventChange, transport_and_day_to_connection_id: &HashMap<(usize, u16), usize>) -> usize {
+    let dep_offset = if e.is_departure { 0 } else { 1 };
+    let initial_connection_of_transport = transport_and_day_to_connection_id[&(e.transport_idx, e.day_idx)];
+    initial_connection_of_transport-dep_offset+e.stop_idx as usize
+}
+
 pub fn load_realtime<F: FnMut(usize, bool, Option<usize>, Option<bool>, Option<i16>)>(gtfsrt_path: &str, t: &Timetable, transport_and_day_to_connection_id: &HashMap<(usize, u16), usize>, mut callback: F) {
-    t.update_with_rt(gtfsrt_path, |e| callback(transport_and_day_to_connection_id[&(e.transport_idx, e.day_idx)]+e.stop_idx as usize, e.is_departure, e.location_idx, e.in_out_allowed, e.delay));
+    t.update_with_rt(gtfsrt_path, |e| callback(to_connecion_id(&e, transport_and_day_to_connection_id), e.is_departure, e.location_idx, e.in_out_allowed, e.delay));
 }
 
 pub fn load_gtfs_cache(cache_path: &str) -> GtfsTimetable {

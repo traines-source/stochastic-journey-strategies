@@ -280,8 +280,9 @@ impl<'a> Environment<'a> {
         self.connections.sort_unstable_by(|a, b|
             labels[self.order[a.id]].order.partial_cmp(&labels[self.order[b.id]].order).unwrap()
         );
+        let mut new_order: Vec<usize> = (0..self.connections.len()).map(|id| labels[self.order[id]].order).collect();
         self.order.clear();
-        self.order.extend(labels.iter().map(|l|l.order));
+        self.order.append(&mut new_order);
         println!("Done preprocessing.");
         println!("connections: {} topoidx: {} cut: {}", self.connections.len(), topo_idx, self.cut.len());
     }
@@ -289,11 +290,12 @@ impl<'a> Environment<'a> {
     pub fn update(&mut self, connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>) {
         let c = &mut self.connections[self.order[connection_id]];
         if location_idx.is_some() {
+            println!("Platform change is_dep: {} new_location: {} c: {:?}", is_departure, location_idx.unwrap(), c);
             if is_departure {
                 c.from_idx = location_idx.unwrap();
             } else {
                 c.to_idx = location_idx.unwrap();
-            }           
+            }
         }
         if in_out_allowed.is_some() {
             if is_departure {

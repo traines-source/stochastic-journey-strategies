@@ -211,6 +211,7 @@ impl Simulation {
                     continue;
                 }
                 self.update_if_necessary(pair, &mut tt, &t, current_time, &mut timing_preprocessing);
+                println!("stoch...");
                 let mut repeat = true;
                 while repeat {
                     repeat = false;
@@ -220,6 +221,7 @@ impl Simulation {
                         repeat = Self::step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, self.stoch_log.get_mut(pair).unwrap(), &mut self.results.get_mut(pair).unwrap().stoch, &tt.connections, &tt.stations);
                     }
                 }
+                println!("det...");
                 repeat = true;
                 while repeat {
                     repeat = false;
@@ -228,7 +230,7 @@ impl Simulation {
                         let alternatives = Self::get_det_alternatives(current_stop_idx.unwrap(), &tt, &self.det_actions[pair]);
                         repeat = Self::step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, self.det_log.get_mut(pair).unwrap(), &mut self.results.get_mut(pair).unwrap().det, &tt.connections, &tt.stations);
                         let cidx = self.det_log[pair].last();
-                        if cidx.is_some() && !self.stoch_actions[pair].connection_pairs.contains_key(&cidx.unwrap().conn_idx) && !self.stoch_actions[pair].connection_pairs_reverse.contains_key(&cidx.unwrap().conn_idx) {
+                        if cidx.is_some() && !self.stoch_actions[pair].connection_pairs.is_empty() && !self.stoch_actions[pair].connection_pairs.contains_key(&cidx.unwrap().conn_idx) && !self.stoch_actions[pair].connection_pairs_reverse.contains_key(&cidx.unwrap().conn_idx) {
                             panic!("WARN: connection from det not contained in connection pairs {} {} {}", cidx.unwrap().conn_idx, tt.connections[cidx.unwrap().conn_idx].from_idx, tt.connections[cidx.unwrap().conn_idx].to_idx);
                         }
                     }
@@ -397,7 +399,7 @@ impl Simulation {
                 *reference_ts = t.as_ref().unwrap().get_start_day_ts() as u64;
                 *tt = gtfs::GtfsTimetable::new();
                 let mut routes = vec![];
-                gtfs::retrieve(t.as_ref().unwrap(), &mut tt.stations, &mut routes, &mut tt.connections);
+                tt.transport_and_day_to_connection_id = gtfs::retrieve(t.as_ref().unwrap(), &mut tt.stations, &mut routes, &mut tt.connections);
                 if self.conf.transfer == "short" {
                     gtfs::shorten_footpaths(&mut tt.stations);
                 }
@@ -407,6 +409,9 @@ impl Simulation {
     }
 
     fn get_current_time(f: Result<std::path::PathBuf, glob::GlobError>, reference_ts: u64) -> Result<i32, Box<dyn Error>> {
+        if reference_ts == 0 {
+            return Ok(0)
+        }
         Ok(((fs::metadata(f?)?
             .modified()?
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -467,12 +472,13 @@ impl Simulation {
             }
             next_leg += 1;
         }
-        if next_leg >= det_actions.legs.len() { // TODO platform change
-            println!("failed to find journey continuation (platform change?): {:?} current_stop: {:?}", det_actions, tt.stations[current_stop_idx]);
+        if next_leg >= det_actions.legs.len() {
+            println!("failed to find journey continuation (platform change?): {:?} current_stop: {} {:?}", det_actions, current_stop_idx, tt.stations[current_stop_idx]);
             return vec![];
         }
         let departure_idx = resolve_connection_idx(det_actions, next_leg, false, &tt.transport_and_day_to_connection_id, &tt.order);
         let arrival_idx = resolve_connection_idx(det_actions, next_leg, true, &tt.transport_and_day_to_connection_id, &tt.order);
+        println!("current_stop: {} dep: {:?}", current_stop_idx, tt.connections[departure_idx]);
         let alternatives = vec![Alternative{
             from_conn_idx: departure_idx,
             to_conn_idx: arrival_idx,
@@ -490,7 +496,7 @@ impl Simulation {
             if station_labels.is_none() {
                 continue;
             }
-            println!("label len: {} {} {} {}", current_stop_idx, stoch_actions.station_labels.iter().filter(|l| l.len() > 0).count(), station_labels.unwrap().len(), stoch_actions.connection_pairs.len());
+            println!("label len: {} {} {} {} {}", current_stop_idx, stop_idx, stoch_actions.station_labels.iter().filter(|l| l.len() > 0).count(), station_labels.unwrap().len(), stoch_actions.connection_pairs.len());
             alternatives.extend(station_labels.unwrap().iter().filter_map(|l| {
                 if l.destination_arrival.mean == 0.0 {
                     panic!("weirdly 0");
@@ -500,7 +506,7 @@ impl Simulation {
                 }
                 Some(Alternative{
                     from_conn_idx: l.connection_idx,
-                    to_conn_idx: stoch_actions.connection_pairs_reverse[&l.connection_idx],
+                    to_conn_idx: if stoch_actions.connection_pairs_reverse.is_empty() { l.connection_idx } else { stoch_actions.connection_pairs_reverse[&l.connection_idx] },
                     proj_dest_arr: l.destination_arrival.mean
                 })
             }));
