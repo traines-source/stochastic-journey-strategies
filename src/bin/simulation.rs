@@ -91,7 +91,7 @@ fn resolve_connection_idx(
 }
 
 struct LogEntry {
-    conn_idx: usize,
+    conn_id: usize,
     proj_dest_arr: f32,
     arrival_time_lower_bound: i32
 }
@@ -218,7 +218,7 @@ impl Simulation {
                     let current_stop_idx = Self::get_current_stop_idx(current_time, *pair, self.stoch_log.get_mut(pair).unwrap(), &mut self.results.get_mut(pair).unwrap().stoch, &tt);
                     if current_stop_idx.is_some() {
                         let alternatives = Self::get_stoch_alternatives(current_stop_idx.unwrap(), &tt, &self.stoch_actions[pair]);
-                        repeat = Self::step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, self.stoch_log.get_mut(pair).unwrap(), &mut self.results.get_mut(pair).unwrap().stoch, &tt.connections, &tt.stations);
+                        repeat = Self::step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, self.stoch_log.get_mut(pair).unwrap(), &mut self.results.get_mut(pair).unwrap().stoch, &tt);
                     }
                 }
                 println!("det...");
@@ -228,10 +228,10 @@ impl Simulation {
                     let current_stop_idx = Self::get_current_stop_idx(current_time, *pair, self.det_log.get_mut(pair).unwrap(), &mut self.results.get_mut(pair).unwrap().det, &tt);
                     if current_stop_idx.is_some() {
                         let alternatives = Self::get_det_alternatives(current_stop_idx.unwrap(), &tt, &self.det_actions[pair]);
-                        repeat = Self::step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, self.det_log.get_mut(pair).unwrap(), &mut self.results.get_mut(pair).unwrap().det, &tt.connections, &tt.stations);
+                        repeat = Self::step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, self.det_log.get_mut(pair).unwrap(), &mut self.results.get_mut(pair).unwrap().det, &tt);
                         let cidx = self.det_log[pair].last();
-                        if cidx.is_some() && !self.stoch_actions[pair].connection_pairs.is_empty() && !self.stoch_actions[pair].connection_pairs.contains_key(&cidx.unwrap().conn_idx) && !self.stoch_actions[pair].connection_pairs_reverse.contains_key(&cidx.unwrap().conn_idx) {
-                            panic!("WARN: connection from det not contained in connection pairs {} {} {}", cidx.unwrap().conn_idx, tt.connections[cidx.unwrap().conn_idx].from_idx, tt.connections[cidx.unwrap().conn_idx].to_idx);
+                        if cidx.is_some() && !self.stoch_actions[pair].connection_pairs.is_empty() && !self.stoch_actions[pair].connection_pairs.contains_key(&tt.order[cidx.unwrap().conn_id]) && !self.stoch_actions[pair].connection_pairs_reverse.contains_key(&tt.order[cidx.unwrap().conn_id]) {
+                            panic!("WARN: connection from det not contained in connection pairs {} {} {}", cidx.unwrap().conn_id, tt.connections[tt.order[cidx.unwrap().conn_id]].from_idx, tt.connections[tt.order[cidx.unwrap().conn_id]].to_idx);
                         }
                     }
                 }
@@ -252,6 +252,10 @@ impl Simulation {
                 }
             }
         }
+        if !stop_pairs.is_empty() {
+            println!("Reached end of GTFSRT without having completed everything.");
+            self.write_results(simulation_run_at, day_idx);            
+        }
         Ok(0)
     }
 
@@ -262,9 +266,7 @@ impl Simulation {
             let start = Instant::now();
             let stoch = env.query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window);
             let timing_stoch = start.elapsed().as_millis();
-            let start = Instant::now();
-            let min_journey = t.as_ref().unwrap().get_journeys(pair.0, pair.1, current_time, false).journeys.into_iter().reduce(|a, b| if a.dest_time < b.dest_time {a} else {b});
-            let timing_det = start.elapsed().as_millis();
+            let (min_journey, timing_det) = get_min_det_journey(t, pair.0, pair.1, current_time);
             if min_journey.is_none() || !stoch.get(pair.0).is_some_and(|s| s.len() > 0) {
                 println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch.get(pair.0).is_some_and(|s| s.len() > 0));
             } else {
@@ -322,16 +324,18 @@ impl Simulation {
     fn update_if_necessary(&mut self, pair: &(usize, usize, i32), tt: &mut GtfsTimetable, t: &Option<Timetable>, current_time: i32, timing_preprocessing: &mut u128) {
         if self.conf.det_simulation == "priori_online_broken" {
             if self.results[pair].det.broken {
-                let stuck_at = self.det_log[pair].last().map(|l| tt.connections[l.conn_idx].to_idx).unwrap_or(pair.0);
-                let min_journey = t.as_ref().unwrap().get_journeys(stuck_at, pair.1, current_time, false).journeys.into_iter().reduce(|a, b| if a.dest_time < b.dest_time {a} else {b});
+                let stuck_at = self.det_log[pair].last().map(|l| tt.connections[tt.order[l.conn_id]].to_idx).unwrap_or(pair.0);
+                let (min_journey, timing_det) = get_min_det_journey(t, stuck_at, pair.1, current_time);
                 if min_journey.is_some() {
                     println!("Replacing broken det itinerary.");
                     self.det_actions.insert(*pair, min_journey.unwrap());
-                    self.results.get_mut(pair).unwrap().det.broken = false;
+                    let r = self.results.get_mut(pair).unwrap();
+                    r.det.broken = false;
+                    r.det.algo_elapsed_ms.push(timing_det);
                 }
             }
         }
-        let arrival_time = Self::get_arrival_time(&self.stoch_log[&pair], pair.2, &tt.connections);
+        let arrival_time = Self::get_arrival_time(&self.stoch_log[&pair], pair.2, tt);
         if current_time >= arrival_time && self.results[&pair].stoch.actual_dest_arrival.is_none() {           
             if self.conf.stoch_simulation == "adaptive_online_relevant" {
                 let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.conf, current_time);
@@ -442,7 +446,7 @@ impl Simulation {
         } else if log.len() == 0 {
             Some(pair.0)
         } else {
-            let last_c = &tt.connections[log.last().unwrap().conn_idx];
+            let last_c = &tt.connections[tt.order[log.last().unwrap().conn_id]];
             let current_stop_idx = last_c.to_idx;
             let footpaths = &tt.stations[current_stop_idx].footpaths;
             let mut i = 0;
@@ -450,7 +454,7 @@ impl Simulation {
                 let stop_idx = if i == footpaths.len() { current_stop_idx } else { footpaths[i].target_location_idx };
                 if stop_idx == pair.1 {
                     if current_time >= last_c.arrival.projected() {
-                        Self::update_connections_taken_from_last_log(result, log, &tt.connections, &tt.stations);
+                        Self::update_connections_taken_from_last_log(result, log, tt);
                         result.actual_dest_arrival = Some(last_c.arrival.projected());
                     }
                     return None;
@@ -522,25 +526,26 @@ impl Simulation {
         }
     } 
 
-    fn step(current_time: i32, start_time: i32, current_stop_idx: usize, alternatives: &[Alternative], log: &mut Vec<LogEntry>, result: &mut SimulationResult, connections: &[connection::Connection], stations: &[connection::Station]) -> bool {
-        let arrival_time = Self::get_arrival_time(log, start_time, connections);
+    fn step(current_time: i32, start_time: i32, current_stop_idx: usize, alternatives: &[Alternative], log: &mut Vec<LogEntry>, result: &mut SimulationResult, tt: &GtfsTimetable) -> bool {
+        let arrival_time = Self::get_arrival_time(log, start_time, tt);
         let mut alternatives_still_available = false;
+        println!("current_time: {} current_stop_idx: {} arrival: {}", current_time, current_stop_idx, arrival_time);
         if current_time >= arrival_time {
             for alt in alternatives {
-                let next_c = &connections[alt.from_conn_idx];
-                let transfer_time = Self::get_transfer_time(current_stop_idx, next_c.from_idx, log.is_empty(), stations); 
-                if Self::can_take(next_c, arrival_time, transfer_time, log, connections) {    
+                let next_c = &tt.connections[alt.from_conn_idx];
+                let transfer_time = Self::get_transfer_time(current_stop_idx, next_c.from_idx, log.is_empty(), &tt.stations); 
+                if Self::can_take(next_c, arrival_time, transfer_time, log, tt) {    
                     if current_time >= next_c.departure.projected() { // TODO require not too long ago?
                         if log.len() > 0 {
-                            Self::update_connections_taken_from_last_log(result, log, connections, stations);
+                            Self::update_connections_taken_from_last_log(result, log, tt);
                         } else {
                             result.departure = next_c.departure.projected();
                             result.original_dest_arrival_prediction = alt.proj_dest_arr;
                         }
-                        Self::update_connections_taken(result, &next_c, stations, alt.proj_dest_arr);
-                        println!("step {} {} {} from/to: {} {} trip: {} arr: {} {} dep: {} {} to_conn: dp: {} {} arr: {} {} from/to: {} {} trip: {}", arrival_time, alt.from_conn_idx, alt.to_conn_idx, next_c.from_idx, next_c.to_idx, next_c.trip_id, next_c.arrival.scheduled, next_c.arrival.projected(), next_c.departure.scheduled, next_c.departure.projected(), connections[alt.to_conn_idx].departure.scheduled, connections[alt.to_conn_idx].departure.projected(), connections[alt.to_conn_idx].arrival.scheduled, connections[alt.to_conn_idx].arrival.projected(), connections[alt.to_conn_idx].from_idx, connections[alt.to_conn_idx].to_idx, connections[alt.to_conn_idx].trip_id);
+                        Self::update_connections_taken(result, &next_c, &tt.stations, alt.proj_dest_arr);
+                        println!("step {} {} {} from/to: {} {} trip: {} arr: {} {} dep: {} {} to_conn: dp: {} {} arr: {} {} from/to: {} {} trip: {}", arrival_time, alt.from_conn_idx, alt.to_conn_idx, next_c.from_idx, next_c.to_idx, next_c.trip_id, next_c.arrival.scheduled, next_c.arrival.projected(), next_c.departure.scheduled, next_c.departure.projected(), tt.connections[alt.to_conn_idx].departure.scheduled, tt.connections[alt.to_conn_idx].departure.projected(), tt.connections[alt.to_conn_idx].arrival.scheduled, tt.connections[alt.to_conn_idx].arrival.projected(), tt.connections[alt.to_conn_idx].from_idx, tt.connections[alt.to_conn_idx].to_idx, tt.connections[alt.to_conn_idx].trip_id);
                         log.push(LogEntry{
-                            conn_idx: alt.to_conn_idx,
+                            conn_id: tt.connections[alt.to_conn_idx].id,
                             proj_dest_arr: alt.proj_dest_arr,
                             arrival_time_lower_bound: arrival_time
                         });
@@ -552,10 +557,10 @@ impl Simulation {
             }
             if !alternatives_still_available && !result.broken {
                 if log.len() > 0 {
-                    Self::update_connections_taken_from_last_log(result, log, connections, stations);
+                    Self::update_connections_taken_from_last_log(result, log, tt);
                 }
                 if alternatives.len() > 0 {
-                    result.connection_missed = Some(connections[alternatives.last().unwrap().from_conn_idx].clone());
+                    result.connection_missed = Some(tt.connections[alternatives.last().unwrap().from_conn_idx].clone());
                 }
                 result.broken = true;
             }
@@ -563,18 +568,18 @@ impl Simulation {
         return false;
     }
 
-    fn get_arrival_time(log: &Vec<LogEntry>, start_time: i32, connections: &[connection::Connection]) -> i32 {
+    fn get_arrival_time(log: &Vec<LogEntry>, start_time: i32, tt: &GtfsTimetable) -> i32 {
         if log.len() == 0 {
             start_time
         } else {
-            let c = &connections[log.last().unwrap().conn_idx];
+            let c = &tt.connections[tt.order[log.last().unwrap().conn_id]];
             std::cmp::max(std::cmp::max(c.arrival.projected(), c.departure.projected()), log.last().unwrap().arrival_time_lower_bound) // TODO enforce while gtfsrt updating?
         }
     }
 
-    fn can_take(next_c: &connection::Connection, arrival_time: i32, transfer_time: i32, log: &mut Vec<LogEntry>, connections: &[connection::Connection]) -> bool {
+    fn can_take(next_c: &connection::Connection, arrival_time: i32, transfer_time: i32, log: &mut Vec<LogEntry>, tt: &GtfsTimetable) -> bool {
         if log.len() > 0 {
-            let c = &connections[log.last().unwrap().conn_idx];
+            let c = &tt.connections[tt.order[log.last().unwrap().conn_id]];
             if c.is_consecutive(next_c) {
                 return true;
             }
@@ -588,8 +593,8 @@ impl Simulation {
         next_c.departure.projected() >= arrival_time+transfer_time
     }
 
-    fn update_connections_taken_from_last_log(result: &mut SimulationResult, log: &[LogEntry], connections: &[connection::Connection], stations: &[connection::Station]) {
-        Self::update_connections_taken(result, &connections[log.last().unwrap().conn_idx], stations, log.last().unwrap().proj_dest_arr);
+    fn update_connections_taken_from_last_log(result: &mut SimulationResult, log: &[LogEntry], tt: &GtfsTimetable) {
+        Self::update_connections_taken(result, &tt.connections[tt.order[log.last().unwrap().conn_id]], &tt.stations, log.last().unwrap().proj_dest_arr);
     }
 
     fn update_connections_taken(result: &mut SimulationResult, connection: &connection::Connection, stations: &[connection::Station], proj_dest_arr: f32) {
@@ -622,6 +627,14 @@ impl Simulation {
         }
         panic!("Tried walking where no walking connection exists from {} to {}", from_stop_idx, to_stop_idx);
     }
+}
+
+fn get_min_det_journey(t: &Option<Timetable>, origin_idx: usize, destination_idx: usize, current_time: i32) -> (Option<motis_nigiri::Journey>, u128) {
+    let start = Instant::now();
+    let pareto = t.as_ref().unwrap().get_journeys(origin_idx, destination_idx, current_time, false);
+    let timing_det = start.elapsed().as_millis();
+    let min_journey = pareto.journeys.into_iter().reduce(|a, b| if a.dest_time < b.dest_time {a} else {b});
+    (min_journey, timing_det)
 }
 
 struct SimulationAnalysis {

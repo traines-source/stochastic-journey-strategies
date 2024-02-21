@@ -298,6 +298,7 @@ impl<'a> Environment<'a> {
             }
         }
         if in_out_allowed.is_some() {
+            println!("In_out_allowed change is_dep: {} new_location: {} c: {:?}", is_departure, in_out_allowed.unwrap(), c);
             if is_departure {
                 c.departure.in_out_allowed = in_out_allowed.unwrap();
             } else {
