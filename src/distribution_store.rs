@@ -361,10 +361,12 @@ impl Store {
     #[inline]
     pub fn before_probability(&mut self, from: &connection::StopInfo, from_product_type: i16, from_is_departure: bool, to: &connection::StopInfo, to_product_type: i16, transfer_time: i32, now: types::Mtime) -> f32 {
         let diff = (to.projected()-from.projected()-transfer_time) as i16;
-        if diff < self.min_delay_diff || !from_is_departure && (!from.in_out_allowed || !to.in_out_allowed) {
+        if diff < self.min_delay_diff {
             return 0.0;
         } else if diff > self.min_delay_diff.abs() {
             return 1.0;
+        } else if !from_is_departure && (!from.in_out_allowed || !to.in_out_allowed) {
+            return 0.0;
         }
         let from_ttl = from.projected()-now;
         let to_ttl = to.projected()-now;
