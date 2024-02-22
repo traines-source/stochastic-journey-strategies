@@ -92,8 +92,8 @@ pub struct Instrumentation {
 
 #[derive(Debug)]
 struct CsaInstrumentation {
-    inserted: i32,
-    dep_len: usize,
+    looked_at: usize,
+    deps: usize,
     selected_count: usize,
     infeas_iter: usize,
 }
@@ -313,6 +313,7 @@ impl<'a> Environment<'a> {
             }
         }
     }
+
     pub fn query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime) -> Vec<Vec<ConnectionLabel>> {
         let pairs = HashMap::new();
         let start_ts = Instant::now();
@@ -321,10 +322,10 @@ impl<'a> Environment<'a> {
         r
     }
 
-    pub fn pair_query(&mut self, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<usize, usize>) -> Vec<Vec<ConnectionLabel>> {
+    pub fn pair_query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<usize, usize>) -> Vec<Vec<ConnectionLabel>> {
         let mut instr = CsaInstrumentation {
-            inserted: 0,
-            dep_len: 0,
+            looked_at: 0,
+            deps: 0,
             selected_count: 0,
             infeas_iter: 0
         };
@@ -336,9 +337,10 @@ impl<'a> Environment<'a> {
                 continue;
             }
             let c = &self.connections[i];
-            if c.arrival.projected()-max_delay > max_time { // TODO topo dependency
+            if c.departure.projected()+max_delay < start_time || c.departure.projected() >= max_time {
                 continue;
             }
+            instr.looked_at += 1;
             let stop_idx = match self.contraction {
                 Some(contr) => contr.stop_to_group[c.to_idx],
                 None => c.to_idx
@@ -347,13 +349,13 @@ impl<'a> Environment<'a> {
                 Some(contr) => contr.stop_to_group[destination],
                 None => destination
             };
-            let orig_contr = match self.contraction {
+            /*let orig_contr = match self.contraction {
                 Some(contr) => contr.stop_to_group[origin],
                 None => destination
             };
             if stop_idx == orig_contr && c.arrival.projected()+max_delay < start_time {
                 break;
-            }
+            }*/
             let new_distribution = if stop_idx == dest_contr {
                 if !c.arrival.in_out_allowed {
                     //c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
@@ -496,6 +498,7 @@ impl<'a> Environment<'a> {
             } else {
                 footpaths_i += 1;
             }
+            instr.deps += 1;
             let mut p: f32 = dest_arr_dist.unwrap().feasible_probability;
             if !self.domination && last_departure.is_some() {
                 p *= self.store.borrow_mut().before_probability(last_departure.unwrap(), last_product_type, true, departure.unwrap(), departure_product_type, 1, self.now);
@@ -528,6 +531,7 @@ impl<'a> Environment<'a> {
         let c = &self.connections[c_idx];
         let mut store = self.store.borrow_mut();
         for dep_label in departures.iter().rev() {
+            instr.deps += 1;
             let dep = &self.connections[dep_label.connection_idx];
             if self.cut.contains(&(c.id, dep.id)) {
                 continue;

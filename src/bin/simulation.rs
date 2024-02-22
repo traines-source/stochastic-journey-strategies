@@ -194,6 +194,8 @@ impl Simulation {
         
         let simulation_run_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
+        assert!(self.conf.start_mams.last().unwrap()+self.conf.query_window-1440 < self.conf.start_mams[0], "last start_mam may not overlap with first start_mam of the next day");
+
         for f in glob(&self.conf.gtfsrt_glob).expect("Failed to read glob pattern") {
             let path = f.as_ref().unwrap().to_str().unwrap().to_owned();
             let current_time = Self::get_current_time(f, reference_ts)?;
@@ -337,16 +339,15 @@ impl Simulation {
         }
         let arrival_time = Self::get_arrival_time(&self.stoch_log[&pair], pair.2, tt);
         if current_time >= arrival_time && self.results[&pair].stoch.actual_dest_arrival.is_none() {           
-            if self.conf.stoch_simulation == "adaptive_online_relevant" {
+            if self.conf.stoch_simulation == "adaptive_online_relevant" || self.conf.stoch_simulation == "adaptive_online" {
                 let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.conf, current_time);
                 Self::preprocess_if_necessary(&mut env, timing_preprocessing);
+                let start = Instant::now();
                 let stoch = env.pair_query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window, &self.stoch_actions[pair].connection_pairs);
+                let timing_stoch = start.elapsed().as_millis();
+                println!("elapsed: {}", timing_stoch);
                 self.stoch_actions.get_mut(pair).unwrap().station_labels = stoch;
-            } else if self.conf.stoch_simulation == "adaptive_online" {
-                let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.conf, current_time);
-                Self::preprocess_if_necessary(&mut env, timing_preprocessing);
-                let stoch = env.query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window);
-                self.stoch_actions.get_mut(pair).unwrap().station_labels = stoch;
+                self.results.get_mut(&pair).unwrap().stoch.algo_elapsed_ms.push(timing_stoch);
             }
         }
     }
@@ -396,8 +397,10 @@ impl Simulation {
             let next_start_mam = self.conf.start_mams[*next_start_mam_idx];
             println!("Beginning next start_mam {}", next_start_mam);
             stop_pairs.extend(load_samples(&self.conf.samples_config_path).iter().take(self.conf.samples).map(|s| (s.from_idx, s.to_idx, next_start_mam+reference_offset)));
-            let number_of_days = if next_start_mam+self.conf.query_window > 1440 { 2 } else { 1 };
-            if *next_start_mam_idx == 0 || number_of_days == 2 && self.conf.start_mams[*next_start_mam_idx-1]+self.conf.query_window <= 1440 {
+            //let number_of_days = if next_start_mam+self.conf.query_window > 1440 { 2 } else { 1 };
+            //let has_changed = number_of_days == 2 && self.conf.start_mams[*next_start_mam_idx-1]+self.conf.query_window <= 1440; TODO stable connids?
+            let number_of_days = 2;
+            if *next_start_mam_idx == 0 {
                 println!("Loading GTFS day_idx {} days {}", day_idx, number_of_days);
                 *t = Some(gtfs::load_timetable(&self.conf.gtfs_path, day(self.conf.start_date[0], self.conf.start_date[1], self.conf.start_date[2]+day_idx), day(self.conf.start_date[0], self.conf.start_date[1], self.conf.start_date[2]+day_idx+number_of_days)));
                 *reference_ts = t.as_ref().unwrap().get_start_day_ts() as u64;
@@ -442,6 +445,7 @@ impl Simulation {
 
     fn get_current_stop_idx(current_time: i32, pair: (usize, usize, i32), log: &mut Vec<LogEntry>, result: &mut SimulationResult, tt: &GtfsTimetable) -> Option<usize> {
         if result.actual_dest_arrival.is_some() {
+            println!("Completed.");
             None
         } else if log.len() == 0 {
             Some(pair.0)
@@ -562,6 +566,7 @@ impl Simulation {
                 if alternatives.len() > 0 {
                     result.connection_missed = Some(tt.connections[alternatives.last().unwrap().from_conn_idx].clone());
                 }
+                println!("Setting to broken.");
                 result.broken = true;
             }
         }
@@ -599,12 +604,12 @@ impl Simulation {
 
     fn update_connections_taken(result: &mut SimulationResult, connection: &connection::Connection, stations: &[connection::Station], proj_dest_arr: f32) {
         let mut conn = connection.clone();
-        /*conn.destination_arrival.replace(Some(distribution::Distribution {
+        conn.destination_arrival.replace(Some(distribution::Distribution {
             feasible_probability: 1.0,
             histogram: vec![],
             start: 0,
             mean: proj_dest_arr
-        }));*/
+        }));
         conn.message = format!("from: {} {} to: {} {}", stations[conn.from_idx].id, stations[conn.from_idx].name, stations[conn.to_idx].id, stations[conn.to_idx].name);
         result.connections_taken.push(conn);
         if result.broken {

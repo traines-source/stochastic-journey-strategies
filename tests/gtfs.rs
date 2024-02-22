@@ -91,6 +91,7 @@ fn gtfs() {
 
     let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
     let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 0, 0.01, 0.001, true, false);
+    //dbg!(&tt.stations[9032], &tt.stations[34734]);
     let o = 10000;
     let d = 20000;
     println!("querying...");
@@ -173,13 +174,14 @@ fn load_only_gtfs_with_rt() {
             env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
         }
     );
+    env.preprocess();
     let path = "/gtfs/swiss-gtfs-rt/2024-01-15/2024-01-15T15:38:03+01:00.gtfsrt";
     gtfs::load_realtime(&path, &t, &mapping,
         |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
             env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
         }
     );
-    let mut env = topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 8300, 0.01, true);
+    env.preprocess();
 
     let o = 10000;
     let d = 20000;
@@ -189,6 +191,10 @@ fn load_only_gtfs_with_rt() {
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
     println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
+
+    for i in 0..tt.connections.len() {
+        assert_eq!(tt.connections[tt.order[i]].id, i); 
+    }
 }
 
 #[test]
