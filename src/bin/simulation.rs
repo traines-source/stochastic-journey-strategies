@@ -222,7 +222,7 @@ impl Simulation {
                     repeat = false;
                     let current_stop_idx = Self::get_current_stop_idx(current_time, *pair, self.stoch_log.get_mut(pair).unwrap(), &mut self.results.get_mut(pair).unwrap().stoch, &tt);
                     if current_stop_idx.is_some() {
-                        let alternatives = Self::get_stoch_alternatives(current_stop_idx.unwrap(), &tt, &self.stoch_actions[pair]);
+                        let alternatives = Self::get_stoch_alternatives(current_stop_idx.unwrap(), &tt, &self.stoch_actions[pair], &self.contr);
                         repeat = Self::step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, self.stoch_log.get_mut(pair).unwrap(), &mut self.results.get_mut(pair).unwrap().stoch, &tt);
                     }
                 }
@@ -527,33 +527,41 @@ impl Simulation {
         alternatives
     }
 
-    fn get_stoch_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, stoch_actions: &StochActions) -> Vec<Alternative> {
+    fn get_stoch_alternatives(current_stop_idx: usize, tt: &GtfsTimetable, stoch_actions: &StochActions, contr: &Option<StationContraction>) -> Vec<Alternative> {
         let mut alternatives: Vec<Alternative> = vec![];
-        let footpaths = &tt.stations[current_stop_idx].footpaths;
-        for i in 0..footpaths.len()+1 {
-            let stop_idx = if i == footpaths.len() { current_stop_idx } else { footpaths[i].target_location_idx };
-            let station_labels = stoch_actions.station_labels.get(stop_idx);
-            if station_labels.is_none() {
-                continue;
+        if let Some(contr) = contr {
+            let stop_idx = contr.stop_to_group[current_stop_idx];
+            Self::extend_alternatives_by_stop_labels(stoch_actions, stop_idx, &mut alternatives);
+        } else {
+            let footpaths = &tt.stations[current_stop_idx].footpaths;
+            for i in 0..footpaths.len()+1 {
+                let stop_idx = if i == footpaths.len() { current_stop_idx } else { footpaths[i].target_location_idx };
+                println!("label len: {} {} {} {} transftime: {}", current_stop_idx, stop_idx, stoch_actions.station_labels.iter().filter(|l| l.len() > 0).count(), stoch_actions.connection_pairs.len(), if i == footpaths.len() { 0 } else { footpaths[i].duration });
+                Self::extend_alternatives_by_stop_labels(stoch_actions, stop_idx, &mut alternatives);
             }
-            println!("label len: {} {} {} {} {} transftime: {}", current_stop_idx, stop_idx, stoch_actions.station_labels.iter().filter(|l| l.len() > 0).count(), station_labels.unwrap().len(), stoch_actions.connection_pairs.len(), footpaths[i].duration);
-            alternatives.extend(station_labels.unwrap().iter().filter_map(|l| {
-                if l.destination_arrival.mean == 0.0 {
-                    panic!("weirdly 0");
-                }
-                if l.destination_arrival.feasible_probability < 0.5 {
-                    return None // TODO properly use transfer strategy?
-                }
-                Some(Alternative{
-                    from_conn_idx: l.connection_idx,
-                    to_conn_idx: if stoch_actions.connection_pairs_reverse.is_empty() { l.connection_idx } else { stoch_actions.connection_pairs_reverse[&l.connection_idx] },
-                    proj_dest_arr: l.destination_arrival.mean
-                })
-            }));
         }
-
         alternatives.sort_unstable_by(|a, b| a.proj_dest_arr.partial_cmp(&b.proj_dest_arr).unwrap());
         alternatives
+    }
+
+    fn extend_alternatives_by_stop_labels(stoch_actions: &StochActions, stop_idx: usize, alternatives: &mut Vec<Alternative>) {
+        let station_labels = stoch_actions.station_labels.get(stop_idx);
+        if station_labels.is_none() {
+            return;
+        }
+        alternatives.extend(station_labels.unwrap().iter().filter_map(|l| {
+            if l.destination_arrival.mean == 0.0 {
+                panic!("weirdly 0");
+            }
+            if l.destination_arrival.feasible_probability < 0.5 {
+                return None // TODO properly use transfer strategy?
+            }
+            Some(Alternative{
+                from_conn_idx: l.connection_idx,
+                to_conn_idx: if stoch_actions.connection_pairs_reverse.is_empty() { l.connection_idx } else { stoch_actions.connection_pairs_reverse[&l.connection_idx] },
+                proj_dest_arr: l.destination_arrival.mean
+            })
+        }));
     }
 
     fn clear_stoch_actions_if_necessary(&mut self, pair: (usize, usize, i32)) {
