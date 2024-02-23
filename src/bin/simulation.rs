@@ -13,6 +13,7 @@ use serde::Serialize;
 use stost::connection;
 use stost::gtfs::GtfsTimetable;
 use stost::gtfs::OriginDestinationSample;
+use stost::gtfs::StationContraction;
 use stost::types;
 use std::collections::HashMap;
 use std::io::Write;
@@ -158,6 +159,7 @@ struct StochActions {
 struct Simulation {
     conf: SimulationConfig,
     store: distribution_store::Store,
+    contr: Option<StationContraction>,
     det_actions: HashMap<(usize, usize, i32), motis_nigiri::Journey>,
     stoch_actions: HashMap<(usize, usize, i32), StochActions>,
     det_log: HashMap<(usize, usize, i32), Vec<LogEntry>>,
@@ -173,6 +175,7 @@ impl Simulation {
         Simulation {
             conf: conf,
             store: store,
+            contr: None,
             det_actions: HashMap::new(),
             stoch_actions: HashMap::new(),
             det_log: HashMap::new(),
@@ -242,11 +245,16 @@ impl Simulation {
                     do_continue = true;
                 }
             }
-            if !do_continue && next_start_mam_idx == self.conf.start_mams.len() {
-                println!("All simulations completed for the day. Stopping at current_time {}.", current_time);
+            if next_start_mam_idx == self.conf.start_mams.len() && (!do_continue || current_time-1440-reference_offset >= self.conf.start_mams[0]) {
+                println!("All simulations completed ({}) for the day. Stopping at current_time {}.", !do_continue, current_time);
                 self.write_results(simulation_run_at, day_idx);
                 
                 stop_pairs.clear();
+                self.det_actions.clear();
+                self.stoch_actions.clear();
+                self.det_log.clear();
+                self.stoch_log.clear();
+
                 day_idx += 1;
                 next_start_mam_idx = 0;
                 if day_idx >= self.conf.num_days {
@@ -263,7 +271,7 @@ impl Simulation {
 
     fn initialize_if_necessary(&mut self, pair: &(usize, usize, i32), tt: &mut GtfsTimetable, current_time: i32, timing_preprocessing: &mut u128, t: &Option<Timetable>, reference_ts: u64) {
         if self.results.get(&pair).is_none() {
-            let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.conf, current_time);
+            let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time);
             Self::preprocess_if_necessary(&mut env, timing_preprocessing);
             let start = Instant::now();
             let stoch = env.query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window);
@@ -326,6 +334,7 @@ impl Simulation {
     fn update_if_necessary(&mut self, pair: &(usize, usize, i32), tt: &mut GtfsTimetable, t: &Option<Timetable>, current_time: i32, timing_preprocessing: &mut u128) {
         if self.conf.det_simulation == "priori_online_broken" {
             if self.results[pair].det.broken {
+                self.fix_if_sitting_in_cancelled_trip(pair, tt);
                 let stuck_at = self.det_log[pair].last().map(|l| tt.connections[tt.order[l.conn_id]].to_idx).unwrap_or(pair.0);
                 let (min_journey, timing_det) = get_min_det_journey(t, stuck_at, pair.1, current_time);
                 if min_journey.is_some() {
@@ -340,7 +349,7 @@ impl Simulation {
         let arrival_time = Self::get_arrival_time(&self.stoch_log[&pair], pair.2, tt);
         if current_time >= arrival_time && self.results[&pair].stoch.actual_dest_arrival.is_none() {           
             if self.conf.stoch_simulation == "adaptive_online_relevant" || self.conf.stoch_simulation == "adaptive_online" {
-                let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.conf, current_time);
+                let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time);
                 Self::preprocess_if_necessary(&mut env, timing_preprocessing);
                 let start = Instant::now();
                 let stoch = env.pair_query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window, &self.stoch_actions[pair].connection_pairs);
@@ -352,8 +361,25 @@ impl Simulation {
         }
     }
 
+    fn fix_if_sitting_in_cancelled_trip(&mut self, pair: &(usize, usize, i32), tt: &mut GtfsTimetable) {
+        if self.det_log[pair].len() > 0 {
+            let mut c_id = self.det_log[pair].last().unwrap().conn_id;
+            let mut c = &tt.connections[tt.order[c_id]];
+            if !c.arrival.in_out_allowed {
+                let boarded_trip_at_id = self.results[pair].det.connections_taken.last().unwrap().id;
+                while !c.arrival.in_out_allowed && c_id > boarded_trip_at_id { // TODO this does not cover all edge cases
+                    c_id -= 1;
+                    c = &tt.connections[tt.order[c_id]];
+                }
+                let log = self.det_log.get_mut(pair).unwrap().last_mut().unwrap();
+                println!("Sitting in cancelled trip. Returning to last valid stop, updating connid {} to {}. Now at {:?}", log.conn_id, c_id, c);
+                log.conn_id = c_id;
+            }
+        }
+    }
+
     fn load_gtfsrt(&mut self, tt: &mut GtfsTimetable, current_time: i32, path: String, t: &Option<Timetable>) {
-        let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.conf, current_time);
+        let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time);
         println!("Loading GTFSRT {}", path);
         gtfs::load_realtime(
             &path,
@@ -363,6 +389,7 @@ impl Simulation {
                 env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
             },
         );
+        gtfs::sort_station_departures_asc(&mut tt.stations, &tt.connections);
     }
 
     fn preprocess_if_necessary(env: &mut topocsa::Environment, timing_preprocessing: &mut u128) {
@@ -407,6 +434,7 @@ impl Simulation {
                 *tt = gtfs::GtfsTimetable::new();
                 let mut routes = vec![];
                 tt.transport_and_day_to_connection_id = gtfs::retrieve(t.as_ref().unwrap(), &mut tt.stations, &mut routes, &mut tt.connections);
+                self.contr = Some(gtfs::get_station_contraction(&tt.stations));
                 if self.conf.transfer == "short" {
                     gtfs::shorten_footpaths(&mut tt.stations);
                 }
@@ -428,8 +456,8 @@ impl Simulation {
             / 60) as i32)
     }
 
-    fn new_env<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a Vec<connection::Station>, cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, conf: &SimulationConfig, now: types::Mtime) -> topocsa::Environment<'a> {
-        topocsa::new(
+    fn new_env<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a Vec<connection::Station>, cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, contr: &'a Option<StationContraction>, conf: &SimulationConfig, now: types::Mtime) -> topocsa::Environment<'a> {
+        let mut env = topocsa::new(
             store,
             connections,
             stations,
@@ -440,7 +468,11 @@ impl Simulation {
             conf.epsilon_feasible,
             true,
             conf.transfer_strategy == "domination"
-        )
+        );
+        if let Some(contraction) = contr {
+            env.set_station_contraction(contraction)
+        }
+        env
     }
 
     fn get_current_stop_idx(current_time: i32, pair: (usize, usize, i32), log: &mut Vec<LogEntry>, result: &mut SimulationResult, tt: &GtfsTimetable) -> Option<usize> {
@@ -504,7 +536,7 @@ impl Simulation {
             if station_labels.is_none() {
                 continue;
             }
-            println!("label len: {} {} {} {} {}", current_stop_idx, stop_idx, stoch_actions.station_labels.iter().filter(|l| l.len() > 0).count(), station_labels.unwrap().len(), stoch_actions.connection_pairs.len());
+            println!("label len: {} {} {} {} {} transftime: {}", current_stop_idx, stop_idx, stoch_actions.station_labels.iter().filter(|l| l.len() > 0).count(), station_labels.unwrap().len(), stoch_actions.connection_pairs.len(), footpaths[i].duration);
             alternatives.extend(station_labels.unwrap().iter().filter_map(|l| {
                 if l.destination_arrival.mean == 0.0 {
                     panic!("weirdly 0");

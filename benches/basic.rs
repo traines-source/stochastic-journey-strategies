@@ -55,7 +55,7 @@ fn from_gtfs(c: &mut Criterion) {
     store.load_distributions("./data/ch_sbb.csv");
 
     let mut tt = gtfs::load_gtfs_cache("./tests/fixtures/timetable.ign.cache");
-    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 0, 0.01, 0.001, true, false);
+    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 0, 0.01, 0.01, true, false);
     let contr = gtfs::get_station_contraction(&tt.stations);
     env.set_station_contraction(&contr);
     let o = 10000;
@@ -63,7 +63,7 @@ fn from_gtfs(c: &mut Criterion) {
     println!("querying...");
     let mut group = c.benchmark_group("once");
     group.sample_size(10);
-    group.bench_function("from_gtfs", |b| b.iter(|| env.query(black_box(o), black_box(d), black_box(7200), black_box(8640))));
+    group.bench_function("from_gtfs", |b| b.iter(|| env.query(black_box(o), black_box(d), black_box(7200), black_box(7920))));
     group.finish();
 }
 

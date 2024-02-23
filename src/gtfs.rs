@@ -94,10 +94,14 @@ pub fn retrieve<'a, 'b>(t: &Timetable, stations: &'a mut Vec<connection::Station
         stations[from_idx].departures.push(id);
         stations[to_idx].arrivals.push(id);
     }
+    sort_station_departures_asc(stations, connections);
+    gtfs_connections.into()
+}
+
+pub fn sort_station_departures_asc(stations: &mut Vec<connection::Station>, connections: &[connection::Connection]) {
     for station in stations {
         station.departures.sort_unstable_by(|a,b| connections[*a].departure.projected().cmp(&connections[*b].departure.projected()));
     }
-    gtfs_connections.into()
 }
 
 pub fn get_station_contraction(stations: &[connection::Station]) -> StationContraction {
