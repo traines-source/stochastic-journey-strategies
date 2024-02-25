@@ -686,16 +686,19 @@ fn get_min_det_journey(t: &Option<Timetable>, origin_idx: usize, destination_idx
 struct SimulationAnalysis {
     baseline_infeasible: i32,
     baseline_broken: i32,
-    result_infeasible: i32,
-    result_broken: i32,
-    baseline_and_result_infeasible: i32,
+    target_infeasible: i32,
+    target_broken: i32,
+    baseline_and_target_infeasible: i32,
     delta_baseline_predicted_actual: Vec<f32>,
     delta_target_predicted_actual: Vec<f32>,
     delta_baseline_target_predicted: Vec<f32>,
     delta_baseline_predicted_target_actual: Vec<f32>,
     delta_baseline_target_actual_arrival: Vec<f32>,
     delta_baseline_target_actual_travel_time: Vec<f32>,
-    result_actual_travel_time: Vec<f32>
+    target_actual_travel_time: Vec<f32>,
+    baseline_algo_elasped: Vec<f32>,
+    target_preprocessing_elapsed: Vec<f32>,
+    target_algo_elapsed: Vec<f32>
 }
 
 pub fn analyze_simulation(run_file: &str, baseline_file: Option<&str>) {
@@ -728,56 +731,65 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>)
     let mut a = SimulationAnalysis {
         baseline_infeasible: 0,
         baseline_broken: 0,
-        result_infeasible: 0,
-        result_broken: 0,
-        baseline_and_result_infeasible: 0,
+        target_infeasible: 0,
+        target_broken: 0,
+        baseline_and_target_infeasible: 0,
         delta_baseline_predicted_actual: vec![],
         delta_target_predicted_actual: vec![],
         delta_baseline_target_predicted: vec![],
         delta_baseline_predicted_target_actual: vec![],
         delta_baseline_target_actual_arrival: vec![],
         delta_baseline_target_actual_travel_time: vec![],
-        result_actual_travel_time: vec![]
+        target_actual_travel_time: vec![],
+        baseline_algo_elasped: vec![],
+        target_preprocessing_elapsed: vec![],
+        target_algo_elapsed: vec![]
     };
     assert_eq!(baseline.len(), target.len());
     for i in 0..baseline.len() {
         analyze_result(&mut a, baseline[i], target[i]);
     }
-    println!("infeasible: both: {} baseline: {} target: {} broken: baseline: {} result: {} feasible: both: {} total: {}", a.baseline_and_result_infeasible, a.baseline_infeasible, a.result_infeasible, a.baseline_broken, a.result_broken, a.delta_baseline_target_actual_travel_time.len(), baseline.len());
+    println!("infeasible: both: {} baseline: {} target: {} broken: baseline: {} target: {} feasible: both: {} total: {}", a.baseline_and_target_infeasible, a.baseline_infeasible, a.target_infeasible, a.baseline_broken, a.target_broken, a.delta_baseline_target_actual_travel_time.len(), baseline.len());
     summary(a.delta_baseline_predicted_actual, "delta_baseline_predicted_actual");
     summary(a.delta_target_predicted_actual, "delta_target_predicted_actual");
     summary(a.delta_baseline_target_predicted, "delta_baseline_target_predicted");
     summary(a.delta_baseline_predicted_target_actual, "delta_baseline_predicted_target_actual");
     summary(a.delta_baseline_target_actual_arrival, "delta_baseline_target_actual_arrival");
     summary(a.delta_baseline_target_actual_travel_time, "delta_baseline_target_actual_travel_time");
-    summary(a.result_actual_travel_time, "result_actual_travel_time");
+    summary(a.target_actual_travel_time, "target_actual_travel_time");
+    summary(a.baseline_algo_elasped, "baseline_algo_elasped");
+    summary(a.target_algo_elapsed, "target_algo_elapsed");
+    summary(a.target_preprocessing_elapsed, "target_preprocessing_elapsed");
 }
 
-fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, result: &SimulationResult) {
+fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, target: &SimulationResult) {
     if baseline.actual_dest_arrival.is_some() {
         a.delta_baseline_predicted_actual.push(baseline.actual_dest_arrival.unwrap() as f32-baseline.original_dest_arrival_prediction);
+        a.baseline_algo_elasped.push(baseline.algo_elapsed_ms[0] as f32);
     } else {
         a.baseline_infeasible += 1;
         if baseline.broken {
             a.baseline_broken += 1;
         }
     }
-    if result.actual_dest_arrival.is_some() {
-        a.delta_target_predicted_actual.push(result.actual_dest_arrival.unwrap() as f32-result.original_dest_arrival_prediction);
-        a.result_actual_travel_time.push((result.actual_dest_arrival.unwrap()-result.departure) as f32);
+    if target.actual_dest_arrival.is_some() {
+        a.delta_target_predicted_actual.push(target.actual_dest_arrival.unwrap() as f32-target.original_dest_arrival_prediction);
+        a.target_actual_travel_time.push((target.actual_dest_arrival.unwrap()-target.departure) as f32);
+        a.target_algo_elapsed.push(target.algo_elapsed_ms[0] as f32);
+        a.target_preprocessing_elapsed.push(target.preprocessing_elapsed_ms as f32);
     } else {
-        a.result_infeasible += 1;
-        if result.broken {
-            a.result_broken += 1;
+        a.target_infeasible += 1;
+        if target.broken {
+            a.target_broken += 1;
         }
     }
-    if baseline.actual_dest_arrival.is_some() && result.actual_dest_arrival.is_some() {
-        a.delta_baseline_target_predicted.push(result.original_dest_arrival_prediction-baseline.original_dest_arrival_prediction);
-        a.delta_baseline_predicted_target_actual.push(result.actual_dest_arrival.unwrap() as f32-baseline.original_dest_arrival_prediction);
-        a.delta_baseline_target_actual_arrival.push(result.actual_dest_arrival.unwrap() as f32-baseline.actual_dest_arrival.unwrap() as f32);
-        a.delta_baseline_target_actual_travel_time.push(((result.actual_dest_arrival.unwrap()-result.departure)-(baseline.actual_dest_arrival.unwrap()-baseline.departure)) as f32);
-    } else if baseline.actual_dest_arrival.is_none() && result.actual_dest_arrival.is_none() {
-        a.baseline_and_result_infeasible += 1;
+    if baseline.actual_dest_arrival.is_some() && target.actual_dest_arrival.is_some() {
+        a.delta_baseline_target_predicted.push(target.original_dest_arrival_prediction-baseline.original_dest_arrival_prediction);
+        a.delta_baseline_predicted_target_actual.push(target.actual_dest_arrival.unwrap() as f32-baseline.original_dest_arrival_prediction);
+        a.delta_baseline_target_actual_arrival.push(target.actual_dest_arrival.unwrap() as f32-baseline.actual_dest_arrival.unwrap() as f32);
+        a.delta_baseline_target_actual_travel_time.push(((target.actual_dest_arrival.unwrap()-target.departure)-(baseline.actual_dest_arrival.unwrap()-baseline.departure)) as f32);
+    } else if baseline.actual_dest_arrival.is_none() && target.actual_dest_arrival.is_none() {
+        a.baseline_and_target_infeasible += 1;
     }
 }
 
@@ -785,7 +797,7 @@ fn summary(values: Vec<f32>, name: &str) {
     let mut arr = ndarray::Array::from_vec(values);
     let q5 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.05), &Linear).unwrap();
     let q95 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.95), &Linear).unwrap();
-    println!("{}: mean {} stddev {} min {} 5% {} max {} 95% {}", name, arr.mean().unwrap(), arr.std(1.0), arr.min().unwrap(), q5, arr.max().unwrap(), q95);
+    println!("{}: mean {} stddev {} min {} 5% {} 95% {} max {}", name, arr.mean().unwrap(), arr.std(1.0), arr.min().unwrap(), q5, q95, arr.max().unwrap());
 }
 
 fn main() {
