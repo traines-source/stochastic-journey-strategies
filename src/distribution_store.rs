@@ -354,6 +354,7 @@ impl Store {
     #[inline(always)]
     fn hot_reachability_eligible(&self, key: &ReachabilityKey) -> bool {
         key.from_prior_delay == (0,0) && key.to_prior_delay == (0,0) && !self.hot_reachability.is_empty()
+        && key.diff <= self.min_delay_diff.abs()
         && key.from_product_type < PRODUCT_TYPES_NUM
         && key.to_product_type < PRODUCT_TYPES_NUM
     }
@@ -363,8 +364,6 @@ impl Store {
         let diff = (to.projected()-from.projected()-transfer_time) as i16;
         if diff < self.min_delay_diff {
             return 0.0;
-        } else if diff > self.min_delay_diff.abs() {
-            return 1.0;
         } else if !from_is_departure && (!from.in_out_allowed || !to.in_out_allowed) {
             return 0.0;
         }

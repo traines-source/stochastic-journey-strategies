@@ -144,6 +144,9 @@ impl Distribution {
         if diff+other_len <= 0 {
             return 0.0;
         }
+        if self_len < diff {
+            return 1.0;
+        }
         let mut cumulative = 0.0;
         let until_other_start = std::cmp::min(diff, self_len);
         for i in 0..until_other_start {
