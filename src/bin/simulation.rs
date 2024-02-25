@@ -389,7 +389,7 @@ impl Simulation {
                 env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
             },
         );
-        gtfs::sort_station_departures_asc(&mut tt.stations, &tt.connections);
+        gtfs::sort_station_departures_asc(&mut tt.stations, &tt.connections, &tt.order);
     }
 
     fn preprocess_if_necessary(env: &mut topocsa::Environment, timing_preprocessing: &mut u128) {
