@@ -683,18 +683,101 @@ fn get_min_det_journey(t: &Option<Timetable>, origin_idx: usize, destination_idx
 }
 
 struct SimulationAnalysis {
-    det_infeasible: i32,
-    det_broken: i32,
-    stoch_infeasible: i32,
-    stoch_broken: i32,
-    det_stoch_infeasible: i32,
-    delta_det_predicted_actual: Vec<f32>,
-    delta_stoch_predicted_actual: Vec<f32>,
-    delta_det_stoch_predicted: Vec<f32>,
-    delta_det_predicted_stoch_actual: Vec<f32>,
-    delta_det_stoch_actual_arrival: Vec<f32>,
-    delta_det_stoch_actual_travel_time: Vec<f32>,
-    stoch_actual_travel_time: Vec<f32>
+    baseline_infeasible: i32,
+    baseline_broken: i32,
+    result_infeasible: i32,
+    result_broken: i32,
+    baseline_and_result_infeasible: i32,
+    delta_baseline_predicted_actual: Vec<f32>,
+    delta_target_predicted_actual: Vec<f32>,
+    delta_baseline_target_predicted: Vec<f32>,
+    delta_baseline_predicted_target_actual: Vec<f32>,
+    delta_baseline_target_actual_arrival: Vec<f32>,
+    delta_baseline_target_actual_travel_time: Vec<f32>,
+    result_actual_travel_time: Vec<f32>
+}
+
+pub fn analyze_simulation(run_file: &str, baseline_file: Option<&str>) {
+    let run = load_simulation_run(run_file);
+    println!("\nComparison between stoch target and det target");
+    analyze_run(run.results.iter().map(|r| &r.det).collect(), run.results.iter().map(|r| &r.stoch).collect());
+    if let Some(file) = baseline_file {
+        let baseline = load_simulation_run(file);
+        let baseline_map = HashMap::from_iter(baseline.results.iter().map(|r| ((r.pair.0, r.pair.1, if r.pair.2 < 7700 {7680} else {r.pair.2}), r)));
+        println!("\nComparison between stoch target and det baseline");
+        analyze_run_with_separate_baseline(&baseline_map, &run.results, false);
+        println!("\nComparison between stoch target and stoch baseline");
+        analyze_run_with_separate_baseline(&baseline_map, &run.results, true);
+    }
+}
+
+fn analyze_run_with_separate_baseline(baseline: &HashMap<(usize, usize, i32), &SimulationJourney>, target: &[SimulationJourney], both_stoch: bool) {
+    let mut baseline_list = vec![];
+    let mut target_list = vec![];
+    for target_journey in target {
+        if let Some(baseline_journey) = baseline.get(&target_journey.pair) {
+            baseline_list.push(if both_stoch { &baseline_journey.stoch } else { &baseline_journey.det });
+            target_list.push(&target_journey.stoch);
+        } 
+    }
+    analyze_run(baseline_list, target_list);
+}
+
+fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>) {
+    let mut a = SimulationAnalysis {
+        baseline_infeasible: 0,
+        baseline_broken: 0,
+        result_infeasible: 0,
+        result_broken: 0,
+        baseline_and_result_infeasible: 0,
+        delta_baseline_predicted_actual: vec![],
+        delta_target_predicted_actual: vec![],
+        delta_baseline_target_predicted: vec![],
+        delta_baseline_predicted_target_actual: vec![],
+        delta_baseline_target_actual_arrival: vec![],
+        delta_baseline_target_actual_travel_time: vec![],
+        result_actual_travel_time: vec![]
+    };
+    assert_eq!(baseline.len(), target.len());
+    for i in 0..baseline.len() {
+        analyze_result(&mut a, baseline[i], target[i]);
+    }
+    println!("infeasible: both: {} baseline: {} target: {} broken: baseline: {} result: {} feasible: both: {} total: {}", a.baseline_and_result_infeasible, a.baseline_infeasible, a.result_infeasible, a.baseline_broken, a.result_broken, a.delta_baseline_target_actual_travel_time.len(), baseline.len());
+    summary(a.delta_baseline_predicted_actual, "delta_baseline_predicted_actual");
+    summary(a.delta_target_predicted_actual, "delta_target_predicted_actual");
+    summary(a.delta_baseline_target_predicted, "delta_baseline_target_predicted");
+    summary(a.delta_baseline_predicted_target_actual, "delta_baseline_predicted_target_actual");
+    summary(a.delta_baseline_target_actual_arrival, "delta_baseline_target_actual_arrival");
+    summary(a.delta_baseline_target_actual_travel_time, "delta_baseline_target_actual_travel_time");
+    summary(a.result_actual_travel_time, "result_actual_travel_time");
+}
+
+fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, result: &SimulationResult) {
+    if baseline.actual_dest_arrival.is_some() {
+        a.delta_baseline_predicted_actual.push(baseline.actual_dest_arrival.unwrap() as f32-baseline.original_dest_arrival_prediction);
+    } else {
+        a.baseline_infeasible += 1;
+        if baseline.broken {
+            a.baseline_broken += 1;
+        }
+    }
+    if result.actual_dest_arrival.is_some() {
+        a.delta_target_predicted_actual.push(result.actual_dest_arrival.unwrap() as f32-result.original_dest_arrival_prediction);
+        a.result_actual_travel_time.push((result.actual_dest_arrival.unwrap()-result.departure) as f32);
+    } else {
+        a.result_infeasible += 1;
+        if result.broken {
+            a.result_broken += 1;
+        }
+    }
+    if baseline.actual_dest_arrival.is_some() && result.actual_dest_arrival.is_some() {
+        a.delta_baseline_target_predicted.push(result.original_dest_arrival_prediction-baseline.original_dest_arrival_prediction);
+        a.delta_baseline_predicted_target_actual.push(result.actual_dest_arrival.unwrap() as f32-baseline.original_dest_arrival_prediction);
+        a.delta_baseline_target_actual_arrival.push(result.actual_dest_arrival.unwrap() as f32-baseline.actual_dest_arrival.unwrap() as f32);
+        a.delta_baseline_target_actual_travel_time.push(((result.actual_dest_arrival.unwrap()-result.departure)-(baseline.actual_dest_arrival.unwrap()-baseline.departure)) as f32);
+    } else if baseline.actual_dest_arrival.is_none() && result.actual_dest_arrival.is_none() {
+        a.baseline_and_result_infeasible += 1;
+    }
 }
 
 fn summary(values: Vec<f32>, name: &str) {
@@ -702,59 +785,6 @@ fn summary(values: Vec<f32>, name: &str) {
     let q5 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.05), &Linear).unwrap();
     let q95 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.95), &Linear).unwrap();
     println!("{}: mean {} stddev {} min {} 5% {} max {} 95% {}", name, arr.mean().unwrap(), arr.std(1.0), arr.min().unwrap(), q5, arr.max().unwrap(), q95);
-}
-
-pub fn analyze_simulation(run_file: &str) {
-    let run = load_simulation_run(run_file);
-    let mut a = SimulationAnalysis {
-        det_infeasible: 0,
-        det_broken: 0,
-        stoch_infeasible: 0,
-        stoch_broken: 0,
-        det_stoch_infeasible: 0,
-        delta_det_predicted_actual: vec![],
-        delta_stoch_predicted_actual: vec![],
-        delta_det_stoch_predicted: vec![],
-        delta_det_predicted_stoch_actual: vec![],
-        delta_det_stoch_actual_arrival: vec![],
-        delta_det_stoch_actual_travel_time: vec![],
-        stoch_actual_travel_time: vec![]
-    };
-    for result in &run.results {
-        if result.det.actual_dest_arrival.is_some() {
-            a.delta_det_predicted_actual.push(result.det.actual_dest_arrival.unwrap() as f32-result.det.original_dest_arrival_prediction);
-        } else {
-            a.det_infeasible += 1;
-            if result.det.broken {
-                a.det_broken += 1;
-            }
-        }
-        if result.stoch.actual_dest_arrival.is_some() {
-            a.delta_stoch_predicted_actual.push(result.stoch.actual_dest_arrival.unwrap() as f32-result.stoch.original_dest_arrival_prediction);
-            a.stoch_actual_travel_time.push((result.stoch.actual_dest_arrival.unwrap()-result.stoch.departure) as f32);
-        } else {
-            a.stoch_infeasible += 1;
-            if result.stoch.broken {
-                a.stoch_broken += 1;
-            }
-        }
-        if result.det.actual_dest_arrival.is_some() && result.stoch.actual_dest_arrival.is_some() {
-            a.delta_det_stoch_predicted.push(result.stoch.original_dest_arrival_prediction-result.det.original_dest_arrival_prediction);
-            a.delta_det_predicted_stoch_actual.push(result.stoch.actual_dest_arrival.unwrap() as f32-result.det.original_dest_arrival_prediction);
-            a.delta_det_stoch_actual_arrival.push(result.stoch.actual_dest_arrival.unwrap() as f32-result.det.actual_dest_arrival.unwrap() as f32);
-            a.delta_det_stoch_actual_travel_time.push(((result.stoch.actual_dest_arrival.unwrap()-result.stoch.departure)-(result.det.actual_dest_arrival.unwrap()-result.det.departure)) as f32);
-        } else if result.det.actual_dest_arrival.is_none() && result.stoch.actual_dest_arrival.is_none() {
-            a.det_stoch_infeasible += 1;
-        }
-    }
-    println!("infeasible: both: {} det: {} stoch: {} broken: det: {} stoch: {} feasible: both: {}", a.det_stoch_infeasible, a.det_infeasible, a.stoch_infeasible, a.det_broken, a.stoch_broken, a.delta_det_stoch_actual_travel_time.len());
-    summary(a.delta_det_predicted_actual, "delta_det_predicted_actual");
-    summary(a.delta_stoch_predicted_actual, "delta_stoch_predicted_actual");
-    summary(a.delta_det_stoch_predicted, "delta_det_stoch_predicted");
-    summary(a.delta_det_predicted_stoch_actual, "delta_det_predicted_stoch_actual");
-    summary(a.delta_det_stoch_actual_arrival, "delta_det_stoch_actual_arrival");
-    summary(a.delta_det_stoch_actual_travel_time, "delta_det_stoch_actual_travel_time");
-    summary(a.stoch_actual_travel_time, "stoch_actual_travel_time");
 }
 
 fn main() {
@@ -768,7 +798,7 @@ fn main() {
             Simulation::new(&args[2]).run_simulation().unwrap();
         },
         "analyze" => {
-            analyze_simulation(&args[2]);
+            analyze_simulation(&args[2], if args.len() > 3 {Some(&args[3])} else {None});
         },
         _ => println!("Usage: simulation (run|analyze) FILE") 
     };
