@@ -277,8 +277,9 @@ impl Simulation {
             let stoch = env.query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window);
             let timing_stoch = start.elapsed().as_millis();
             let (min_journey, timing_det) = get_min_det_journey(t, pair.0, pair.1, current_time);
-            if min_journey.is_none() || !stoch.get(pair.0).is_some_and(|s| s.len() > 0) {
-                println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch.get(pair.0).is_some_and(|s| s.len() > 0));
+            let stoch_exist_alternatives = stoch.get(self.contr.as_ref().map(|contr| contr.stop_to_group[pair.0]).unwrap_or(pair.0)).is_some_and(|s| s.len() > 0);
+            if min_journey.is_none() || !stoch_exist_alternatives {
+                println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch_exist_alternatives);
             } else {
                 self.det_actions.insert(*pair, min_journey.unwrap());
                 let relevant_pairs = if self.conf.stoch_simulation == "adaptive_online_relevant" {
