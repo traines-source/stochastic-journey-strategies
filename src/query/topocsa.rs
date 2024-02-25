@@ -420,8 +420,9 @@ impl<'a> Environment<'a> {
                 if self.domination {
                     if ((j+1) as usize) < departures.len() {
                         let reference = &self.connections[departures[(j+1) as usize].connection_idx];
-                        let dep_dist_ref = self.store.borrow_mut().delay_distribution(&reference.departure, true, reference.product_type, self.now).mean; // TODO opt
-                        let dep_dist_c = self.store.borrow_mut().delay_distribution(&departure_conn.departure, true, departure_conn.product_type, self.now).mean; // TODO opt
+                        
+                        let dep_dist_ref = self.store.borrow_mut().delay_distribution_mean(&reference.departure, true, reference.product_type, self.now);
+                        let dep_dist_c = self.store.borrow_mut().delay_distribution_mean(&departure_conn.departure, true, departure_conn.product_type, self.now);
                         if dep_dist_c < dep_dist_ref {
                             prob_after = 0.0;
                         }

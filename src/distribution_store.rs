@@ -82,7 +82,7 @@ impl Store {
     }
 
     pub fn print_stats(&self) {
-        println!("store: min_delay_diff: {} epsilon_min_delay_diff: {} reachability entries: {} hits: {} hot_hits: {} misses: {}", self.min_delay_diff, self.min_epsilon_delay_diff, self.reachability.len(), self.hits, self.hot_hits, self.misses);
+        println!("store: min_delay_diff: {} epsilon_min_delay_diff: {} reachability entries: {} hits: {} hot_hits: {} misses: {} delaykeys: {}", self.min_delay_diff, self.min_epsilon_delay_diff, self.reachability.len(), self.hits, self.hot_hits, self.misses, self.delay.len());
     }
 
     pub fn reachability_len(&self) -> usize {
@@ -318,6 +318,12 @@ impl Store {
     pub fn delay_distribution(&self, stop_info: &connection::StopInfo, is_departure: bool, product_type: i16, now: types::Mtime) -> distribution::Distribution {
         let ttl = self.ttl_bucket(stop_info.projected()-now);
         self.raw_delay_distribution(self.delay_bucket(stop_info.delay, ttl), is_departure, product_type, ttl).shift(stop_info.projected())
+    }
+
+    #[inline]
+    pub fn delay_distribution_mean(&self, stop_info: &connection::StopInfo, is_departure: bool, product_type: i16, now: types::Mtime) -> f32 {
+        let ttl = self.ttl_bucket(stop_info.projected()-now);
+        self.raw_delay_distribution(self.delay_bucket(stop_info.delay, ttl), is_departure, product_type, ttl).mean+stop_info.projected() as f32
     }
 
     #[inline(always)]
