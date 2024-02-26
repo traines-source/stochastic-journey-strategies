@@ -76,7 +76,8 @@ pub struct ConnectionLabel {
     pub connection_idx: usize,
     pub destination_arrival: distribution::Distribution,
     pub prob_after: f32,
-    pub stop_departure_idx: usize
+    pub stop_departure_idx: usize,
+    pub departure_mean: f32
 }
 
 #[derive(Debug)]
@@ -488,14 +489,12 @@ impl<'a> Environment<'a> {
                     j -= 1;
                 }
                 let mut prob_after = 1.0;
+                let mut departure_mean = 0.0;
 
                 if self.domination {
                     if ((j+1) as usize) < departures.len() {
-                        let reference = &self.connections[departures[(j+1) as usize].connection_idx];
-                        
-                        let dep_dist_ref = self.store.borrow_mut().delay_distribution_mean(&reference.departure, true, reference.product_type, self.now);
-                        let dep_dist_c = self.store.borrow_mut().delay_distribution_mean(&departure_conn.departure, true, departure_conn.product_type, self.now);
-                        if dep_dist_c < dep_dist_ref {
+                        departure_mean = self.store.borrow_mut().delay_distribution_mean(&departure_conn.departure, true, departure_conn.product_type, self.now);
+                        if departure_mean < departures[(j+1) as usize].departure_mean {
                             prob_after = 0.0;
                         }
                     }
@@ -516,7 +515,8 @@ impl<'a> Environment<'a> {
                         connection_idx: departure_conn_idx,
                         destination_arrival: new_distribution,
                         prob_after: prob_after,
-                        stop_departure_idx: self.reachable_probabilities.as_ref().map(|rp| rp[departure_conn_idx].departure_idx).unwrap_or(0)
+                        stop_departure_idx: self.reachable_probabilities.as_ref().map(|rp| rp[departure_conn_idx].departure_idx).unwrap_or(0),
+                        departure_mean: departure_mean
                     });
                 }
             }
