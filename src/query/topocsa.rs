@@ -78,13 +78,6 @@ pub struct ConnectionLabel {
 }
 
 #[derive(Debug)]
-pub struct ConnectionReachableProbabilities {
-    pub departure_idx: usize,
-    pub first_successor_idx: usize,
-    pub reachable_probabilities: [f32; 100]
-}
-
-#[derive(Debug)]
 pub struct Instrumentation {
     found: usize,
     encounter_1: usize,
@@ -427,8 +420,8 @@ impl<'a> Environment<'a> {
                 let mut departure_mean = 0.0;
 
                 if self.domination {
+                    departure_mean = self.store.borrow_mut().delay_distribution_mean(&departure_conn.departure, true, departure_conn.product_type, self.now);
                     if ((j+1) as usize) < departures.len() {
-                        departure_mean = self.store.borrow_mut().delay_distribution_mean(&departure_conn.departure, true, departure_conn.product_type, self.now);
                         if departure_mean < departures[(j+1) as usize].departure_mean {
                             prob_after = 0.0;
                         }
