@@ -335,9 +335,9 @@ impl Simulation {
     fn update_if_necessary(&mut self, pair: &(usize, usize, i32), tt: &mut GtfsTimetable, t: &Option<Timetable>, current_time: i32, timing_preprocessing: &mut u128) {
         if self.conf.det_simulation == "priori_online_broken" {
             if self.results[pair].det.broken {
-                self.fix_if_sitting_in_cancelled_trip(pair, tt);
+                let arrival_time = self.fix_if_sitting_in_cancelled_trip(pair, tt);
                 let stuck_at = self.det_log[pair].last().map(|l| tt.connections[tt.order[l.conn_id]].to_idx).unwrap_or(pair.0);
-                let (min_journey, timing_det) = get_min_det_journey(t, stuck_at, pair.1, current_time);
+                let (min_journey, timing_det) = get_min_det_journey(t, stuck_at, pair.1, arrival_time.unwrap_or(current_time));
                 if min_journey.is_some() {
                     println!("Replacing broken det itinerary.");
                     self.det_actions.insert(*pair, min_journey.unwrap());
@@ -362,7 +362,7 @@ impl Simulation {
         }
     }
 
-    fn fix_if_sitting_in_cancelled_trip(&mut self, pair: &(usize, usize, i32), tt: &mut GtfsTimetable) {
+    fn fix_if_sitting_in_cancelled_trip(&mut self, pair: &(usize, usize, i32), tt: &mut GtfsTimetable) -> Option<types::Mtime> {
         if self.det_log[pair].len() > 0 {
             let mut c_id = self.det_log[pair].last().unwrap().conn_id;
             let mut c = &tt.connections[tt.order[c_id]];
@@ -375,8 +375,10 @@ impl Simulation {
                 let log = self.det_log.get_mut(pair).unwrap().last_mut().unwrap();
                 println!("Sitting in cancelled trip. Returning to last valid stop, updating connid {} to {}. Now at {:?}", log.conn_id, c_id, c);
                 log.conn_id = c_id;
+                return Some(c.arrival.projected())
             }
         }
+        None
     }
 
     fn load_gtfsrt(&mut self, tt: &mut GtfsTimetable, current_time: i32, path: String, t: &Option<Timetable>) {
