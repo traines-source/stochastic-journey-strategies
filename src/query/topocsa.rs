@@ -29,7 +29,8 @@ pub fn new<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Ve
         domination,
         cut,
         order,
-        contraction: None
+        contraction: None,
+        reachable_probabilities: None
     }
 }
 
@@ -60,7 +61,8 @@ pub struct Environment<'a> {
     domination: bool,
     cut: &'a mut FxHashSet<(usize, usize)>,
     order: &'a mut Vec<usize>,
-    contraction: Option<&'a StationContraction>
+    contraction: Option<&'a StationContraction>,
+    reachable_probabilities: Option<&'a mut Vec<ConnectionReachableProbabilities>>
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -73,7 +75,15 @@ pub struct DfsConnectionLabel {
 pub struct ConnectionLabel {
     pub connection_idx: usize,
     pub destination_arrival: distribution::Distribution,
-    pub prob_after: f32
+    pub prob_after: f32,
+    pub stop_departure_idx: usize
+}
+
+#[derive(Debug)]
+pub struct ConnectionReachableProbabilities {
+    pub departure_idx: usize,
+    pub first_successor_idx: usize,
+    pub reachable_probabilities: [f32; 100]
 }
 
 #[derive(Debug)]
@@ -100,8 +110,9 @@ struct CsaInstrumentation {
 
 impl<'a> Environment<'a> {
 
-    pub fn set_station_contraction(&mut self, contr: &'a StationContraction) {
+    pub fn set_station_contraction(&mut self, contr: &'a StationContraction, reachable_probabilities: &'a mut Vec<ConnectionReachableProbabilities>) {
         self.contraction = Some(contr);
+        self.reachable_probabilities = Some(reachable_probabilities);
     }
 
     fn dfs(&mut self, anchor_idx: usize, topo_idx: &mut usize, labels: &mut Vec<DfsConnectionLabel>, visited: &mut Vec<i16>, stops_completed_up: &mut Vec<usize>, instr: &mut Instrumentation) {
@@ -284,7 +295,68 @@ impl<'a> Environment<'a> {
         self.order.clear();
         self.order.append(&mut new_order);
         println!("Done preprocessing.");
+        
         println!("connections: {} topoidx: {} cut: {}", self.connections.len(), topo_idx, self.cut.len());
+    }
+
+    pub fn create_hotter_reachable_probabilities(&self) -> Vec<ConnectionReachableProbabilities> {
+        (0..self.connections.len()).map(|_i| ConnectionReachableProbabilities {
+            departure_idx: 0,
+            first_successor_idx: 0,
+            reachable_probabilities: [0.0; 100]
+        }).collect()
+    }
+
+    pub fn prepare_hotter_reachable_probabilities(&mut self) {
+        if self.reachable_probabilities.is_none() {
+            return;
+        }
+        if let Some(contr) = self.contraction {
+            if let Some(reachable_probabilities) = self.reachable_probabilities.as_mut() {
+                let mut group_departures: HashMap<usize, Vec<usize>> = HashMap::new();
+                for i in 0..self.stations.len() {
+                    let group_idx = contr.stop_to_group[i];
+                    if !group_departures.contains_key(&group_idx) {
+                        group_departures.insert(group_idx, vec![]);
+                    }
+                    group_departures.get_mut(&group_idx).unwrap().extend(self.stations[i].departures.iter());
+                }
+                println!("grouping done");
+                for group in &mut group_departures {
+                    group.1.sort_unstable_by(|a,b| self.connections[self.order[*a]].departure.projected().cmp(&self.connections[self.order[*b]].departure.projected()));
+                    for departure in group.1.iter().enumerate() {
+                        reachable_probabilities[self.order[*departure.1]].departure_idx = departure.0;
+                    }
+                }
+                println!("sorting done");
+                for i in 0..self.connections.len() {
+                    let label = reachable_probabilities.get_mut(i).unwrap();
+                    let deps = &group_departures[&contr.stop_to_group[self.connections[i].to_idx]];
+                    let c = &self.connections[i];
+                    let mut found = false;
+                    for j in 0..deps.len() {
+                        let dep = &self.connections[self.order[deps[j]]];
+                        let transfer_time = self.contraction.unwrap().get_transfer_time(c.to_idx, dep.from_idx) as i32;
+                        let reachable = if c.is_consecutive(dep) {
+                            1.0
+                        } else {
+                            self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now)
+                        };
+                        if reachable > self.epsilon_reachable || found {
+                            if !found {
+                                label.first_successor_idx = j;
+                                found = true;
+                            }
+                            label.reachable_probabilities[j-label.first_successor_idx] = reachable;
+                            if j-label.first_successor_idx+1 >= label.reachable_probabilities.len() {
+                                break;
+                            }
+                        }
+                    }
+                }
+                println!("probs done");
+            }
+        }   
     }
 
     pub fn update(&mut self, connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>) {
@@ -443,7 +515,8 @@ impl<'a> Environment<'a> {
                     departures.insert((j+1) as usize, ConnectionLabel{
                         connection_idx: departure_conn_idx,
                         destination_arrival: new_distribution,
-                        prob_after: prob_after
+                        prob_after: prob_after,
+                        stop_departure_idx: self.reachable_probabilities.as_ref().map(|rp| rp[departure_conn_idx].departure_idx).unwrap_or(0)
                     });
                 }
             }
@@ -530,17 +603,24 @@ impl<'a> Environment<'a> {
         let contr = self.contraction.unwrap();
 
         let c = &self.connections[c_idx];
+        let reachable_probabilities = self.reachable_probabilities.as_ref().map(|rp| &rp[c_idx]);
         let mut store = self.store.borrow_mut();
         for dep_label in departures.iter().rev() {
             instr.deps += 1;
-            let dep = &self.connections[dep_label.connection_idx];
-            if self.cut.contains(&(c.id, dep.id)) {
-                continue;
-            }
+            
             let mut p: f32 = dep_label.destination_arrival.feasible_probability*dep_label.prob_after;
-            if !c.is_consecutive(dep) { 
-                let transfer_time = contr.get_transfer_time(c.to_idx, dep.from_idx) as i32;
-                p *= store.before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
+
+            if let Some(reachable) = reachable_probabilities.map(|rp| rp.reachable_probabilities.get(dep_label.stop_departure_idx-rp.first_successor_idx)).flatten() {
+                p *= *reachable;
+            } else {
+                let dep = &self.connections[dep_label.connection_idx];
+                if self.cut.contains(&(c.id, dep.id)) {
+                    continue;
+                }
+                if !c.is_consecutive(dep) { 
+                    let transfer_time = contr.get_transfer_time(c.to_idx, dep.from_idx) as i32;
+                    p *= store.before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
+                }
             }
             if p > 0.0 {
                 new_distribution.add_with(&dep_label.destination_arrival, p*remaining_probability, self.mean_only);

@@ -55,9 +55,12 @@ fn from_gtfs(c: &mut Criterion) {
     store.load_distributions("./data/ch_sbb.csv");
 
     let mut tt = gtfs::load_gtfs_cache("./tests/fixtures/timetable.ign.cache");
-    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 7500, 0.01, 0.01, true, false);
+
+    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 7500, 0.01, 0.01, true, false);   
+    let mut rp = env.create_hotter_reachable_probabilities();
     let contr = gtfs::get_station_contraction(&tt.stations);
-    env.set_station_contraction(&contr);
+    env.set_station_contraction(&contr, &mut rp);
+    env.prepare_hotter_reachable_probabilities();
     let o = 10000;
     let d = 20000;
     println!("querying...");

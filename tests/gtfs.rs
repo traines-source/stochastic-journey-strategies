@@ -91,8 +91,9 @@ fn gtfs() {
 
     let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
     let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 8100, 0.01, 0.01, true, false);
+    let mut rp = env.create_hotter_reachable_probabilities();
     let contr = gtfs::get_station_contraction(&tt.stations);
-    env.set_station_contraction(&contr);
+    env.set_station_contraction(&contr, &mut rp);
     //dbg!(&tt.stations[9032], &tt.stations[34734]);
     let o = 10000;
     let d = 20000;
@@ -113,8 +114,9 @@ fn gtfs_with_contr() {
     let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
     //gtfs::shorten_footpaths(&mut tt.stations);
     let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 0, 0.01, 0.001, true, false);
+    let mut rp = env.create_hotter_reachable_probabilities();
     let contr = gtfs::get_station_contraction(&tt.stations);
-    env.set_station_contraction(&contr);
+    env.set_station_contraction(&contr, &mut rp);
     let o = 10000;
     let d = 20000;
     println!("querying...");
@@ -148,8 +150,10 @@ fn gtfs_with_rt() {
             env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
         }
     );
+    let mut rp = env.create_hotter_reachable_probabilities();
     let contr = gtfs::get_station_contraction(&tt.stations);
-    env.set_station_contraction(&contr);
+    env.set_station_contraction(&contr, &mut rp);
+    env.prepare_hotter_reachable_probabilities();
     let o = 10100;
     let d = 20100;
     println!("querying...");
@@ -191,8 +195,9 @@ fn load_only_gtfs_with_rt() {
         }
     );
     env.preprocess();
+    let mut rp = env.create_hotter_reachable_probabilities();
     let contr = gtfs::get_station_contraction(&tt.stations);
-    env.set_station_contraction(&contr);
+    env.set_station_contraction(&contr, &mut rp);
 
     let o = 10000;
     let d = 20000;
