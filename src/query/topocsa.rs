@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::time::Instant;
 use rustc_hash::FxHashSet;
 
@@ -556,29 +557,32 @@ impl<'a> Environment<'a> {
         }
     }
 
-    pub fn relevant_stations(&mut self, start_time: types::Mtime, origin_idx: usize, destination_idx: usize, station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, f32> {
-        let origin = connection::StopInfo::new(start_time, None);
+    pub fn relevant_stations(&mut self, origin_idx: usize, destination_idx: usize, station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, f32> {
         println!("from {} {} to {} {}", origin_idx, self.stations[origin_idx].name, destination_idx, self.stations[destination_idx].name);
-        let mut stack = vec![(self.order[self.stations[origin_idx].arrivals[0]], 1.0)];
-        println!("starting: {}", self.stations[self.connections[stack[0].0].to_idx].name);
+        let mut stack = vec![(0, 1.0)];
+        let mut initial = true;
         let mut weights_by_station_idx: HashMap<usize, f32> = HashMap::new();
         'outer: while !stack.is_empty() {
             let conn_with_prob = stack.pop().unwrap();
             let c = &self.connections[conn_with_prob.0];
-            let station_idx = c.to_idx;
+            let station_idx = if initial { origin_idx } else { c.to_idx };
+            let footpaths = &self.stations[station_idx].footpaths;
             if station_idx == destination_idx {
-                weights_by_station_idx.insert(station_idx, 1000.0);
+                *weights_by_station_idx.entry(station_idx).or_default() += conn_with_prob.1;
+                for i in 0..footpaths.len() {
+                    *weights_by_station_idx.entry(footpaths[i].target_location_idx).or_default() += conn_with_prob.1;
+                }
                 continue;
             }
 
             let mut departures = vec![&station_labels[station_idx]];
             let mut transfer_times = vec![self.stations[station_idx].transfer_time as i32];
-            let footpaths = &self.stations[station_idx].footpaths;
             for i in 0..footpaths.len() {
                 let stop_idx = footpaths[i].target_location_idx;
                 if stop_idx == destination_idx {
+                    *weights_by_station_idx.entry(station_idx).or_default() += conn_with_prob.1;
                     for i in 0..footpaths.len() {
-                        weights_by_station_idx.insert(footpaths[i].target_location_idx, 1000.0);
+                        *weights_by_station_idx.entry(footpaths[i].target_location_idx).or_default() += conn_with_prob.1;
                     }
                     continue 'outer;
                 }
@@ -610,47 +614,44 @@ impl<'a> Environment<'a> {
                 let dep = &self.connections[dep_label.connection_idx];
                 is[min_k] += 1;
 
-                if self.cut.contains(&(c.id, dep.id)) {
+                if !initial && self.cut.contains(&(c.id, dep.id)) {
                     continue;
                 }
-                if station_idx == origin_idx {
-                    p *= self.store.borrow_mut().before_probability(&origin, 100, false, &dep.departure, dep.product_type, transfer_times[min_k], self.now);                            
-                } else if p > 0.0 && !c.is_consecutive(dep) {
+                if !initial && !c.is_consecutive(dep) {
                     p *= self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_times[min_k], self.now);
                 }
-                if p <= self.epsilon_feasible {
+                if p <= self.epsilon_reachable {
                     continue;
                 }
-                let dep_prob = p*remaining_probability*conn_with_prob.1;
-                if !c.is_consecutive(dep) || station_idx == origin_idx {
-                    let mut w = *weights_by_station_idx.get(&dep.from_idx).unwrap_or(&0.0);
-                    w += dep_prob;
-                    weights_by_station_idx.insert(dep.from_idx, w);
-                    //println!("{} {} {}", dep.from_idx, self.stations[dep.from_idx].name, w);
+                let dep_prob = p*remaining_probability*conn_with_prob.1/dep_label.destination_arrival.feasible_probability;
+                if initial || !c.is_consecutive(dep) {
+                    *weights_by_station_idx.entry(dep.from_idx).or_default() += dep_prob;
                     if station_idx != dep.from_idx {
-                        let mut w = *weights_by_station_idx.get(&station_idx).unwrap_or(&0.0);
-                        w += dep_prob;
-                        weights_by_station_idx.insert(station_idx, w);    
-                        //println!("{} {} {}", station_idx, self.stations[station_idx].name, w);
-
+                        *weights_by_station_idx.entry(station_idx).or_default() += dep_prob;
                     }
                 }
-                if dep_prob > self.epsilon_reachable*self.epsilon_reachable {
+                if !initial {
+                    remaining_probability = (1.0-p).clamp(0.0,1.0)*remaining_probability;
+                }
+                if dep_prob > self.epsilon_feasible && dep_label.destination_arrival.feasible_probability >= 1.0-self.epsilon_feasible {
                     stack.push((dep_label.connection_idx, dep_prob));
                 }
-                remaining_probability = (1.0-p).clamp(0.0,1.0)*remaining_probability;
             }
+            initial = false;
+            
         }
         for w in &weights_by_station_idx {
-            println!("{} {} {}", w.0, self.stations[*w.0].name, w.1);
-
+            //println!("{} {} {}", w.0, self.stations[*w.0].name, w.1);
         }
+        println!("relevant stations: {}", weights_by_station_idx.len());
+
         weights_by_station_idx
     }
 
     pub fn relevant_connection_pairs(&mut self, weights_by_station_idx: HashMap<usize, f32>) -> HashMap<usize, usize> {
         let mut stations: Vec<(usize, f32)> = weights_by_station_idx.into_iter().collect();
         stations.sort_unstable_by(|a,b| b.1.partial_cmp(&a.1).unwrap());
+        //println!("{:?}", stations.iter().take(500).map(|s| (&self.stations[s.0].name as &str, s.1)).collect::<Vec<(&str, f32)>>());
         let mut trip_id_to_conn_idxs: HashMap<i32, Vec<(usize, bool)>> = HashMap::new();
         for i in 0..std::cmp::min(stations.len(), 500) {
             for arr in &self.stations[stations[i].0].arrivals {

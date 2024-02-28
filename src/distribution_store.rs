@@ -82,7 +82,7 @@ impl Store {
     }
 
     pub fn print_stats(&self) {
-        println!("store: min_delay_diff: {} epsilon_min_delay_diff: {} reachability entries: {} hits: {} hot_hits: {} misses: {} delaykeys: {}", self.min_delay_diff, self.min_epsilon_delay_diff, self.reachability.len(), self.hits, self.hot_hits, self.misses, self.delay.len());
+        println!("store: min_delay_diff: {} epsilon_min_delay_diff: {} ttl_lower: {} reachability entries: {} hits: {} hot_hits: {} misses: {} delaykeys: {}", self.min_delay_diff, self.min_epsilon_delay_diff, self.ttl_lower, self.reachability.len(), self.hits, self.hot_hits, self.misses, self.delay.len());
     }
 
     pub fn reachability_len(&self) -> usize {

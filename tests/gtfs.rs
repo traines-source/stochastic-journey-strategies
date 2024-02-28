@@ -129,6 +129,33 @@ fn gtfs_with_contr() {
 
 #[test]
 #[ignore]
+fn gtfs_with_relevant_stations() {
+    let mut store = distribution_store::Store::new();
+    store.load_distributions("./data/ch_sbb.csv");
+
+    let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
+    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 0, 0.01, 0.001, true, false);
+    let contr = gtfs::get_station_contraction(&tt.stations);
+    env.set_station_contraction(&contr);
+    let o = 10000;
+    let d = 20000;
+    println!("querying rel...");
+    let start_time = 7200;
+    let max_time = 8640;
+    let sl = env.query(o, d, start_time, max_time);
+    let relevant_stations = env.relevant_stations(o, d, &sl);
+    let connection_pairs = env.relevant_connection_pairs(relevant_stations);
+    let station_labels = env.pair_query(o, d, start_time, max_time, &connection_pairs);
+    let origin_deps = &station_labels[contr.stop_to_group[o]];
+    let best_conn = origin_deps.last().unwrap();
+    let second_best_conn = &origin_deps[origin_deps.len()/3];
+    //println!("{:?}", contr);
+
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
+}
+
+#[test]
+#[ignore]
 fn gtfs_with_rt() {
     let mut store = distribution_store::Store::new();
     store.load_distributions("./data/ch_sbb.csv");
