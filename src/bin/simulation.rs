@@ -494,7 +494,8 @@ impl Simulation {
                 if stop_idx == pair.1 {
                     if current_time >= last_c.arrival.projected() {
                         Self::update_connections_taken_from_last_log(result, log, tt);
-                        result.actual_dest_arrival = Some(last_c.arrival.projected());
+                        let walking_time = if i == footpaths.len() { 0 } else { footpaths[i].duration as i32 };
+                        result.actual_dest_arrival = Some(last_c.arrival.projected()+walking_time);
                     }
                     return None;
                 }
@@ -706,10 +707,10 @@ struct SimulationAnalysis {
 pub fn analyze_simulation(run_file: &str, baseline_file: Option<&str>) {
     let run = load_simulation_run(run_file);
     println!("\nComparison between stoch target and det target");
-    analyze_run(run.results.iter().map(|r| &r.det).collect(), run.results.iter().map(|r| &r.stoch).collect());
+    analyze_run(run.results.iter().map(|r| &r.det).collect(), run.results.iter().map(|r| &r.stoch).collect(), &run.results);
     if let Some(file) = baseline_file {
         let baseline = load_simulation_run(file);
-        let baseline_map = HashMap::from_iter(baseline.results.iter().map(|r| ((r.pair.0, r.pair.1, if r.pair.2 < 7700 {7680} else {r.pair.2}), r)));
+        let baseline_map = HashMap::from_iter(baseline.results.iter().map(|r| ((r.pair.0, r.pair.1, if r.pair.2 < 7700 {7620} else {r.pair.2}), r))); // TODO remove hack
         println!("\nComparison between stoch target and det baseline");
         analyze_run_with_separate_baseline(&baseline_map, &run.results, false);
         println!("\nComparison between stoch target and stoch baseline");
@@ -726,10 +727,10 @@ fn analyze_run_with_separate_baseline(baseline: &HashMap<(usize, usize, i32), &S
             target_list.push(&target_journey.stoch);
         } 
     }
-    analyze_run(baseline_list, target_list);
+    analyze_run(baseline_list, target_list, target);
 }
 
-fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>) {
+fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>, meta: &[SimulationJourney]) {
     let mut a = SimulationAnalysis {
         baseline_infeasible: 0,
         baseline_broken: 0,
@@ -749,7 +750,7 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>)
     };
     assert_eq!(baseline.len(), target.len());
     for i in 0..baseline.len() {
-        analyze_result(&mut a, baseline[i], target[i]);
+        analyze_result(&mut a, baseline[i], target[i], &meta[i]);
     }
     println!("infeasible: both: {} baseline: {} target: {} broken: baseline: {} target: {} feasible: both: {} total: {}", a.baseline_and_target_infeasible, a.baseline_infeasible, a.target_infeasible, a.baseline_broken, a.target_broken, a.delta_baseline_target_actual_travel_time.len(), baseline.len());
     summary(a.delta_baseline_predicted_actual, "delta_baseline_predicted_actual");
@@ -764,7 +765,7 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>)
     summary(a.target_preprocessing_elapsed, "target_preprocessing_elapsed");
 }
 
-fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, target: &SimulationResult) {
+fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, target: &SimulationResult, meta: &SimulationJourney) {
     if baseline.actual_dest_arrival.is_some() {
         a.delta_baseline_predicted_actual.push(baseline.actual_dest_arrival.unwrap() as f32-baseline.original_dest_arrival_prediction);
         a.baseline_algo_elasped.push(baseline.algo_elapsed_ms[0] as f32);
@@ -780,6 +781,10 @@ fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, targe
         a.target_algo_elapsed.push(target.algo_elapsed_ms[0] as f32);
         a.target_preprocessing_elapsed.push(target.preprocessing_elapsed_ms as f32);
     } else {
+        if target.broken && meta.pair.2 < 8000 {
+            println!("{:?} {:?} {:?} {:?} {:?}", meta.pair, meta.from_station_name, meta.to_station_name, target, baseline.actual_dest_arrival);
+            println!("{:?}\n", baseline);
+        }
         a.target_infeasible += 1;
         if target.broken {
             a.target_broken += 1;
