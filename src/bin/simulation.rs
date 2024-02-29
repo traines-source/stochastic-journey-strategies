@@ -152,7 +152,7 @@ pub struct SimulationRun {
 
 struct StochActions {
     station_labels: Vec<Vec<topocsa::ConnectionLabel>>,
-    connection_pairs: HashMap<usize, usize>,
+    connection_pairs: Vec<i32>,
     connection_pairs_reverse: HashMap<usize, usize>
 }
 
@@ -234,9 +234,9 @@ impl Simulation {
                     if current_stop_idx.is_some() {
                         let alternatives = Self::get_det_alternatives(current_stop_idx.unwrap(), &tt, &self.det_actions[pair]);
                         repeat = Self::step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, self.det_log.get_mut(pair).unwrap(), &mut self.results.get_mut(pair).unwrap().det, &tt);
-                        let cidx = self.det_log[pair].last();
-                        if cidx.is_some() && !self.stoch_actions[pair].connection_pairs.is_empty() && !self.stoch_actions[pair].connection_pairs.contains_key(&tt.order[cidx.unwrap().conn_id]) && !self.stoch_actions[pair].connection_pairs_reverse.contains_key(&tt.order[cidx.unwrap().conn_id]) {
-                            panic!("WARN: connection from det not contained in connection pairs {} {} {}", cidx.unwrap().conn_id, tt.connections[tt.order[cidx.unwrap().conn_id]].from_idx, tt.connections[tt.order[cidx.unwrap().conn_id]].to_idx);
+                        let cid = self.det_log[pair].last();
+                        if cid.is_some() && !self.stoch_actions[pair].connection_pairs.is_empty() && self.stoch_actions[pair].connection_pairs[cid.unwrap().conn_id] == -1 && self.stoch_actions[pair].connection_pairs_reverse.contains_key(&cid.unwrap().conn_id) {
+                            panic!("WARN: connection from det not contained in connection pairs {} {} {}", cid.unwrap().conn_id, tt.connections[tt.order[cid.unwrap().conn_id]].from_idx, tt.connections[tt.order[cid.unwrap().conn_id]].to_idx);
                         }
                     }
                 }
@@ -271,7 +271,7 @@ impl Simulation {
 
     fn initialize_if_necessary(&mut self, pair: &(usize, usize, i32), tt: &mut GtfsTimetable, current_time: i32, timing_preprocessing: &mut u128, t: &Option<Timetable>, reference_ts: u64) {
         if self.results.get(&pair).is_none() {
-            let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time);
+            let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time, true);
             Self::preprocess_if_necessary(&mut env, timing_preprocessing);
             let start = Instant::now();
             let stoch = env.query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window);
@@ -291,11 +291,11 @@ impl Simulation {
                     }
                     env.relevant_connection_pairs(relevant_stations)
                 } else {
-                    HashMap::new()
+                    Vec::new()
                 };
                 self.stoch_actions.insert(*pair, StochActions{
                     station_labels: stoch,
-                    connection_pairs_reverse: relevant_pairs.iter().map(|(k,v)| (*v,*k)).collect(),
+                    connection_pairs_reverse: relevant_pairs.iter().enumerate().filter(|(_, dep)| **dep != -1).map(|(arr,dep)| (*dep as usize,arr)).collect(),
                     connection_pairs: relevant_pairs
                 });
             }
@@ -350,7 +350,7 @@ impl Simulation {
         let arrival_time = Self::get_arrival_time(&self.stoch_log[&pair], pair.2, tt);
         if current_time >= arrival_time && self.results[&pair].stoch.actual_dest_arrival.is_none() {           
             if self.conf.stoch_simulation == "adaptive_online_relevant" || self.conf.stoch_simulation == "adaptive_online" {
-                let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time);
+                let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time, self.conf.stoch_simulation != "adaptive_online_relevant");
                 Self::preprocess_if_necessary(&mut env, timing_preprocessing);
                 let start = Instant::now();
                 let stoch = env.pair_query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window, &self.stoch_actions[pair].connection_pairs);
@@ -382,7 +382,7 @@ impl Simulation {
     }
 
     fn load_gtfsrt(&mut self, tt: &mut GtfsTimetable, current_time: i32, path: String, t: &Option<Timetable>) {
-        let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time);
+        let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time, true);
         println!("Loading GTFSRT {}", path);
         gtfs::load_realtime(
             &path,
@@ -459,7 +459,7 @@ impl Simulation {
             / 60) as i32)
     }
 
-    fn new_env<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a Vec<connection::Station>, cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, contr: &'a Option<StationContraction>, conf: &SimulationConfig, now: types::Mtime) -> topocsa::Environment<'a> {
+    fn new_env<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a Vec<connection::Station>, cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, contr: &'a Option<StationContraction>, conf: &SimulationConfig, now: types::Mtime, mean_only: bool) -> topocsa::Environment<'a> {
         let mut env = topocsa::new(
             store,
             connections,
@@ -469,7 +469,7 @@ impl Simulation {
             now,
             conf.epsilon_reachable,
             conf.epsilon_feasible,
-            true,
+            mean_only,
             conf.transfer_strategy == "domination"
         );
         if let Some(contraction) = contr {
@@ -522,7 +522,7 @@ impl Simulation {
         }
         let departure_idx = resolve_connection_idx(det_actions, next_leg, false, &tt.transport_and_day_to_connection_id, &tt.order);
         let arrival_idx = resolve_connection_idx(det_actions, next_leg, true, &tt.transport_and_day_to_connection_id, &tt.order);
-        println!("current_stop: {} dep: {:?}", current_stop_idx, tt.connections[departure_idx]);
+        println!("current_stop: {} dep: {} {:?}", current_stop_idx, tt.connections[departure_idx].from_idx, tt.connections[departure_idx].departure);
         let alternatives = vec![Alternative{
             from_conn_idx: departure_idx,
             to_conn_idx: arrival_idx,
@@ -535,20 +535,20 @@ impl Simulation {
         let mut alternatives: Vec<Alternative> = vec![];
         if let Some(contr) = contr {
             let stop_idx = contr.stop_to_group[current_stop_idx];
-            Self::extend_alternatives_by_stop_labels(stoch_actions, stop_idx, &mut alternatives);
+            Self::extend_alternatives_by_station_labels(stoch_actions, stop_idx, &mut alternatives, tt);
         } else {
             let footpaths = &tt.stations[current_stop_idx].footpaths;
             for i in 0..footpaths.len()+1 {
                 let stop_idx = if i == footpaths.len() { current_stop_idx } else { footpaths[i].target_location_idx };
-                println!("label len: {} {} {} {} transftime: {}", current_stop_idx, stop_idx, stoch_actions.station_labels.iter().filter(|l| l.len() > 0).count(), stoch_actions.connection_pairs.len(), if i == footpaths.len() { 0 } else { footpaths[i].duration });
-                Self::extend_alternatives_by_stop_labels(stoch_actions, stop_idx, &mut alternatives);
+                println!("label len: {} {} {} {} transftime: {}", current_stop_idx, stop_idx, stoch_actions.station_labels.iter().filter(|l| l.len() > 0).count(), stoch_actions.connection_pairs_reverse.len(), if i == footpaths.len() { 0 } else { footpaths[i].duration });
+                Self::extend_alternatives_by_station_labels(stoch_actions, stop_idx, &mut alternatives, tt);
             }
         }
         alternatives.sort_unstable_by(|a, b| a.proj_dest_arr.partial_cmp(&b.proj_dest_arr).unwrap());
         alternatives
     }
 
-    fn extend_alternatives_by_stop_labels(stoch_actions: &StochActions, stop_idx: usize, alternatives: &mut Vec<Alternative>) {
+    fn extend_alternatives_by_station_labels(stoch_actions: &StochActions, stop_idx: usize, alternatives: &mut Vec<Alternative>, tt: &GtfsTimetable) {
         let station_labels = stoch_actions.station_labels.get(stop_idx);
         if station_labels.is_none() {
             return;
@@ -562,7 +562,7 @@ impl Simulation {
             }
             Some(Alternative{
                 from_conn_idx: l.connection_idx,
-                to_conn_idx: if stoch_actions.connection_pairs_reverse.is_empty() { l.connection_idx } else { stoch_actions.connection_pairs_reverse[&l.connection_idx] },
+                to_conn_idx: if stoch_actions.connection_pairs_reverse.is_empty() { l.connection_idx } else { tt.order[stoch_actions.connection_pairs_reverse[&tt.connections[l.connection_idx].id]] },
                 proj_dest_arr: l.destination_arrival.mean
             })
         }));

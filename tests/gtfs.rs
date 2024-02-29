@@ -131,10 +131,26 @@ fn gtfs_with_relevant_stations() {
     let mut store = distribution_store::Store::new();
     store.load_distributions("./data/ch_sbb.csv");
 
-    let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
-    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 0, 0.01, 0.001, true, false);
+    let mut tt = gtfs::GtfsTimetable {
+        stations: vec![],
+        connections: vec![],
+        cut: FxHashSet::default(),
+        order: vec![],
+        transport_and_day_to_connection_id: HashMap::new()
+    };
+    let mut routes = vec![];
+    let t = gtfs::load_timetable(GTFS_PATH, day(2023, 11, 2), day(2023, 11, 3));
+    tt.transport_and_day_to_connection_id = gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);
+    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 7200, 0.01, 0.01, false, false);
     let contr = gtfs::get_station_contraction(&tt.stations);
     env.set_station_contraction(&contr);
+    env.preprocess();
+    let path = format!("{}2023-11-02T07:00:03+01:00.gtfsrt", GTFSRT_PATH);
+    gtfs::load_realtime(&path, &t, &tt.transport_and_day_to_connection_id,
+        |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
+            env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
+        }
+    );
     let o = 10000;
     let d = 20000;
     println!("querying rel...");
@@ -143,9 +159,11 @@ fn gtfs_with_relevant_stations() {
     let sl = env.query(o, d, start_time, max_time);
     let relevant_stations = env.relevant_stations(o, d, &sl);
     let connection_pairs = env.relevant_connection_pairs(relevant_stations);
+    env.preprocess();
     let station_labels = env.pair_query(o, d, start_time, max_time, &connection_pairs);
     let origin_deps = &station_labels[contr.stop_to_group[o]];
     let best_conn = origin_deps.last().unwrap();
+    println!("mean: {}, {}", best_conn.destination_arrival.mean, best_conn.destination_arrival.mean());
     let second_best_conn = &origin_deps[origin_deps.len()/3];
     //println!("{:?}", contr);
 

@@ -70,27 +70,42 @@ impl Distribution {
     }
 
     pub fn normalize(&mut self) {
-        self.normalize_with(false);    
+        self.normalize_with(false, 0.0);    
     }
     
     #[inline]
-    pub fn normalize_with(&mut self, mean_only: bool) {
-        // TODO performance vs accuracy  
+    pub fn normalize_with(&mut self, mean_only: bool, epsilon: f32) {
+        // TODO performance vs accuracy
+        if self.feasible_probability == 0.0 {
+            return;
+        }
         if !mean_only {
             if self.histogram.len() == 0 {
                 return;
             }
-            let sum = self.histogram.iter().sum::<f32>();
+
+            let mut sum = 0.0; self.histogram.iter().sum::<f32>();
+            let mut last = 0;
+            let mut offset = 0;
+            let mut found = false;
             for i in 0..self.histogram.len() {
-                self.histogram[i] /= sum;
+                if self.histogram[i] > epsilon {
+                    if !found {
+                        offset = i;
+                        self.start += i as i32;
+                        found = true;
+                    }
+                    last = i;
+                    sum += self.histogram[i];
+                }
             }
-            self.mean /= sum;
-        } else {
-            if self.feasible_probability == 0.0 {
-                return;
+            let new_len = last-offset+1;
+            for i in 0..new_len {
+                self.histogram[i] = self.histogram[i+offset]/sum;
             }
-            self.mean /= self.feasible_probability;
+            self.histogram.truncate(new_len);
         }
+        self.mean /= self.feasible_probability;
     }
     
     pub fn add(&mut self, other: &Distribution, weight: f32) {
@@ -344,6 +359,69 @@ mod tests {
         assert_eq!(a.mean, -1.5);
         assert_eq!(a.histogram[0], 0.5);
         assert_eq!(a.histogram[1], 0.5);
+    }
+
+    #[test]
+    fn normalize_with_histogram() {
+        let mut a = Distribution::uniform(5, 3);
+        a.histogram[0] = 0.1;
+        a.histogram[1] = 0.3;
+        a.histogram[2] = 0.1;
+        a.mean = 6.0;
+        a.feasible_probability = 0.5;
+        a.normalize();
+        assert_eq!(a.histogram.len(), 3);
+        assert_eq!(a.start, 5);
+        assert_eq!(a.mean, 12.0);
+        assert_eq!(a.histogram[0], 0.2);
+        assert_eq!(a.histogram[1], 0.6);
+        assert_eq!(a.histogram[2], 0.2);
+    }
+
+    #[test]
+    fn normalize_with_feasibility_0() {
+        let mut a = Distribution::uniform(5, 3);
+        a.histogram[0] = 0.1;
+        a.histogram[1] = 0.3;
+        a.histogram[2] = 0.1;
+        a.mean = 6.0;
+        a.feasible_probability = 0.0;
+        a.normalize();
+        assert_eq!(a.histogram.len(), 3);
+        assert_eq!(a.start, 5);
+        assert_eq!(a.mean, 6.0);
+        assert_eq!(a.histogram[0], 0.1);
+        assert_eq!(a.histogram[1], 0.3);
+        assert_eq!(a.histogram[2], 0.1);
+    }
+
+    #[test]
+    fn normalize_with_feasibility_mean_only() {
+        let mut a = Distribution::uniform(5, 0);
+        a.mean = 55.0;
+        a.feasible_probability = 0.5;
+        a.normalize_with(true, 0.0);
+        assert_eq!(a.histogram.len(), 0);
+        assert_eq!(a.start, 5);
+        assert_eq!(a.mean, 110.0);
+    }
+    
+    #[test]
+    fn normalize_with_epsilon() {
+        let mut a = Distribution::uniform(5, 4);
+        a.histogram[0] = 0.05;
+        a.histogram[1] = 0.3;
+        a.histogram[2] = 0.1;
+        a.histogram[3] = 0.05;
+        a.mean = 3.0;
+        a.feasible_probability = 0.5;
+        a.normalize_with(false, 0.07);
+        assert_eq!(a.histogram.len(), 2);
+        assert_eq!(a.start, 6);
+        assert_eq!(a.mean, 6.0);
+        assert_eq!(a.histogram[0], 0.75);
+        assert_eq!(a.histogram[1], 0.25);
+        assert_eq!(a.mean(), 6.25);
     }
 
     #[test]
