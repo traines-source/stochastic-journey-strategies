@@ -283,7 +283,7 @@ impl Simulation {
             } else {
                 self.det_actions.insert(*pair, min_journey.unwrap());
                 let relevant_pairs = if self.conf.stoch_simulation == "adaptive_online_relevant" {
-                    let mut relevant_stations = env.relevant_stations(pair.2, pair.0, pair.1, &stoch);
+                    let mut relevant_stations = env.relevant_stations(pair.0, pair.1, &stoch);
                     println!("Enriching relevant stations...");
                     for l in &*self.det_actions[pair].legs {
                         println!("{} {} {:?}", l.from_location_idx, tt.stations[l.from_location_idx].name, relevant_stations.insert(l.from_location_idx, 1000.0));
@@ -439,7 +439,7 @@ impl Simulation {
                 tt.transport_and_day_to_connection_id = gtfs::retrieve(t.as_ref().unwrap(), &mut tt.stations, &mut routes, &mut tt.connections);
                 self.contr = Some(gtfs::get_station_contraction(&tt.stations));
                 if self.conf.transfer == "short" {
-                    gtfs::shorten_footpaths(&mut tt.stations);
+                    connection::shorten_footpaths(&mut tt.stations);
                 }
             }
             *next_start_mam_idx += 1;

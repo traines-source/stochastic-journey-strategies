@@ -91,8 +91,6 @@ fn gtfs() {
 
     let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
     let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 8100, 0.01, 0.01, true, false);
-    let contr = gtfs::get_station_contraction(&tt.stations);
-    env.set_station_contraction(&contr);
     //dbg!(&tt.stations[9032], &tt.stations[34734]);
     let o = 10000;
     let d = 20000;

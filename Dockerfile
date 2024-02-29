@@ -9,4 +9,4 @@ RUN cargo test
 
 EXPOSE 1234
 
-CMD ["api"]
+CMD ["target/release/api"]

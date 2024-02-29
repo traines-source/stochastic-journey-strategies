@@ -42,7 +42,17 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connec
     let mut stations_idx: HashMap<&str, usize> = HashMap::new(); 
     for s in &timetable.stations {
         stations_idx.insert(s.id.borrow(), stations.len());
-        stations.push(connection::Station::new(s.id.to_string(), s.name.to_string(), vec![]));
+        stations.push(connection::Station {
+			id: s.id.to_string(),
+			name: s.name.to_string(),
+			arrivals: vec![],
+			departures: vec![],
+			lat: s.lat,
+			lon: s.lon,
+			transfer_time: 1,
+			parent_idx: 0,
+			footpaths: vec![]
+		});
     }
     let mut route_idx = 0;
     for r in &timetable.routes {
@@ -71,6 +81,9 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connec
             trip_id += 1;
         }
         route_idx += 1;
+    }
+    for station in &mut *stations {
+        station.departures.sort_unstable_by(|a,b| connections[*a].departure.projected().cmp(&connections[*b].departure.projected()));
     }
     let query = request_message.query.as_ref().unwrap();
     let start_time = request_message.timetable.as_ref().unwrap().start_time;

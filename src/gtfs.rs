@@ -138,25 +138,6 @@ pub fn get_station_contraction(stations: &[connection::Station]) -> StationContr
     contr
 }
 
-fn geodist_meters(stop1: &connection::Station, stop2: &connection::Station) -> f32 {       
-    let r = 6371e3;
-    let x = (stop2.lon.to_radians()-stop1.lon.to_radians()) * ((stop1.lat.to_radians()+stop2.lat.to_radians())/2 as f32).cos();
-    let y = stop2.lat.to_radians()-stop1.lat.to_radians();
-    (x*x + y*y).sqrt() * r
-}
-
-const WALKING_METRES_PER_SECOND: f32 = 1.5;
-
-pub fn shorten_footpaths(stations: &mut Vec<connection::Station>) {
-    for i in 0..stations.len() {
-        for j in 0..stations[i].footpaths.len() {
-            let dur = (geodist_meters(&stations[i], &stations[stations[i].footpaths[j].target_location_idx])/WALKING_METRES_PER_SECOND/60.0).round() as u16;
-            stations[i].footpaths[j].duration = std::cmp::min(std::cmp::max(dur, 1), stations[i].footpaths[j].duration);
-        }
-        stations[i].transfer_time = 1;
-    }
-}
-
 fn to_connecion_id(e: &motis_nigiri::EventChange, transport_and_day_to_connection_id: &HashMap<(usize, u16), usize>) -> usize {
     let dep_offset = if e.is_departure { 0 } else { 1 };
     let initial_connection_of_transport = transport_and_day_to_connection_id[&(e.transport_idx, e.day_idx)];

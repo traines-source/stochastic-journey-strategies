@@ -35,6 +35,7 @@ fn main() {
         let mut routes = vec![];
         let mut connections = vec![];
         let (start_time, o_idx, d_idx, now, system) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
+        connection::create_footpaths(&mut stations);
         /*if system == "ch_sbb" {
             stations = ch_stations;
             routes = ch_routes;
@@ -44,7 +45,7 @@ fn main() {
         println!("querying...");
         let o = &stations[o_idx];
         let d = &stations[d_idx];
-        query::query(&mut s, &mut connections, &stations, o_idx, d_idx, 0, 100, serde::to_mtime(now, start_time));
+        query::query(&mut s, &mut connections, &stations, o_idx, d_idx, 0, 1440*2, serde::to_mtime(now, start_time));
         println!("finished querying.");
         let bytes = serde::serialize_protobuf(&stations, &routes, &connections, o, d, start_time);
         Response::from_data("application/octet-stream", bytes)

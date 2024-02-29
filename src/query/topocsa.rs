@@ -45,7 +45,6 @@ pub fn prepare_and_query<'a>(store: &'a mut distribution_store::Store, connectio
     let mut order = Vec::with_capacity(connections.len());
     let mut e = prepare(store, connections, stations, cut, &mut order, now, epsilon, mean_only);
     e.query(origin, destination, start_time, max_time);
-    e.store.borrow_mut().clear_reachability();
     println!("Done.");
 }
 
@@ -360,7 +359,9 @@ impl<'a> Environment<'a> {
             }*/
             let new_distribution = if stop_idx == dest_contr {
                 if !c.arrival.in_out_allowed {
-                    //c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
+                    if !self.mean_only {
+                        c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
+                    }
                     continue;
                 }
                 let mut new_distribution = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now);
@@ -378,7 +379,9 @@ impl<'a> Environment<'a> {
                         let mut footpath_dest_arr = distribution::Distribution::empty(0);
                         if f.target_location_idx == destination {
                             if !c.arrival.in_out_allowed {
-                                //c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
+                                if !self.mean_only {
+                                    c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
+                                }
                                 continue;
                             }
                             footpath_dest_arr = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now).shift(f.duration as i32);
@@ -408,7 +411,9 @@ impl<'a> Environment<'a> {
                 None => departure_conn.from_idx
             };
             let departures = station_labels.get_mut(departure_station_idx).unwrap();
-            //departure_conn.destination_arrival.replace(Some(new_distribution.clone())); // TODO remove
+            if !self.mean_only {
+                departure_conn.destination_arrival.replace(Some(new_distribution.clone())); // TODO remove
+            }
             if new_distribution.feasible_probability > self.epsilon_feasible {
                 let mut j = departures.len() as i32-1;
                 while j >= 0 {
