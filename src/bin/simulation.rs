@@ -152,7 +152,7 @@ pub struct SimulationRun {
 
 struct StochActions {
     station_labels: Vec<Vec<topocsa::ConnectionLabel>>,
-    connection_pairs: Vec<i32>,
+    connection_pairs: HashMap<i32, i32>,
     connection_pairs_reverse: HashMap<usize, usize>
 }
 
@@ -235,8 +235,8 @@ impl Simulation {
                         let alternatives = Self::get_det_alternatives(current_stop_idx.unwrap(), &tt, &self.det_actions[pair]);
                         repeat = Self::step(current_time, pair.2, current_stop_idx.unwrap(), &alternatives, self.det_log.get_mut(pair).unwrap(), &mut self.results.get_mut(pair).unwrap().det, &tt);
                         let cid = self.det_log[pair].last();
-                        if cid.is_some() && !self.stoch_actions[pair].connection_pairs.is_empty() && self.stoch_actions[pair].connection_pairs[cid.unwrap().conn_id] == -1 && self.stoch_actions[pair].connection_pairs_reverse.contains_key(&cid.unwrap().conn_id) {
-                            panic!("WARN: connection from det not contained in connection pairs {} {} {}", cid.unwrap().conn_id, tt.connections[tt.order[cid.unwrap().conn_id]].from_idx, tt.connections[tt.order[cid.unwrap().conn_id]].to_idx);
+                        if cid.is_some() && !self.stoch_actions[pair].connection_pairs.is_empty() && !self.stoch_actions[pair].connection_pairs.contains_key(&(cid.unwrap().conn_id as i32)) && !self.stoch_actions[pair].connection_pairs_reverse.contains_key(&cid.unwrap().conn_id) {
+                            println!("WARN: connection from det not contained in connection pairs {} {} {}", cid.unwrap().conn_id, tt.connections[tt.order[cid.unwrap().conn_id]].from_idx, tt.connections[tt.order[cid.unwrap().conn_id]].to_idx);
                         }
                     }
                 }
@@ -291,11 +291,11 @@ impl Simulation {
                     }
                     env.relevant_connection_pairs(relevant_stations)
                 } else {
-                    Vec::new()
+                    HashMap::new()
                 };
                 self.stoch_actions.insert(*pair, StochActions{
                     station_labels: stoch,
-                    connection_pairs_reverse: relevant_pairs.iter().enumerate().filter(|(_, dep)| **dep != -1).map(|(arr,dep)| (*dep as usize,arr)).collect(),
+                    connection_pairs_reverse: relevant_pairs.iter().map(|(arr,dep)| (*dep as usize, *arr as usize)).collect(),
                     connection_pairs: relevant_pairs
                 });
             }
@@ -335,9 +335,9 @@ impl Simulation {
     fn update_if_necessary(&mut self, pair: &(usize, usize, i32), tt: &mut GtfsTimetable, t: &Option<Timetable>, current_time: i32, timing_preprocessing: &mut u128) {
         if self.conf.det_simulation == "priori_online_broken" {
             if self.results[pair].det.broken {
-                let arrival_time = self.fix_if_sitting_in_cancelled_trip(pair, tt);
+                let fixed_arrival_time = Self::fix_if_sitting_in_cancelled_trip(self.det_log.get_mut(&pair).unwrap(), &self.results[&pair].det, tt);
                 let stuck_at = self.det_log[pair].last().map(|l| tt.connections[tt.order[l.conn_id]].to_idx).unwrap_or(pair.0);
-                let (min_journey, timing_det) = get_min_det_journey(t, stuck_at, pair.1, arrival_time.unwrap_or(current_time));
+                let (min_journey, timing_det) = get_min_det_journey(t, stuck_at, pair.1, fixed_arrival_time.unwrap_or(current_time));
                 if min_journey.is_some() {
                     println!("Replacing broken det itinerary.");
                     self.det_actions.insert(*pair, min_journey.unwrap());
@@ -350,7 +350,11 @@ impl Simulation {
         let arrival_time = Self::get_arrival_time(&self.stoch_log[&pair], pair.2, tt);
         if current_time >= arrival_time && self.results[&pair].stoch.actual_dest_arrival.is_none() {           
             if self.conf.stoch_simulation == "adaptive_online_relevant" || self.conf.stoch_simulation == "adaptive_online" {
-                let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time, self.conf.stoch_simulation != "adaptive_online_relevant");
+                let mut fixed_arrival_time = None;
+                if self.results[pair].det.broken {
+                    fixed_arrival_time = Self::fix_if_sitting_in_cancelled_trip(self.stoch_log.get_mut(&pair).unwrap(), &self.results[&pair].stoch, tt);
+                }
+                let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, fixed_arrival_time.unwrap_or(current_time), self.conf.stoch_simulation != "adaptive_online_relevant");
                 Self::preprocess_if_necessary(&mut env, timing_preprocessing);
                 let start = Instant::now();
                 let stoch = env.pair_query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window, &self.stoch_actions[pair].connection_pairs);
@@ -362,19 +366,19 @@ impl Simulation {
         }
     }
 
-    fn fix_if_sitting_in_cancelled_trip(&mut self, pair: &(usize, usize, i32), tt: &mut GtfsTimetable) -> Option<types::Mtime> {
-        if self.det_log[pair].len() > 0 {
-            let mut c_id = self.det_log[pair].last().unwrap().conn_id;
+    fn fix_if_sitting_in_cancelled_trip(log: &mut Vec<LogEntry>, result: &SimulationResult, tt: &mut GtfsTimetable) -> Option<types::Mtime> {
+        if log.len() > 0 {
+            let mut c_id = log.last().unwrap().conn_id;
             let mut c = &tt.connections[tt.order[c_id]];
             if !c.arrival.in_out_allowed {
-                let boarded_trip_at_id = self.results[pair].det.connections_taken.last().unwrap().id;
+                let boarded_trip_at_id = result.connections_taken.last().unwrap().id;
                 while !c.arrival.in_out_allowed && c_id > boarded_trip_at_id { // TODO this does not cover all edge cases
                     c_id -= 1;
                     c = &tt.connections[tt.order[c_id]];
                 }
-                let log = self.det_log.get_mut(pair).unwrap().last_mut().unwrap();
-                println!("Sitting in cancelled trip. Returning to last valid stop, updating connid {} to {}. Now at {:?}", log.conn_id, c_id, c);
-                log.conn_id = c_id;
+                let last_log = log.last_mut().unwrap();
+                println!("Sitting in cancelled trip. Returning to last valid stop, updating connid {} to {}. Now at {:?}", last_log.conn_id, c_id, c);
+                last_log.conn_id = c_id;
                 return Some(c.arrival.projected())
             }
         }
@@ -492,7 +496,7 @@ impl Simulation {
             while i <= footpaths.len() {
                 let stop_idx = if i == footpaths.len() { current_stop_idx } else { footpaths[i].target_location_idx };
                 if stop_idx == pair.1 {
-                    if current_time >= last_c.arrival.projected() {
+                    if current_time >= last_c.arrival.projected() && last_c.arrival.in_out_allowed {
                         Self::update_connections_taken_from_last_log(result, log, tt);
                         let walking_time = if i == footpaths.len() { 0 } else { footpaths[i].duration as i32 };
                         result.actual_dest_arrival = Some(last_c.arrival.projected()+walking_time);
@@ -595,7 +599,7 @@ impl Simulation {
                         log.push(LogEntry{
                             conn_id: tt.connections[alt.to_conn_idx].id,
                             proj_dest_arr: alt.proj_dest_arr,
-                            arrival_time_lower_bound: arrival_time
+                            arrival_time_lower_bound: std::cmp::max(next_c.departure.projected(), arrival_time)
                         });
                         return true;
                     }

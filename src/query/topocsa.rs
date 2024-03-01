@@ -316,17 +316,17 @@ impl<'a> Environment<'a> {
     }
 
     pub fn query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime) -> Vec<Vec<ConnectionLabel>> {
-        let pairs = Vec::new();
+        let pairs = HashMap::new();
         let start_ts = Instant::now();
         let r = self.pair_query(_origin, destination, start_time, max_time, &pairs);
         println!("elapsed: {}", start_ts.elapsed().as_millis());
         r
     }
 
-    pub fn pair_query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &Vec<i32>) -> Vec<Vec<ConnectionLabel>> {
-        let mut connection_pair_idxs = vec![-1; connection_pairs.len()];
-        for i in 0..connection_pairs.len() {
-            connection_pair_idxs[self.order[i]] = connection_pairs[i];
+    pub fn pair_query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>> {
+        let mut connection_pair_ids = vec![-1; if connection_pairs.len() > 0 { self.connections.len() } else { 0 }];
+        for pair in connection_pairs.iter() {
+            connection_pair_ids[self.order[*pair.0 as usize]] = *pair.1;
         }
         let mut instr = CsaInstrumentation {
             looked_at: 0,
@@ -338,7 +338,7 @@ impl<'a> Environment<'a> {
         let empty_vec = vec![];
         let max_delay = self.store.borrow().max_delay as types::Mtime;
         for i in 0..self.connections.len() {
-            if connection_pair_idxs.len() > 0 && connection_pair_idxs[i] == -1 {
+            if connection_pair_ids.len() > 0 && connection_pair_ids[i] == -1 {
                 continue;
             }
             let c = &self.connections[i];
@@ -409,8 +409,8 @@ impl<'a> Environment<'a> {
                 new_distribution   
             };
 
-            let departure_conn_idx = if connection_pair_idxs.len() == 0 { i } else { self.order[connection_pair_idxs[i] as usize] };
-            let departure_conn = if connection_pair_idxs.len() == 0 { c } else { &self.connections[departure_conn_idx] };
+            let departure_conn_idx = if connection_pair_ids.len() == 0 { i } else { self.order[connection_pair_ids[i] as usize] };
+            let departure_conn = if connection_pair_ids.len() == 0 { c } else { &self.connections[departure_conn_idx] };
             let departure_station_idx = match self.contraction {
                 Some(contr) => contr.stop_to_group[departure_conn.from_idx],
                 None => departure_conn.from_idx
@@ -658,7 +658,7 @@ impl<'a> Environment<'a> {
         weights_by_station_idx
     }
 
-    pub fn relevant_connection_pairs(&mut self, weights_by_station_idx: HashMap<usize, f32>) -> Vec<i32> {
+    pub fn relevant_connection_pairs(&mut self, weights_by_station_idx: HashMap<usize, f32>) -> HashMap<i32, i32> {
         let mut stations: Vec<(usize, f32)> = weights_by_station_idx.into_iter().collect();
         stations.sort_unstable_by(|a,b| b.1.partial_cmp(&a.1).unwrap());
         //println!("{:?}", stations.iter().take(500).map(|s| (&self.stations[s.0].name as &str, s.1)).collect::<Vec<(&str, f32)>>());
@@ -679,11 +679,11 @@ impl<'a> Environment<'a> {
             );
             let mut i = if !trip[0].1 { 1 } else { 0 };
             while i+1 < trip.len() {
-                connection_pairs.insert(self.connections[trip[i+1].0].id, self.connections[trip[i].0].id);
+                connection_pairs.insert(self.connections[trip[i+1].0].id as i32, self.connections[trip[i].0].id as i32);
                 i += 2;
             }
         }
-        (0..self.connections.len()).map(|arr| connection_pairs.get(&arr).map(|dep| *dep as i32).unwrap_or(-1)).collect()
+        connection_pairs
     }
 
     fn insert_relevant_conn_idx(&mut self, conn_id: &usize, trip_id_to_conn_idxs: &mut HashMap<i32, Vec<(usize, bool)>>, is_departure: bool) {
