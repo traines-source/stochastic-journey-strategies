@@ -212,7 +212,7 @@ impl Simulation {
             for pair in &stop_pairs {
                 println!("Pair: {:?}", pair);
                 self.initialize_if_necessary(pair, &mut tt, current_time, &mut timing_preprocessing, &t, reference_ts);
-                if self.det_actions.get(pair).is_none() {
+                if self.det_actions.get(pair).is_none() || pair.2 + self.conf.query_window < current_time {
                     continue;
                 }
                 self.update_if_necessary(pair, &mut tt, &t, current_time, &mut timing_preprocessing);
@@ -335,7 +335,7 @@ impl Simulation {
     fn update_if_necessary(&mut self, pair: &(usize, usize, i32), tt: &mut GtfsTimetable, t: &Option<Timetable>, current_time: i32, timing_preprocessing: &mut u128) {
         if self.conf.det_simulation == "priori_online_broken" {
             if self.results[pair].det.broken {
-                let fixed_arrival_time = Self::fix_if_sitting_in_cancelled_trip(self.det_log.get_mut(&pair).unwrap(), &self.results[&pair].det, tt);
+                let fixed_arrival_time = Self::fix_if_sitting_in_cancelled_trip(self.det_log.get_mut(&pair).unwrap(), &self.results[&pair].det, pair.2, tt);
                 let stuck_at = self.det_log[pair].last().map(|l| tt.connections[tt.order[l.conn_id]].to_idx).unwrap_or(pair.0);
                 let (min_journey, timing_det) = get_min_det_journey(t, stuck_at, pair.1, fixed_arrival_time.unwrap_or(current_time));
                 if min_journey.is_some() {
@@ -351,8 +351,8 @@ impl Simulation {
         if current_time >= arrival_time && self.results[&pair].stoch.actual_dest_arrival.is_none() {           
             if self.conf.stoch_simulation == "adaptive_online_relevant" || self.conf.stoch_simulation == "adaptive_online" {
                 let mut fixed_arrival_time = None;
-                if self.results[pair].det.broken {
-                    fixed_arrival_time = Self::fix_if_sitting_in_cancelled_trip(self.stoch_log.get_mut(&pair).unwrap(), &self.results[&pair].stoch, tt);
+                if self.results[pair].stoch.broken {
+                    fixed_arrival_time = Self::fix_if_sitting_in_cancelled_trip(self.stoch_log.get_mut(&pair).unwrap(), &self.results[&pair].stoch, pair.2, tt);
                 }
                 let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, fixed_arrival_time.unwrap_or(current_time), self.conf.stoch_simulation != "adaptive_online_relevant");
                 Self::preprocess_if_necessary(&mut env, timing_preprocessing);
@@ -366,20 +366,25 @@ impl Simulation {
         }
     }
 
-    fn fix_if_sitting_in_cancelled_trip(log: &mut Vec<LogEntry>, result: &SimulationResult, tt: &mut GtfsTimetable) -> Option<types::Mtime> {
+    fn fix_if_sitting_in_cancelled_trip(log: &mut Vec<LogEntry>, result: &SimulationResult, start_time: i32, tt: &mut GtfsTimetable) -> Option<types::Mtime> {
         if log.len() > 0 {
             let mut c_id = log.last().unwrap().conn_id;
             let mut c = &tt.connections[tt.order[c_id]];
             if !c.arrival.in_out_allowed {
-                let boarded_trip_at_id = result.connections_taken.last().unwrap().id;
-                while !c.arrival.in_out_allowed && c_id > boarded_trip_at_id { // TODO this does not cover all edge cases
+                let boarded_trip_at_id = result.connections_taken.get(result.connections_taken.len()-2).map(|r| r.id).unwrap_or(c_id);
+                while !c.arrival.in_out_allowed && c_id > boarded_trip_at_id {
                     c_id -= 1;
                     c = &tt.connections[tt.order[c_id]];
                 }
-                let last_log = log.last_mut().unwrap();
-                println!("Sitting in cancelled trip. Returning to last valid stop, updating connid {} to {}. Now at {:?}", last_log.conn_id, c_id, c);
-                last_log.conn_id = c_id;
-                return Some(c.arrival.projected())
+                if !c.arrival.in_out_allowed {
+                    log.pop();
+                    println!("Sitting in cancelled trip. Returning to stop where boarded, at {}. Now at {:?}", boarded_trip_at_id, log.last().map(|l| l.conn_id).unwrap_or(0));
+                } else {
+                    let last_log = log.last_mut().unwrap();
+                    println!("Sitting in cancelled trip. Returning to last valid stop, boarded at {}, updating connid {} to {}. Now at {:?}", boarded_trip_at_id, last_log.conn_id, c_id, c);
+                    last_log.conn_id = c_id;
+                }
+                return Some(Self::get_arrival_time(log, start_time, tt))
             }
         }
         None
@@ -579,6 +584,9 @@ impl Simulation {
     } 
 
     fn step(current_time: i32, start_time: i32, current_stop_idx: usize, alternatives: &[Alternative], log: &mut Vec<LogEntry>, result: &mut SimulationResult, tt: &GtfsTimetable) -> bool {
+        if log.len() > 10000 || result.connections_taken.len() > 10000 {
+            panic!("Log len exceeded");
+        }
         let arrival_time = Self::get_arrival_time(log, start_time, tt);
         let mut alternatives_still_available = false;
         println!("current_time: {} current_stop_idx: {} arrival: {}", current_time, current_stop_idx, arrival_time);
@@ -711,21 +719,22 @@ struct SimulationAnalysis {
 pub fn analyze_simulation(run_file: &str, baseline_file: Option<&str>) {
     let run = load_simulation_run(run_file);
     println!("\nComparison between stoch target and det target");
-    analyze_run(run.results.iter().map(|r| &r.det).collect(), run.results.iter().map(|r| &r.stoch).collect(), &run.results);
+    analyze_run(run.results.iter().map(|r| &r.det).collect(), run.results.iter().map(|r| &r.stoch).collect(), run.results.iter().collect());
+    //analyze_run(run.results.iter().filter(|r| r.pair.2 < 8000).map(|r| &r.det).collect(), run.results.iter().filter(|r| r.pair.2 < 8000).map(|r| &r.stoch).collect(), run.results.iter().filter(|r| r.pair.2 < 8000).collect());
     if let Some(file) = baseline_file {
         let baseline = load_simulation_run(file);
         let baseline_map = HashMap::from_iter(baseline.results.iter().map(|r| ((r.pair.0, r.pair.1, if r.pair.2 < 7700 {7620} else {r.pair.2}), r))); // TODO remove hack
         println!("\nComparison between stoch target and det baseline");
-        analyze_run_with_separate_baseline(&baseline_map, &run.results, false);
+        analyze_run_with_separate_baseline(&baseline_map, run.results.iter().collect(), false);
         println!("\nComparison between stoch target and stoch baseline");
-        analyze_run_with_separate_baseline(&baseline_map, &run.results, true);
+        analyze_run_with_separate_baseline(&baseline_map, run.results.iter().collect(), true);
     }
 }
 
-fn analyze_run_with_separate_baseline(baseline: &HashMap<(usize, usize, i32), &SimulationJourney>, target: &[SimulationJourney], both_stoch: bool) {
+fn analyze_run_with_separate_baseline(baseline: &HashMap<(usize, usize, i32), &SimulationJourney>, target: Vec<&SimulationJourney>, both_stoch: bool) {
     let mut baseline_list = vec![];
     let mut target_list = vec![];
-    for target_journey in target {
+    for target_journey in &target {
         if let Some(baseline_journey) = baseline.get(&target_journey.pair) {
             baseline_list.push(if both_stoch { &baseline_journey.stoch } else { &baseline_journey.det });
             target_list.push(&target_journey.stoch);
@@ -734,7 +743,7 @@ fn analyze_run_with_separate_baseline(baseline: &HashMap<(usize, usize, i32), &S
     analyze_run(baseline_list, target_list, target);
 }
 
-fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>, meta: &[SimulationJourney]) {
+fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>, meta: Vec<&SimulationJourney>) {
     let mut a = SimulationAnalysis {
         baseline_infeasible: 0,
         baseline_broken: 0,

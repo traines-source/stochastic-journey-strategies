@@ -5,9 +5,12 @@ use serde::{Serialize, Deserialize};
 use crate::types;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Distribution {
-	pub histogram: Vec<f32>,
+    #[serde(skip_deserializing)]
+    pub histogram: Vec<f32>,
 	pub start: types::Mtime,
+    #[serde(default)]
 	pub mean: f32,
+    #[serde(default)]
     pub feasible_probability: f32
 }
 
@@ -84,7 +87,7 @@ impl Distribution {
                 return;
             }
 
-            let mut sum = 0.0; self.histogram.iter().sum::<f32>();
+            let mut sum = 0.0;
             let mut last = 0;
             let mut offset = 0;
             let mut found = false;
@@ -99,11 +102,13 @@ impl Distribution {
                     sum += self.histogram[i];
                 }
             }
-            let new_len = last-offset+1;
-            for i in 0..new_len {
-                self.histogram[i] = self.histogram[i+offset]/sum;
+            if sum <= 0.0 {
+                let new_len = last-offset+1;
+                for i in 0..new_len {
+                    self.histogram[i] = self.histogram[i+offset]/sum;
+                }
+                self.histogram.truncate(new_len);
             }
-            self.histogram.truncate(new_len);
         }
         self.mean /= self.feasible_probability;
     }
