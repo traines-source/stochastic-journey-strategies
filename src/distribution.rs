@@ -102,7 +102,7 @@ impl Distribution {
                     sum += self.histogram[i];
                 }
             }
-            if sum <= 0.0 {
+            if sum > 0.0 {
                 let new_len = last-offset+1;
                 for i in 0..new_len {
                     self.histogram[i] = self.histogram[i+offset]/sum;
