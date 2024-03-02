@@ -432,10 +432,25 @@ impl<'a> Environment<'a> {
 
                 if self.domination {
                     departure_mean = self.store.borrow_mut().delay_distribution_mean(&departure_conn.departure, true, departure_conn.product_type, self.now);
-                    if ((j+1) as usize) < departures.len() {
-                        if departure_mean < departures[(j+1) as usize].departure_mean {
-                            prob_after = 0.0;
+                    if ((j+1) as usize) < departures.len() && departure_mean < departures[(j+1) as usize].departure_mean {
+                        continue;
+                    }
+                    if j >= 0 && departure_mean > departures[j as usize].departure_mean {
+                        let mut k = j-1;
+                        while k >= 0 && departure_mean > departures[k as usize].departure_mean {
+                            k -= 1;
                         }
+                        let replace_up_to = (k+1) as usize;
+                        if replace_up_to != j as usize {
+                            departures.drain(replace_up_to..j as usize);
+                        }
+                        departures[replace_up_to] = ConnectionLabel{
+                            connection_idx: departure_conn_idx,
+                            destination_arrival: new_distribution,
+                            prob_after: 1.0,
+                            departure_mean: departure_mean
+                        };
+                        continue;
                     }
                 } else if self.contraction.is_some() {
                     if ((j+1) as usize) < departures.len() { 
