@@ -665,24 +665,25 @@ impl<'a> Environment<'a> {
             initial = false;
             
         }
-        for w in &weights_by_station_idx {
-            //println!("{} {} {}", w.0, self.stations[*w.0].name, w.1);
+        for w in &weights_by_station_idx.iter().map(|w| (*w.0, *w.1)).collect::<Vec<(usize, f32)>>() {
+            for f in &self.stations[w.0].footpaths {
+                *weights_by_station_idx.entry(f.target_location_idx).or_default() += w.1;
+            }
         }
         println!("relevant stations: {}", weights_by_station_idx.len());
-
         weights_by_station_idx
     }
 
-    pub fn relevant_connection_pairs(&mut self, weights_by_station_idx: HashMap<usize, f32>) -> HashMap<i32, i32> {
-        let mut stations: Vec<(usize, f32)> = weights_by_station_idx.into_iter().collect();
-        stations.sort_unstable_by(|a,b| b.1.partial_cmp(&a.1).unwrap());
+    pub fn relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, f32>) -> HashMap<i32, i32> {
+        let mut stations: Vec<(&usize, &f32)> = weights_by_station_idx.iter().collect();
+        stations.sort_unstable_by(|a,b| b.1.partial_cmp(a.1).unwrap());
         //println!("{:?}", stations.iter().take(500).map(|s| (&self.stations[s.0].name as &str, s.1)).collect::<Vec<(&str, f32)>>());
         let mut trip_id_to_conn_idxs: HashMap<i32, Vec<(usize, bool)>> = HashMap::new();
-        for i in 0..std::cmp::min(stations.len(), 500) {
-            for arr in &self.stations[stations[i].0].arrivals {
+        for i in 0..std::cmp::min(stations.len(), 1000) {
+            for arr in &self.stations[*stations[i].0].arrivals {
                 self.insert_relevant_conn_idx(arr, &mut trip_id_to_conn_idxs, false);
             }
-            for dep in &self.stations[stations[i].0].departures {
+            for dep in &self.stations[*stations[i].0].departures {
                 self.insert_relevant_conn_idx(dep, &mut trip_id_to_conn_idxs, true);
             }
         }

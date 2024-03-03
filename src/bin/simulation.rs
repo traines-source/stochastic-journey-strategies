@@ -153,7 +153,8 @@ pub struct SimulationRun {
 struct StochActions {
     station_labels: Vec<Vec<topocsa::ConnectionLabel>>,
     connection_pairs: HashMap<i32, i32>,
-    connection_pairs_reverse: HashMap<usize, usize>
+    connection_pairs_reverse: HashMap<usize, usize>,
+    relevant_stations: HashMap<usize, f32>
 }
 
 struct Simulation {
@@ -283,21 +284,22 @@ impl Simulation {
                 println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch_exist_alternatives);
             } else {
                 self.det_actions.insert(*pair, min_journey.unwrap());
-                let relevant_pairs = if self.conf.stoch_simulation.starts_with("adaptive_online_relevant") {
+                let relevant_stations = if self.conf.stoch_simulation.starts_with("adaptive_online_relevant") {
                     let mut relevant_stations = env.relevant_stations(pair.0, pair.1, &stoch);
                     println!("Enriching relevant stations...");
                     for l in &*self.det_actions[pair].legs {
                         println!("{} {} {:?}", l.from_location_idx, tt.stations[l.from_location_idx].name, relevant_stations.insert(l.from_location_idx, 1000.0));
                         println!("{} {} {:?}", l.to_location_idx, tt.stations[l.to_location_idx].name, relevant_stations.insert(l.to_location_idx, 1000.0));
                     }
-                    env.relevant_connection_pairs(relevant_stations)
+                    relevant_stations
                 } else {
                     HashMap::new()
                 };
                 self.stoch_actions.insert(*pair, StochActions{
                     station_labels: stoch,
-                    connection_pairs_reverse: relevant_pairs.iter().map(|(arr,dep)| (*dep as usize, *arr as usize)).collect(),
-                    connection_pairs: relevant_pairs
+                    connection_pairs_reverse: HashMap::new(),
+                    connection_pairs: HashMap::new(),
+                    relevant_stations: relevant_stations
                 });
             }
             self.det_log.insert(*pair, vec![]);
@@ -352,15 +354,27 @@ impl Simulation {
         if current_time >= arrival_time && self.results[&pair].stoch.actual_dest_arrival.is_none() {           
             if self.conf.stoch_simulation.starts_with("adaptive_online") {
                 let mut fixed_arrival_time = None;
+                let mut stuck_at = None;
                 if self.results[pair].stoch.broken {
                     fixed_arrival_time = Self::fix_if_sitting_in_cancelled_trip(self.stoch_log.get_mut(&pair).unwrap(), &self.results[&pair].stoch, pair.2, tt);
+                    stuck_at = Some(self.stoch_log[pair].last().map(|l| tt.connections[tt.order[l.conn_id]].to_idx).unwrap_or(pair.0));
                 }
                 let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, fixed_arrival_time.unwrap_or(current_time), self.conf.stoch_simulation != "adaptive_online_relevant_with_distr");
                 Self::preprocess_if_necessary(&mut env, timing_preprocessing);
                 let start = Instant::now();
+                self.stoch_actions.entry(*pair).and_modify(|a| {
+                    if let Some(sidx) = stuck_at {
+                        a.relevant_stations.insert(sidx, 1000.0);
+                        for f in &tt.stations[sidx].footpaths {
+                            a.relevant_stations.insert(f.target_location_idx, 1000.0);
+                        }
+                    }
+                    a.connection_pairs = env.relevant_connection_pairs(&a.relevant_stations);
+                    a.connection_pairs_reverse = a.connection_pairs.iter().map(|(arr,dep)| (*dep as usize, *arr as usize)).collect();
+                });
                 let stoch = env.pair_query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window, &self.stoch_actions[pair].connection_pairs);
                 let timing_stoch = start.elapsed().as_millis();
-                println!("elapsed: {}", timing_stoch);
+                println!("elapsed: {} connpairs: {}", timing_stoch, self.stoch_actions[pair].connection_pairs.len());
                 self.stoch_actions.get_mut(pair).unwrap().station_labels = stoch;
                 self.results.get_mut(&pair).unwrap().stoch.algo_elapsed_ms.push(timing_stoch);
             }
@@ -579,7 +593,11 @@ impl Simulation {
 
     fn clear_stoch_actions_if_necessary(&mut self, pair: (usize, usize, i32)) {
         if self.conf.stoch_simulation.starts_with("adaptive_online") {
-            self.stoch_actions.get_mut(&pair).unwrap().station_labels.clear();
+            self.stoch_actions.entry(pair).and_modify(|a| {
+                a.station_labels.clear();
+                a.connection_pairs.clear();
+                a.connection_pairs_reverse.clear();
+            });
         }
     } 
 
