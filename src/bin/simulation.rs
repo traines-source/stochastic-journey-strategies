@@ -201,11 +201,12 @@ impl Simulation {
 
         for f in glob(&self.conf.gtfsrt_glob).expect("Failed to read glob pattern") {
             let path = f.as_ref().unwrap().to_str().unwrap().to_owned();
-            let current_time = Self::get_current_time(f, reference_ts)?;
-            self.reload_gtfs_if_necessary(&mut reference_ts, &mut next_start_mam_idx, current_time, reference_offset, &mut stop_pairs, day_idx, &mut t, &mut tt);
+            let mtime = Self::get_mtime_unix(f)?;
+            self.reload_gtfs_if_necessary(&mut reference_ts, &mut next_start_mam_idx, mtime, reference_offset, &mut stop_pairs, day_idx, &mut t, &mut tt);
+            let current_time = Self::get_current_time(mtime, reference_ts); 
             if current_time < self.conf.start_mams[0]+reference_offset {
                 continue;
-            }
+            }          
             self.load_gtfsrt(&mut tt, current_time, path, &t);
             let mut timing_preprocessing = 0;
             let mut do_continue = false;
@@ -276,7 +277,7 @@ impl Simulation {
             let start = Instant::now();
             let stoch = env.query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window);
             let timing_stoch = start.elapsed().as_millis();
-            let (min_journey, timing_det) = get_min_det_journey(t, pair.0, pair.1, current_time);
+            let (min_journey, timing_det) = get_min_det_journey(t, pair.0, pair.1, pair.2);
             let stoch_exist_alternatives = stoch.get(self.contr.as_ref().map(|contr| contr.stop_to_group[pair.0]).unwrap_or(pair.0)).is_some_and(|s| s.len() > 0);
             if min_journey.is_none() || !stoch_exist_alternatives {
                 println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch_exist_alternatives);
@@ -431,8 +432,8 @@ impl Simulation {
         println!("Results written.");
     }
             
-    fn reload_gtfs_if_necessary(&mut self, reference_ts: &mut u64, next_start_mam_idx: &mut usize, current_time: i32, reference_offset: i32, stop_pairs: &mut Vec<(usize, usize, i32)>, day_idx: i32, t: &mut Option<Timetable>, tt: &mut GtfsTimetable) {
-        if *reference_ts == 0 || *next_start_mam_idx < self.conf.start_mams.len() && current_time >= self.conf.start_mams[*next_start_mam_idx]+reference_offset {
+    fn reload_gtfs_if_necessary(&mut self, reference_ts: &mut u64, next_start_mam_idx: &mut usize, mtime: u64, reference_offset: i32, stop_pairs: &mut Vec<(usize, usize, i32)>, day_idx: i32, t: &mut Option<Timetable>, tt: &mut GtfsTimetable) {
+        if *reference_ts == 0 || *next_start_mam_idx < self.conf.start_mams.len() && Self::get_current_time(mtime, *reference_ts) >= self.conf.start_mams[*next_start_mam_idx]+reference_offset {
             let next_start_mam = self.conf.start_mams[*next_start_mam_idx];
             println!("Beginning next start_mam {}", next_start_mam);
             stop_pairs.extend(load_samples(&self.conf.samples_config_path).iter().take(self.conf.samples).map(|s| (s.from_idx, s.to_idx, next_start_mam+reference_offset)));
@@ -455,17 +456,16 @@ impl Simulation {
         }
     }
 
-    fn get_current_time(f: Result<std::path::PathBuf, glob::GlobError>, reference_ts: u64) -> Result<i32, Box<dyn Error>> {
-        if reference_ts == 0 {
-            return Ok(0)
-        }
-        Ok(((fs::metadata(f?)?
+    fn get_mtime_unix(f: Result<std::path::PathBuf, glob::GlobError>) -> Result<u64, Box<dyn Error>> {
+        Ok(fs::metadata(f?)?
             .modified()?
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
-            .as_secs()
-            - reference_ts)
-            / 60) as i32)
+            .as_secs())
+    }
+
+    fn get_current_time(mtime: u64, reference_ts: u64) -> i32 {
+        ((mtime-reference_ts)/60) as i32
     }
 
     fn new_env<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a Vec<connection::Station>, cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, contr: &'a Option<StationContraction>, conf: &SimulationConfig, now: types::Mtime, mean_only: bool) -> topocsa::Environment<'a> {
