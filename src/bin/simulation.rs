@@ -283,7 +283,7 @@ impl Simulation {
                 println!("Infeasible for either det or stoch, skipping. det: {:?} stoch: {:?}", min_journey, stoch_exist_alternatives);
             } else {
                 self.det_actions.insert(*pair, min_journey.unwrap());
-                let relevant_pairs = if self.conf.stoch_simulation == "adaptive_online_relevant" {
+                let relevant_pairs = if self.conf.stoch_simulation.starts_with("adaptive_online_relevant") {
                     let mut relevant_stations = env.relevant_stations(pair.0, pair.1, &stoch);
                     println!("Enriching relevant stations...");
                     for l in &*self.det_actions[pair].legs {
@@ -350,12 +350,12 @@ impl Simulation {
         }
         let arrival_time = Self::get_arrival_time(&self.stoch_log[&pair], pair.2, tt);
         if current_time >= arrival_time && self.results[&pair].stoch.actual_dest_arrival.is_none() {           
-            if self.conf.stoch_simulation == "adaptive_online_relevant" || self.conf.stoch_simulation == "adaptive_online" {
+            if self.conf.stoch_simulation.starts_with("adaptive_online") {
                 let mut fixed_arrival_time = None;
                 if self.results[pair].stoch.broken {
                     fixed_arrival_time = Self::fix_if_sitting_in_cancelled_trip(self.stoch_log.get_mut(&pair).unwrap(), &self.results[&pair].stoch, pair.2, tt);
                 }
-                let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, fixed_arrival_time.unwrap_or(current_time), self.conf.stoch_simulation != "adaptive_online_relevant");
+                let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, fixed_arrival_time.unwrap_or(current_time), self.conf.stoch_simulation != "adaptive_online_relevant_with_distr");
                 Self::preprocess_if_necessary(&mut env, timing_preprocessing);
                 let start = Instant::now();
                 let stoch = env.pair_query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window, &self.stoch_actions[pair].connection_pairs);
@@ -578,7 +578,7 @@ impl Simulation {
     }
 
     fn clear_stoch_actions_if_necessary(&mut self, pair: (usize, usize, i32)) {
-        if self.conf.stoch_simulation == "adaptive_online_relevant" || self.conf.stoch_simulation == "adaptive_online" {
+        if self.conf.stoch_simulation.starts_with("adaptive_online") {
             self.stoch_actions.get_mut(&pair).unwrap().station_labels.clear();
         }
     } 
