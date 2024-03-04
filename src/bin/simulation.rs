@@ -595,8 +595,11 @@ impl Simulation {
         if self.conf.stoch_simulation.starts_with("adaptive_online") {
             self.stoch_actions.entry(pair).and_modify(|a| {
                 a.station_labels.clear();
+                a.station_labels.shrink_to_fit();
                 a.connection_pairs.clear();
+                a.connection_pairs.shrink_to_fit();
                 a.connection_pairs_reverse.clear();
+                a.connection_pairs_reverse.shrink_to_fit();
             });
         }
     } 
