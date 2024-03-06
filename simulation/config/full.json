@@ -1,0 +1,18 @@
+{
+    "distributions_path": "./data/ch_sbb.csv",
+    "gtfs_path": "../gtfs/swiss-gtfs/2023-11-06/",
+    "gtfs_cache_path": "./tests/fixtures/timetable.ign.cache",
+    "gtfsrt_glob": "../gtfs/swiss-gtfs-rt/2023-11-*/*.gtfsrt",
+    "samples_config_path": "./simulation/samples/samples.json",
+    "det_simulation": "priori_online_broken",
+    "stoch_simulation": "adaptive_online",
+    "transfer": "standard",
+    "epsilon_reachable": 0.01,
+    "epsilon_feasible": 0.01,
+    "transfer_strategy": "domination",
+    "samples": 1000,
+    "start_mams": [420, 600, 1080],
+    "start_date": [2023, 11, 2],
+    "num_days": 3,
+    "query_window": 720
+}
