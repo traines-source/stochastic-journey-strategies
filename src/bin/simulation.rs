@@ -277,7 +277,7 @@ impl Simulation {
             Self::preprocess_if_necessary(&mut env, timing_preprocessing);
             let start = Instant::now();
             let stoch = env.query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window);
-            let timing_stoch = start.elapsed().as_millis();
+            let mut timing_stoch = start.elapsed().as_millis();
             let (min_journey, timing_det) = get_min_det_journey(t, pair.0, pair.1, pair.2);
             let stoch_exist_alternatives = stoch.get(self.contr.as_ref().map(|contr| contr.stop_to_group[pair.0]).unwrap_or(pair.0)).is_some_and(|s| s.len() > 0);
             if min_journey.is_none() || !stoch_exist_alternatives {
@@ -285,7 +285,9 @@ impl Simulation {
             } else {
                 self.det_actions.insert(*pair, min_journey.unwrap());
                 let relevant_stations = if self.conf.stoch_simulation.starts_with("adaptive_online_relevant") {
+                    let start = Instant::now();
                     let mut relevant_stations = env.relevant_stations(pair.0, pair.1, &stoch);
+                    timing_stoch += start.elapsed().as_millis();
                     println!("Enriching relevant stations...");
                     for l in &*self.det_actions[pair].legs {
                         println!("{} {} {:?}", l.from_location_idx, tt.stations[l.from_location_idx].name, relevant_stations.insert(l.from_location_idx, 1000.0));
@@ -336,13 +338,19 @@ impl Simulation {
     }
 
     fn update_if_necessary(&mut self, pair: &(usize, usize, i32), tt: &mut GtfsTimetable, t: &Option<Timetable>, current_time: i32, timing_preprocessing: &mut u128) {
-        if self.conf.det_simulation == "priori_online_broken" {
-            if self.results[pair].det.broken {
-                let fixed_arrival_time = Self::fix_if_sitting_in_cancelled_trip(self.det_log.get_mut(&pair).unwrap(), &self.results[&pair].det, pair.2, tt);
+        let det_arrival_time = Self::get_arrival_time(&self.det_log[&pair], pair.2, tt);
+        if current_time >= det_arrival_time
+            && self.results[&pair].det.actual_dest_arrival.is_none()
+            && self.conf.det_simulation.starts_with("priori_online") {
                 let stuck_at = self.det_log[pair].last().map(|l| tt.connections[tt.order[l.conn_id]].to_idx).unwrap_or(pair.0);
+            let mut fixed_arrival_time = None;
+            if self.results[pair].det.broken {
+                println!("Replacing broken det itinerary.");
+                fixed_arrival_time = Self::fix_if_sitting_in_cancelled_trip(self.det_log.get_mut(&pair).unwrap(), &self.results[&pair].det, pair.2, tt);
+            }
+            if self.results[pair].det.broken || self.conf.det_simulation == "priori_online" {
                 let (min_journey, timing_det) = get_min_det_journey(t, stuck_at, pair.1, fixed_arrival_time.unwrap_or(current_time));
                 if min_journey.is_some() {
-                    println!("Replacing broken det itinerary.");
                     self.det_actions.insert(*pair, min_journey.unwrap());
                     let r = self.results.get_mut(pair).unwrap();
                     r.det.broken = false;
@@ -350,9 +358,10 @@ impl Simulation {
                 }
             }
         }
-        let arrival_time = Self::get_arrival_time(&self.stoch_log[&pair], pair.2, tt);
-        if current_time >= arrival_time && self.results[&pair].stoch.actual_dest_arrival.is_none() {           
-            if self.conf.stoch_simulation.starts_with("adaptive_online") {
+        let stoch_arrival_time = Self::get_arrival_time(&self.stoch_log[&pair], pair.2, tt);
+        if current_time >= stoch_arrival_time
+            && self.results[&pair].stoch.actual_dest_arrival.is_none()
+            && self.conf.stoch_simulation.starts_with("adaptive_online") {
                 let mut fixed_arrival_time = None;
                 let mut stuck_at = None;
                 if self.results[pair].stoch.broken {
@@ -377,7 +386,6 @@ impl Simulation {
                 println!("elapsed: {} connpairs: {}", timing_stoch, self.stoch_actions[pair].connection_pairs.len());
                 self.stoch_actions.get_mut(pair).unwrap().station_labels = stoch;
                 self.results.get_mut(&pair).unwrap().stoch.algo_elapsed_ms.push(timing_stoch);
-            }
         }
     }
 
@@ -715,7 +723,7 @@ fn get_min_det_journey(t: &Option<Timetable>, origin_idx: usize, destination_idx
     let start = Instant::now();
     let pareto = t.as_ref().unwrap().get_journeys(origin_idx, destination_idx, current_time, false);
     let timing_det = start.elapsed().as_millis();
-    let min_journey = pareto.journeys.into_iter().reduce(|a, b| if a.dest_time < b.dest_time {a} else {b});
+    let min_journey = pareto.journeys.into_iter().min_by_key(|j| j.dest_time);
     (min_journey, timing_det)
 }
 
