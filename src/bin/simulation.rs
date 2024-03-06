@@ -4,6 +4,9 @@ use std::env;
 use std::error::Error;
 use glob::glob;
 use motis_nigiri::Timetable;
+use ndarray_stats::interpolate::Higher;
+use ndarray_stats::interpolate::Lower;
+use ndarray_stats::interpolate::Nearest;
 use ndarray_stats::Quantile1dExt;
 use rustc_hash::FxHashSet;
 use ndarray_stats::QuantileExt;
@@ -342,7 +345,7 @@ impl Simulation {
         if current_time >= det_arrival_time
             && self.results[&pair].det.actual_dest_arrival.is_none()
             && self.conf.det_simulation.starts_with("priori_online") {
-                let stuck_at = self.det_log[pair].last().map(|l| tt.connections[tt.order[l.conn_id]].to_idx).unwrap_or(pair.0);
+            let stuck_at = self.det_log[pair].last().map(|l| tt.connections[tt.order[l.conn_id]].to_idx).unwrap_or(pair.0);
             let mut fixed_arrival_time = None;
             if self.results[pair].det.broken {
                 println!("Replacing broken det itinerary.");
@@ -362,30 +365,30 @@ impl Simulation {
         if current_time >= stoch_arrival_time
             && self.results[&pair].stoch.actual_dest_arrival.is_none()
             && self.conf.stoch_simulation.starts_with("adaptive_online") {
-                let mut fixed_arrival_time = None;
-                let mut stuck_at = None;
-                if self.results[pair].stoch.broken {
-                    fixed_arrival_time = Self::fix_if_sitting_in_cancelled_trip(self.stoch_log.get_mut(&pair).unwrap(), &self.results[&pair].stoch, pair.2, tt);
-                    stuck_at = Some(self.stoch_log[pair].last().map(|l| tt.connections[tt.order[l.conn_id]].to_idx).unwrap_or(pair.0));
-                }
-                let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, fixed_arrival_time.unwrap_or(current_time), self.conf.stoch_simulation != "adaptive_online_relevant_with_distr");
-                Self::preprocess_if_necessary(&mut env, timing_preprocessing);
-                let start = Instant::now();
-                self.stoch_actions.entry(*pair).and_modify(|a| {
-                    if let Some(sidx) = stuck_at {
-                        a.relevant_stations.insert(sidx, 1000.0);
-                        for f in &tt.stations[sidx].footpaths {
-                            a.relevant_stations.insert(f.target_location_idx, 1000.0);
-                        }
+            let mut fixed_arrival_time = None;
+            let mut stuck_at = None;
+            if self.results[pair].stoch.broken {
+                fixed_arrival_time = Self::fix_if_sitting_in_cancelled_trip(self.stoch_log.get_mut(&pair).unwrap(), &self.results[&pair].stoch, pair.2, tt);
+                stuck_at = Some(self.stoch_log[pair].last().map(|l| tt.connections[tt.order[l.conn_id]].to_idx).unwrap_or(pair.0));
+            }
+            let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, fixed_arrival_time.unwrap_or(current_time), self.conf.stoch_simulation != "adaptive_online_relevant_with_distr");
+            Self::preprocess_if_necessary(&mut env, timing_preprocessing);
+            let start = Instant::now();
+            self.stoch_actions.entry(*pair).and_modify(|a| {
+                if let Some(sidx) = stuck_at {
+                    a.relevant_stations.insert(sidx, 1000.0);
+                    for f in &tt.stations[sidx].footpaths {
+                        a.relevant_stations.insert(f.target_location_idx, 1000.0);
                     }
-                    a.connection_pairs = env.relevant_connection_pairs(&a.relevant_stations);
-                    a.connection_pairs_reverse = a.connection_pairs.iter().map(|(arr,dep)| (*dep as usize, *arr as usize)).collect();
-                });
-                let stoch = env.pair_query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window, &self.stoch_actions[pair].connection_pairs);
-                let timing_stoch = start.elapsed().as_millis();
-                println!("elapsed: {} connpairs: {}", timing_stoch, self.stoch_actions[pair].connection_pairs.len());
-                self.stoch_actions.get_mut(pair).unwrap().station_labels = stoch;
-                self.results.get_mut(&pair).unwrap().stoch.algo_elapsed_ms.push(timing_stoch);
+                }
+                a.connection_pairs = env.relevant_connection_pairs(&a.relevant_stations);
+                a.connection_pairs_reverse = a.connection_pairs.iter().map(|(arr,dep)| (*dep as usize, *arr as usize)).collect();
+            });
+            let stoch = env.pair_query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window, &self.stoch_actions[pair].connection_pairs);
+            let timing_stoch = start.elapsed().as_millis();
+            println!("elapsed: {} connpairs: {}", timing_stoch, self.stoch_actions[pair].connection_pairs.len());
+            self.stoch_actions.get_mut(pair).unwrap().station_labels = stoch;
+            self.results.get_mut(&pair).unwrap().stoch.algo_elapsed_ms.push(timing_stoch);
         }
     }
 
@@ -740,8 +743,9 @@ struct SimulationAnalysis {
     delta_baseline_target_actual_arrival: Vec<f32>,
     delta_baseline_target_actual_travel_time: Vec<f32>,
     target_actual_travel_time: Vec<f32>,
-    baseline_algo_elasped: Vec<f32>,
+    baseline_algo_elapsed: Vec<f32>,
     target_preprocessing_elapsed: Vec<f32>,
+    target_first_algo_elapsed: Vec<f32>,
     target_algo_elapsed: Vec<f32>
 }
 
@@ -786,8 +790,9 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
         delta_baseline_target_actual_arrival: vec![],
         delta_baseline_target_actual_travel_time: vec![],
         target_actual_travel_time: vec![],
-        baseline_algo_elasped: vec![],
+        baseline_algo_elapsed: vec![],
         target_preprocessing_elapsed: vec![],
+        target_first_algo_elapsed: vec![],
         target_algo_elapsed: vec![]
     };
     assert_eq!(baseline.len(), target.len());
@@ -802,7 +807,8 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
     summary(a.delta_baseline_target_actual_arrival, "delta_baseline_target_actual_arrival");
     summary(a.delta_baseline_target_actual_travel_time, "delta_baseline_target_actual_travel_time");
     summary(a.target_actual_travel_time, "target_actual_travel_time");
-    summary(a.baseline_algo_elasped, "baseline_algo_elasped");
+    summary(a.baseline_algo_elapsed, "baseline_algo_elapsed");
+    summary(a.target_first_algo_elapsed, "target_first_algo_elapsed");
     summary(a.target_algo_elapsed, "target_algo_elapsed");
     summary(a.target_preprocessing_elapsed, "target_preprocessing_elapsed");
 }
@@ -810,7 +816,7 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
 fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, target: &SimulationResult, meta: &SimulationJourney) {
     if baseline.actual_dest_arrival.is_some() {
         a.delta_baseline_predicted_actual.push(baseline.actual_dest_arrival.unwrap() as f32-baseline.original_dest_arrival_prediction);
-        a.baseline_algo_elasped.push(baseline.algo_elapsed_ms[0] as f32);
+        a.baseline_algo_elapsed.extend(baseline.algo_elapsed_ms.iter().map(|e| *e as f32));
     } else {
         a.baseline_infeasible += 1;
         if baseline.broken {
@@ -820,19 +826,20 @@ fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, targe
     if target.actual_dest_arrival.is_some() {
         a.delta_target_predicted_actual.push(target.actual_dest_arrival.unwrap() as f32-target.original_dest_arrival_prediction);
         a.target_actual_travel_time.push((target.actual_dest_arrival.unwrap()-target.departure) as f32);
-        a.target_algo_elapsed.push(target.algo_elapsed_ms[0] as f32);
+        a.target_first_algo_elapsed.push(target.algo_elapsed_ms[0] as f32);
+        a.target_algo_elapsed.extend(target.algo_elapsed_ms.iter().skip(1).map(|e| *e as f32));
         a.target_preprocessing_elapsed.push(target.preprocessing_elapsed_ms as f32);
     } else {
-        if target.broken && meta.pair.2 < 8000 {
-            println!("{:?} {:?} {:?} {:?} {:?}", meta.pair, meta.from_station_name, meta.to_station_name, target, baseline.actual_dest_arrival);
-            println!("{:?}\n", baseline);
-        }
         a.target_infeasible += 1;
         if target.broken {
             a.target_broken += 1;
         }
     }
     if baseline.actual_dest_arrival.is_some() && target.actual_dest_arrival.is_some() {
+        /*if (target.actual_dest_arrival.unwrap() as f32-baseline.actual_dest_arrival.unwrap() as f32).abs() > 300.0 {
+            println!("{:?} {:?} {:?} {:?} {:?}", meta.pair, meta.from_station_name, meta.to_station_name, target, baseline.actual_dest_arrival);
+            println!("{:?}\n", baseline);
+        }*/
         a.delta_baseline_target_predicted.push(target.original_dest_arrival_prediction-baseline.original_dest_arrival_prediction);
         a.delta_baseline_predicted_target_actual.push(target.actual_dest_arrival.unwrap() as f32-baseline.original_dest_arrival_prediction);
         a.delta_baseline_target_actual_arrival.push(target.actual_dest_arrival.unwrap() as f32-baseline.actual_dest_arrival.unwrap() as f32);
@@ -844,9 +851,10 @@ fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, targe
 
 fn summary(values: Vec<f32>, name: &str) {
     let mut arr = ndarray::Array::from_vec(values);
-    let q5 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.05), &Linear).unwrap();
-    let q95 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.95), &Linear).unwrap();
-    println!("{}: mean {} stddev {} min {} 5% {} 95% {} max {}", name, arr.mean().unwrap(), arr.std(1.0), arr.min().unwrap(), q5, q95, arr.max().unwrap());
+    let q5 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.05), &Lower).unwrap();
+    let q50 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.5), &Nearest).unwrap();
+    let q95 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.95), &Higher).unwrap();
+    println!("{}: mean {} stddev {} min {} 5% {} 50% {} 95% {} max {}", name, arr.mean().unwrap(), arr.std(1.0), arr.min().unwrap(), q5, q50, q95, arr.max().unwrap());
 }
 
 fn main() {
