@@ -201,7 +201,7 @@ impl Simulation {
         
         let simulation_run_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
-        assert!(self.conf.start_mams.last().unwrap()+self.conf.query_window-1440 < self.conf.start_mams[0], "last start_mam may not overlap with first start_mam of the next day");
+        assert!(self.conf.num_days == 1 || self.conf.start_mams.last().unwrap()+self.conf.query_window-1440 < self.conf.start_mams[0], "last start_mam may not overlap with first start_mam of the next day");
 
         for f in glob(&self.conf.gtfsrt_glob).expect("Failed to read glob pattern") {
             let path = f.as_ref().unwrap().to_str().unwrap().to_owned();
