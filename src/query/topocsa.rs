@@ -398,6 +398,7 @@ impl<'a> Environment<'a> {
                         }
                     }
                     //println!("{:?} {:?}", footpath_distributions.len(), footpaths.len());
+                    // TODO domination in case of strict domination
                     footpath_distributions.sort_unstable_by(|a, b| a.mean.partial_cmp(&b.mean).unwrap());
                     self.new_destination_arrival(stop_idx, i, c.trip_id, c.route_idx, c.product_type, &c.arrival, self.stations[stop_idx].transfer_time as i32, &station_labels, &footpath_distributions, &mut new_distribution, &mut instr);   
                 } else {
@@ -591,6 +592,13 @@ impl<'a> Environment<'a> {
             let conn_with_prob = stack.pop().unwrap();
             let c = &self.connections[conn_with_prob.0];
             let station_idx = if initial { origin_idx } else { c.to_idx };
+
+            if let Some(contr) = self.contraction {
+                if !initial && contr.stop_to_group[c.to_idx] == contr.stop_to_group[origin_idx] {
+                    continue;
+                }
+            } 
+
             let footpaths = &self.stations[station_idx].footpaths;
             if station_idx == destination_idx {
                 *weights_by_station_idx.entry(station_idx).or_default() += conn_with_prob.1;
@@ -617,6 +625,9 @@ impl<'a> Environment<'a> {
             }
             let mut is = vec![0; transfer_times.len()];
             let mut remaining_probability = 1.0;
+            let mut last_departure: Option<&connection::StopInfo> = None;
+            let mut last_product_type: i16 = 0;
+        
             while remaining_probability > self.epsilon_feasible {
                 let mut min_mean = 1440.0*100.0;
                 let mut min_k = 0;
@@ -639,11 +650,25 @@ impl<'a> Environment<'a> {
                 let dep = &self.connections[dep_label.connection_idx];
                 is[min_k] += 1;
 
+                /*if !self.domination && initial && last_departure.is_some() && dep.departure.projected() < last_departure.unwrap().projected() { 
+                    continue;
+                }*/
                 if !initial && self.cut.contains(&(c.id, dep.id)) {
                     continue;
                 }
                 if !initial && !c.is_consecutive(dep) {
-                    p *= self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_times[min_k], self.now);
+                    let mut transfer_time = transfer_times[min_k];
+                    if let Some(contr) = self.contraction {
+                        transfer_time = contr.get_transfer_time(c.to_idx, dep.from_idx) as i32;
+                    }
+                    p *= self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
+                }
+                if !self.domination && last_departure.is_some() {
+                    p *= self.store.borrow_mut().before_probability(last_departure.unwrap(), last_product_type, true, &dep.departure, dep.product_type, 1, self.now);
+                }
+                if p > 0.0 {
+                    last_departure = Some(&dep.departure);
+                    last_product_type = dep.product_type;
                 }
                 if p <= self.epsilon_reachable {
                     continue;

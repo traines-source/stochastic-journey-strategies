@@ -141,7 +141,7 @@ fn gtfs_with_relevant_stations() {
     let mut routes = vec![];
     let t = gtfs::load_timetable(GTFS_PATH, day(2023, 11, 2), day(2023, 11, 3));
     tt.transport_and_day_to_connection_id = gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);
-    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 7200, 0.01, 0.01, false, false);
+    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 7200, 0.01, 0.001, true, false);
     let contr = gtfs::get_station_contraction(&tt.stations);
     env.set_station_contraction(&contr);
     env.preprocess();
@@ -151,14 +151,19 @@ fn gtfs_with_relevant_stations() {
             env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
         }
     );
-    let o = 10000;
-    let d = 20000;
+
+    let o = 24868;
+    let d = 33777;
     println!("querying rel...");
     let start_time = 7200;
     let max_time = 8640;
     let sl = env.query(o, d, start_time, max_time);
+
+    let start_ts = Instant::now();
     let relevant_stations = env.relevant_stations(o, d, &sl);
-    let connection_pairs = env.relevant_connection_pairs(relevant_stations);
+    println!("elapsed relevant stations: {}", start_ts.elapsed().as_millis());
+    let connection_pairs = env.relevant_connection_pairs(&relevant_stations);
+    println!("elapsed incl relevant connections: {} len: {}", start_ts.elapsed().as_millis(), connection_pairs.len());
     env.preprocess();
     let station_labels = env.pair_query(o, d, start_time, max_time, &connection_pairs);
     let origin_deps = &station_labels[contr.stop_to_group[o]];
