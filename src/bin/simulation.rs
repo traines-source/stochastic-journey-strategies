@@ -746,6 +746,8 @@ struct SimulationAnalysis {
     delta_baseline_target_predicted: Vec<f32>,
     delta_baseline_predicted_target_actual: Vec<f32>,
     delta_baseline_target_actual_arrival: Vec<f32>,
+    delta_baseline_target_actual_arrival_wo_outliers: Vec<f32>,
+    delta_baseline_target_actual_arrival_relative: Vec<f32>,
     delta_baseline_target_actual_travel_time: Vec<f32>,
     target_actual_travel_time: Vec<f32>,
     baseline_algo_elapsed: Vec<f32>,
@@ -820,6 +822,8 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
         delta_baseline_target_predicted: vec![],
         delta_baseline_predicted_target_actual: vec![],
         delta_baseline_target_actual_arrival: vec![],
+        delta_baseline_target_actual_arrival_wo_outliers: vec![],
+        delta_baseline_target_actual_arrival_relative: vec![],
         delta_baseline_target_actual_travel_time: vec![],
         target_actual_travel_time: vec![],
         baseline_algo_elapsed: vec![],
@@ -837,6 +841,8 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
     summary(a.delta_baseline_target_predicted, "delta_baseline_target_predicted");
     summary(a.delta_baseline_predicted_target_actual, "delta_baseline_predicted_target_actual");
     let delta_baseline_target_actual_arrival = summary(a.delta_baseline_target_actual_arrival, "delta_baseline_target_actual_arrival");
+    summary(a.delta_baseline_target_actual_arrival_wo_outliers, "delta_baseline_target_actual_arrival_wo_outliers");
+    summary(a.delta_baseline_target_actual_arrival_relative, "delta_baseline_target_actual_arrival_relative");
     let delta_baseline_target_actual_travel_time = summary(a.delta_baseline_target_actual_travel_time, "delta_baseline_target_actual_travel_time");
     summary(a.target_actual_travel_time, "target_actual_travel_time");
     summary(a.baseline_algo_elapsed, "baseline_algo_elapsed");
@@ -880,7 +886,10 @@ fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, targe
         }*/
         a.delta_baseline_target_predicted.push(target.original_dest_arrival_prediction-baseline.original_dest_arrival_prediction);
         a.delta_baseline_predicted_target_actual.push(target.actual_dest_arrival.unwrap() as f32-baseline.original_dest_arrival_prediction);
-        a.delta_baseline_target_actual_arrival.push(target.actual_dest_arrival.unwrap() as f32-baseline.actual_dest_arrival.unwrap() as f32);
+        let d = target.actual_dest_arrival.unwrap() as f32-baseline.actual_dest_arrival.unwrap() as f32;
+        a.delta_baseline_target_actual_arrival.push(d); 
+        if d.abs() < 130.0 { a.delta_baseline_target_actual_arrival_wo_outliers.push(d); }
+        a.delta_baseline_target_actual_arrival_relative.push((target.actual_dest_arrival.unwrap() as f32-baseline.actual_dest_arrival.unwrap() as f32)/(baseline.actual_dest_arrival.unwrap() as f32-(meta.pair.2%1440+5*1440) as f32));
         a.delta_baseline_target_actual_travel_time.push(((target.actual_dest_arrival.unwrap()-target.departure)-(baseline.actual_dest_arrival.unwrap()-baseline.departure)) as f32);
     } else if baseline.actual_dest_arrival.is_none() && target.actual_dest_arrival.is_none() {
         a.baseline_and_target_infeasible += 1;
