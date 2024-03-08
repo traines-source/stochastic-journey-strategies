@@ -4,13 +4,18 @@ use std::env;
 use std::error::Error;
 use glob::glob;
 use motis_nigiri::Timetable;
+use ndarray_stats::{
+    HistogramExt,
+    histogram::{
+        Histogram, Grid, GridBuilder,
+        Edges, Bins,
+        strategies::Sqrt},
+};
 use ndarray_stats::interpolate::Higher;
 use ndarray_stats::interpolate::Lower;
 use ndarray_stats::interpolate::Nearest;
-use ndarray_stats::Quantile1dExt;
 use rustc_hash::FxHashSet;
 use ndarray_stats::QuantileExt;
-use ndarray_stats::interpolate::Linear;
 use serde::Deserialize;
 use serde::Serialize;
 use stost::connection;
@@ -28,8 +33,8 @@ use stost::distribution_store;
 use stost::gtfs;
 use stost::distribution;
 use stost::query::topocsa;
-use ndarray;
-use noisy_float::types::{n64, N64};
+use ndarray::{self, array, ArrayBase, Axis, Dim, OwnedRepr};
+use noisy_float::types::{n32, n64, N32, N64};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct SimulationConfig {
@@ -749,18 +754,45 @@ struct SimulationAnalysis {
     target_algo_elapsed: Vec<f32>
 }
 
-pub fn analyze_simulation(run_file: &str, baseline_file: Option<&str>) {
-    let run = load_simulation_run(run_file);
+pub fn analyze_simulation(files: Vec<&String>) {
+    let mut run_at = 0;
+    let mut baseline_mode = false;
+    let mut day_idx = 0;
+    let mut run_results = vec![];
+    let mut baseline_results = None;
+    for f in &files {
+        let run = load_simulation_run(f);
+        if run_at != run.simulation_run_at {
+            if run_at != 0 {
+                if baseline_mode {
+                    panic!("Only two different runs can be compared at once.");
+                }
+                baseline_mode = true;
+                baseline_results = Some(vec![]);
+                day_idx = 0;
+            }
+            run_at = run.simulation_run_at;
+        }
+        let active = if baseline_mode { baseline_results.as_mut().unwrap() } else { &mut run_results };
+        active.extend(run.results.into_iter().map(|mut j| {
+            j.pair = (j.pair.0, j.pair.1, j.pair.2+day_idx*1440);
+            j
+        })); 
+        day_idx += 1;
+    } 
+    analyze_multiday_simulation(run_results, baseline_results);
+}
+
+fn analyze_multiday_simulation(run: Vec<SimulationJourney>, baseline: Option<Vec<SimulationJourney>>) {
     println!("\nComparison between stoch target and det target");
-    analyze_run(run.results.iter().map(|r| &r.det).collect(), run.results.iter().map(|r| &r.stoch).collect(), run.results.iter().collect());
+    analyze_run(run.iter().map(|r| &r.det).collect(), run.iter().map(|r| &r.stoch).collect(), run.iter().collect());
     //analyze_run(run.results.iter().filter(|r| r.pair.2 < 8000).map(|r| &r.det).collect(), run.results.iter().filter(|r| r.pair.2 < 8000).map(|r| &r.stoch).collect(), run.results.iter().filter(|r| r.pair.2 < 8000).collect());
-    if let Some(file) = baseline_file {
-        let baseline = load_simulation_run(file);
-        let baseline_map = HashMap::from_iter(baseline.results.iter().map(|r| ((r.pair.0, r.pair.1, if r.pair.2 < 7700 {7620} else {r.pair.2}), r))); // TODO remove hack
+    if let Some(baseline) = baseline {
+        let baseline_map = HashMap::from_iter(baseline.iter().map(|r| ((r.pair.0, r.pair.1, r.pair.2), r)));
         println!("\nComparison between stoch target and det baseline");
-        analyze_run_with_separate_baseline(&baseline_map, run.results.iter().collect(), false);
+        analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), false);
         println!("\nComparison between stoch target and stoch baseline");
-        analyze_run_with_separate_baseline(&baseline_map, run.results.iter().collect(), true);
+        analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), true);
     }
 }
 
@@ -800,17 +832,23 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
         analyze_result(&mut a, baseline[i], target[i], &meta[i]);
     }
     println!("infeasible: both: {} baseline: {} target: {} broken: baseline: {} target: {} feasible: both: {} total: {}", a.baseline_and_target_infeasible, a.baseline_infeasible, a.target_infeasible, a.baseline_broken, a.target_broken, a.delta_baseline_target_actual_travel_time.len(), baseline.len());
-    summary(a.delta_baseline_predicted_actual, "delta_baseline_predicted_actual");
-    summary(a.delta_target_predicted_actual, "delta_target_predicted_actual");
+    let delta_baseline_predicted_actual = summary(a.delta_baseline_predicted_actual, "delta_baseline_predicted_actual");
+    let delta_target_predicted_actual = summary(a.delta_target_predicted_actual, "delta_target_predicted_actual");
     summary(a.delta_baseline_target_predicted, "delta_baseline_target_predicted");
     summary(a.delta_baseline_predicted_target_actual, "delta_baseline_predicted_target_actual");
-    summary(a.delta_baseline_target_actual_arrival, "delta_baseline_target_actual_arrival");
-    summary(a.delta_baseline_target_actual_travel_time, "delta_baseline_target_actual_travel_time");
+    let delta_baseline_target_actual_arrival = summary(a.delta_baseline_target_actual_arrival, "delta_baseline_target_actual_arrival");
+    let delta_baseline_target_actual_travel_time = summary(a.delta_baseline_target_actual_travel_time, "delta_baseline_target_actual_travel_time");
     summary(a.target_actual_travel_time, "target_actual_travel_time");
     summary(a.baseline_algo_elapsed, "baseline_algo_elapsed");
     summary(a.target_first_algo_elapsed, "target_first_algo_elapsed");
     summary(a.target_algo_elapsed, "target_algo_elapsed");
     summary(a.target_preprocessing_elapsed, "target_preprocessing_elapsed");
+    println!("delta_baseline_predicted_actual: {:?}", histogram(delta_baseline_predicted_actual));
+    println!("delta_target_predicted_actual: {:?}", histogram(delta_target_predicted_actual));
+    let hist_arrival = histogram(delta_baseline_target_actual_arrival);
+    println!("delta_baseline_target_actual_arrival: {:?}", hist_arrival);
+    println!("delta_baseline_target_actual_arrival cdf: {:?}", cdf(&hist_arrival));
+    println!("delta_baseline_target_actual_travel_time: {:?}", histogram(delta_baseline_target_actual_travel_time));
 }
 
 fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, target: &SimulationResult, meta: &SimulationJourney) {
@@ -849,12 +887,41 @@ fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, targe
     }
 }
 
-fn summary(values: Vec<f32>, name: &str) {
+fn cdf(histogram: &Vec<(i32, f32)>) -> Vec<(i32, f32)> {
+    let mut cdf = vec![];
+    let mut cum = 0.0;
+    for c in histogram {
+        cum += c.1;
+        cdf.push((c.0, cum));
+    }
+    cdf
+}
+
+fn histogram(mut arr: ArrayBase<OwnedRepr<f32>, Dim<[usize; 1]>>) -> Vec<(i32, f32)> {
+    //let min = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.01), &Lower).unwrap().min().unwrap().floor() as i32;
+    //let max = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.99), &Higher).unwrap().max().unwrap().ceil() as i32+2;
+    let min = arr.min().unwrap().floor() as i32;
+    let max = arr.max().unwrap().ceil() as i32+2;
+    
+    let edges = Edges::from((min..max).map(|i| n32(i as f32)).collect::<Vec<N32>>());
+    let bins = Bins::new(edges);
+    let grid = Grid::from(vec![bins]);
+    let mut histogram = Histogram::new(grid);
+    for v in arr.iter() {
+        let _ = histogram.add_observation(&array![n32(*v)]);
+    }
+    let histogram_matrix = histogram.counts();
+
+    histogram_matrix.iter().enumerate().map(|(idx, count)| (idx as i32+min, *count as f32 / arr.len() as f32 * 100.0)).collect::<Vec<(i32, f32)>>()
+}
+
+fn summary(values: Vec<f32>, name: &str) -> ArrayBase<OwnedRepr<f32>, Dim<[usize; 1]>> {
     let mut arr = ndarray::Array::from_vec(values);
     let q5 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.05), &Lower).unwrap();
     let q50 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.5), &Nearest).unwrap();
     let q95 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.95), &Higher).unwrap();
     println!("{}: mean {} stddev {} min {} 5% {} 50% {} 95% {} max {}", name, arr.mean().unwrap(), arr.std(1.0), arr.min().unwrap(), q5, q50, q95, arr.max().unwrap());
+    arr
 }
 
 fn main() {
@@ -868,7 +935,7 @@ fn main() {
             Simulation::new(&args[2]).run_simulation().unwrap();
         },
         "analyze" => {
-            analyze_simulation(&args[2], if args.len() > 3 {Some(&args[3])} else {None});
+            analyze_simulation(args.iter().skip(2).collect());
         },
         _ => println!("Usage: simulation (run|analyze) FILE") 
     };
