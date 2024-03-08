@@ -357,8 +357,10 @@ impl Simulation {
                 fixed_arrival_time = Self::fix_if_sitting_in_cancelled_trip(self.det_log.get_mut(&pair).unwrap(), &self.results[&pair].det, pair.2, tt);
             }
             if self.results[pair].det.broken || self.conf.det_simulation == "priori_online" {
-                let (min_journey, timing_det) = get_min_det_journey(t, stuck_at, pair.1, fixed_arrival_time.unwrap_or(current_time));
+                let time = fixed_arrival_time.unwrap_or(if self.results[pair].det.broken { current_time } else { det_arrival_time });
+                let (min_journey, timing_det) = get_min_det_journey(t, stuck_at, pair.1, time);
                 if min_journey.is_some() {
+                    println!("Updating det. time: {}", time);
                     self.det_actions.insert(*pair, min_journey.unwrap());
                     let r = self.results.get_mut(pair).unwrap();
                     r.det.broken = false;
