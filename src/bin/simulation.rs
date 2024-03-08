@@ -472,10 +472,10 @@ impl Simulation {
                 *tt = gtfs::GtfsTimetable::new();
                 let mut routes = vec![];
                 tt.transport_and_day_to_connection_id = gtfs::retrieve(t.as_ref().unwrap(), &mut tt.stations, &mut routes, &mut tt.connections);
-                self.contr = Some(gtfs::get_station_contraction(&tt.stations));
                 if self.conf.transfer == "short" {
                     connection::shorten_footpaths(&mut tt.stations);
                 }
+                self.contr = Some(gtfs::get_station_contraction(&tt.stations));
             }
             *next_start_mam_idx += 1;
         }
