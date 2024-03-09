@@ -244,6 +244,7 @@ impl<'a> Environment<'a> {
     }
     
     pub fn preprocess(&mut self) {
+        self.cut.clear();
         println!("Start preprocessing...");
         let mut conn_idxs: Vec<usize> = (0..self.connections.len()).collect();
         conn_idxs.sort_unstable_by(|a,b| self.connections[*a].departure.projected().cmp(&self.connections[*b].departure.projected()));
