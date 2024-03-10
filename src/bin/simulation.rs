@@ -378,7 +378,7 @@ impl Simulation {
                 fixed_arrival_time = Self::fix_if_sitting_in_cancelled_trip(self.stoch_log.get_mut(&pair).unwrap(), &self.results[&pair].stoch, pair.2, tt);
                 stuck_at = Some(self.stoch_log[pair].last().map(|l| tt.connections[tt.order[l.conn_id]].to_idx).unwrap_or(pair.0));
             }
-            let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, fixed_arrival_time.unwrap_or(current_time), self.conf.stoch_simulation != "adaptive_online_relevant_with_distr");
+            let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, fixed_arrival_time.unwrap_or(current_time), !self.conf.stoch_simulation.contains("with_distr"));
             Self::preprocess_if_necessary(&mut env, timing_preprocessing);
             let start = Instant::now();
             self.stoch_actions.entry(*pair).and_modify(|a| {
@@ -790,7 +790,7 @@ pub fn analyze_simulation(files: Vec<&String>) {
 fn analyze_multiday_simulation(run: Vec<SimulationJourney>, baseline: Option<Vec<SimulationJourney>>) {
     println!("\nComparison between stoch target and det target");
     analyze_run(run.iter().map(|r| &r.det).collect(), run.iter().map(|r| &r.stoch).collect(), run.iter().collect());
-    //analyze_run(run.results.iter().filter(|r| r.pair.2 < 8000).map(|r| &r.det).collect(), run.results.iter().filter(|r| r.pair.2 < 8000).map(|r| &r.stoch).collect(), run.results.iter().filter(|r| r.pair.2 < 8000).collect());
+    //analyze_run(run.iter().filter(|r| r.pair.2 < 8000).map(|r| &r.det).collect(), run.iter().filter(|r| r.pair.2 < 8000).map(|r| &r.stoch).collect(), run.iter().filter(|r| r.pair.2 < 8000).collect());
     if let Some(baseline) = baseline {
         let baseline_map = HashMap::from_iter(baseline.iter().map(|r| ((r.pair.0, r.pair.1, r.pair.2), r)));
         println!("\nComparison between stoch target and det baseline");
