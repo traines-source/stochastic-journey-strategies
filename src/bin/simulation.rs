@@ -699,12 +699,7 @@ impl Simulation {
 
     fn update_connections_taken(result: &mut SimulationResult, connection: &connection::Connection, stations: &[connection::Station], proj_dest_arr: f32) {
         let mut conn = connection.clone();
-        conn.destination_arrival.replace(Some(distribution::Distribution {
-            feasible_probability: 1.0,
-            histogram: vec![],
-            start: 0,
-            mean: proj_dest_arr
-        }));
+        conn.destination_arrival.borrow_mut().get_or_insert(distribution::Distribution::empty(0)).mean = proj_dest_arr;
         conn.message = format!("from: {} {} to: {} {}", stations[conn.from_idx].id, stations[conn.from_idx].name, stations[conn.to_idx].id, stations[conn.to_idx].name);
         result.connections_taken.push(conn);
         if result.broken {
@@ -748,7 +743,6 @@ struct SimulationAnalysis {
     delta_baseline_target_predicted: Vec<f32>,
     delta_baseline_predicted_target_actual: Vec<f32>,
     delta_baseline_target_actual_arrival: Vec<f32>,
-    delta_baseline_target_actual_arrival_wo_outliers: Vec<f32>,
     delta_baseline_target_actual_arrival_relative: Vec<f32>,
     delta_baseline_target_actual_travel_time: Vec<f32>,
     target_actual_travel_time: Vec<f32>,
@@ -774,6 +768,8 @@ pub fn analyze_simulation(files: Vec<&String>) {
                 baseline_mode = true;
                 baseline_results = Some(vec![]);
                 day_idx = 0;
+            } else if day_idx == 0 {
+                println!("eps: {} fuzzy: {} meanonly: {} short: {} relonly: {}", run.config.epsilon_feasible != 0.0, run.config.transfer_strategy != "domination", !run.config.stoch_simulation.contains("with_distr"), run.config.transfer == "short", run.config.stoch_simulation.contains("relevant"));
             }
             run_at = run.simulation_run_at;
         }
@@ -824,7 +820,6 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
         delta_baseline_target_predicted: vec![],
         delta_baseline_predicted_target_actual: vec![],
         delta_baseline_target_actual_arrival: vec![],
-        delta_baseline_target_actual_arrival_wo_outliers: vec![],
         delta_baseline_target_actual_arrival_relative: vec![],
         delta_baseline_target_actual_travel_time: vec![],
         target_actual_travel_time: vec![],
@@ -838,19 +833,19 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
         analyze_result(&mut a, baseline[i], target[i], &meta[i]);
     }
     println!("infeasible: both: {} baseline: {} target: {} broken: baseline: {} target: {} feasible: both: {} total: {}", a.baseline_and_target_infeasible, a.baseline_infeasible, a.target_infeasible, a.baseline_broken, a.target_broken, a.delta_baseline_target_actual_travel_time.len(), baseline.len());
-    let delta_baseline_predicted_actual = summary(a.delta_baseline_predicted_actual, "delta_baseline_predicted_actual");
-    let delta_target_predicted_actual = summary(a.delta_target_predicted_actual, "delta_target_predicted_actual");
-    summary(a.delta_baseline_target_predicted, "delta_baseline_target_predicted");
-    summary(a.delta_baseline_predicted_target_actual, "delta_baseline_predicted_target_actual");
-    let delta_baseline_target_actual_arrival = summary(a.delta_baseline_target_actual_arrival, "delta_baseline_target_actual_arrival");
-    summary(a.delta_baseline_target_actual_arrival_wo_outliers, "delta_baseline_target_actual_arrival_wo_outliers");
-    summary(a.delta_baseline_target_actual_arrival_relative, "delta_baseline_target_actual_arrival_relative");
-    let delta_baseline_target_actual_travel_time = summary(a.delta_baseline_target_actual_travel_time, "delta_baseline_target_actual_travel_time");
-    summary(a.target_actual_travel_time, "target_actual_travel_time");
-    summary(a.baseline_algo_elapsed, "baseline_algo_elapsed");
-    summary(a.target_first_algo_elapsed, "target_first_algo_elapsed");
-    summary(a.target_algo_elapsed, "target_algo_elapsed");
-    summary(a.target_preprocessing_elapsed, "target_preprocessing_elapsed");
+    let samples = baseline.len();
+    let delta_baseline_predicted_actual = summary(a.delta_baseline_predicted_actual, "delta_baseline_predicted_actual", samples);
+    let delta_target_predicted_actual = summary(a.delta_target_predicted_actual, "delta_target_predicted_actual", samples);
+    summary(a.delta_baseline_target_predicted, "delta_baseline_target_predicted", samples);
+    summary(a.delta_baseline_predicted_target_actual, "delta_baseline_predicted_target_actual", samples);
+    let delta_baseline_target_actual_arrival = summary(a.delta_baseline_target_actual_arrival, "delta_baseline_target_actual_arrival", samples);
+    summary(a.delta_baseline_target_actual_arrival_relative, "delta_baseline_target_actual_arrival_relative", samples);
+    let delta_baseline_target_actual_travel_time = summary(a.delta_baseline_target_actual_travel_time, "delta_baseline_target_actual_travel_time", samples);
+    summary(a.target_actual_travel_time, "target_actual_travel_time", samples);
+    //summary(a.baseline_algo_elapsed, "baseline_algo_elapsed", samples);
+    summary(a.target_first_algo_elapsed, "target_first_algo_elapsed", samples);
+    summary(a.target_algo_elapsed, "target_algo_elapsed", samples);
+    summary(a.target_preprocessing_elapsed, "target_preprocessing_elapsed", samples);
     println!("delta_baseline_predicted_actual: {:?}", histogram(delta_baseline_predicted_actual));
     println!("delta_target_predicted_actual: {:?}", histogram(delta_target_predicted_actual));
     let hist_arrival = histogram(delta_baseline_target_actual_arrival);
@@ -862,7 +857,7 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
 fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, target: &SimulationResult, meta: &SimulationJourney) {
     if baseline.actual_dest_arrival.is_some() {
         a.delta_baseline_predicted_actual.push(baseline.actual_dest_arrival.unwrap() as f32-baseline.original_dest_arrival_prediction);
-        a.baseline_algo_elapsed.extend(baseline.algo_elapsed_ms.iter().map(|e| *e as f32));
+        a.baseline_algo_elapsed.extend(baseline.algo_elapsed_ms.iter().skip(1).map(|e| *e as f32));
     } else {
         a.baseline_infeasible += 1;
         if baseline.broken {
@@ -888,10 +883,8 @@ fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, targe
         }*/
         a.delta_baseline_target_predicted.push(target.original_dest_arrival_prediction-baseline.original_dest_arrival_prediction);
         a.delta_baseline_predicted_target_actual.push(target.actual_dest_arrival.unwrap() as f32-baseline.original_dest_arrival_prediction);
-        let d = target.actual_dest_arrival.unwrap() as f32-baseline.actual_dest_arrival.unwrap() as f32;
-        a.delta_baseline_target_actual_arrival.push(d); 
-        if d.abs() < 130.0 { a.delta_baseline_target_actual_arrival_wo_outliers.push(d); }
-        a.delta_baseline_target_actual_arrival_relative.push((target.actual_dest_arrival.unwrap() as f32-baseline.actual_dest_arrival.unwrap() as f32)/(baseline.actual_dest_arrival.unwrap() as f32-(meta.pair.2%1440+5*1440) as f32));
+        a.delta_baseline_target_actual_arrival.push(target.actual_dest_arrival.unwrap() as f32-baseline.actual_dest_arrival.unwrap() as f32); 
+        a.delta_baseline_target_actual_arrival_relative.push((target.actual_dest_arrival.unwrap() as f32-baseline.actual_dest_arrival.unwrap() as f32)/(baseline.actual_dest_arrival.unwrap() as f32-(meta.pair.2%1440+5*1440) as f32)*100.0);
         a.delta_baseline_target_actual_travel_time.push(((target.actual_dest_arrival.unwrap()-target.departure)-(baseline.actual_dest_arrival.unwrap()-baseline.departure)) as f32);
     } else if baseline.actual_dest_arrival.is_none() && target.actual_dest_arrival.is_none() {
         a.baseline_and_target_infeasible += 1;
@@ -926,12 +919,18 @@ fn histogram(mut arr: ArrayBase<OwnedRepr<f32>, Dim<[usize; 1]>>) -> Vec<(i32, f
     histogram_matrix.iter().enumerate().map(|(idx, count)| (idx as i32+min, *count as f32 / arr.len() as f32 * 100.0)).collect::<Vec<(i32, f32)>>()
 }
 
-fn summary(values: Vec<f32>, name: &str) -> ArrayBase<OwnedRepr<f32>, Dim<[usize; 1]>> {
-    let mut arr = ndarray::Array::from_vec(values);
-    let q5 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.05), &Lower).unwrap();
-    let q50 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.5), &Nearest).unwrap();
-    let q95 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.95), &Higher).unwrap();
-    println!("{}: mean {} stddev {} min {} 5% {} 50% {} 95% {} max {}", name, arr.mean().unwrap(), arr.std(1.0), arr.min().unwrap(), q5, q50, q95, arr.max().unwrap());
+fn around2(x: f32) -> f32 {
+    (x * 100.0).round() / 100.0
+}
+fn summary(values: Vec<f32>, name: &str, samples: usize) -> ArrayBase<OwnedRepr<f32>, Dim<[usize; 1]>> {
+    let trimmed_mean = ndarray::Array::from_iter(values.iter().filter(|v| v.abs() <= 130.0).cloned()).mean().unwrap_or(0.0);
+    let failures = 1.0-values.len() as f32/samples as f32;
+    let mut arr = ndarray::Array::from_vec(values);    
+    let q5 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.05), &Lower).unwrap().into_iter().last().unwrap();
+    //let q50 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.5), &Nearest).unwrap();
+    let q95 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.95), &Higher).unwrap().into_iter().last().unwrap();
+    // arr.std(1.0)
+    println!("{}: fail mean trimmean min 5% 95% max: {:.2} & {:.2} & {:.2} & {} & {} & {} & {}", name, failures*100.0, arr.mean().unwrap(), trimmed_mean, around2(*arr.min().unwrap()), around2(q5), around2(q95), around2(*arr.max().unwrap()));
     arr
 }
 
