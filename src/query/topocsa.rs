@@ -422,7 +422,7 @@ impl<'a> Environment<'a> {
             if !self.mean_only {
                 departure_conn.destination_arrival.replace(Some(new_distribution.clone())); // TODO remove
             }
-            if new_distribution.feasible_probability > self.epsilon_feasible {                
+            if new_distribution.feasible_probability > self.epsilon_feasible && new_distribution.feasible_probability > 1e-6 {                
                 let mut j = departures.len() as i32-1;
                 while j >= 0 {
                     if new_distribution.mean < departures[j as usize].destination_arrival.mean {
