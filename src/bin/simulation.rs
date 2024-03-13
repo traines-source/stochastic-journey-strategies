@@ -281,7 +281,7 @@ impl Simulation {
 
     fn initialize_if_necessary(&mut self, pair: &(usize, usize, i32), tt: &mut GtfsTimetable, current_time: i32, timing_preprocessing: &mut u128, t: &Option<Timetable>, reference_ts: u64) {
         if self.results.get(&pair).is_none() {
-            let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time, true);
+            let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time, true, true);
             Self::preprocess_if_necessary(&mut env, timing_preprocessing);
             let start = Instant::now();
             let stoch = env.query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window);
@@ -378,7 +378,7 @@ impl Simulation {
                 fixed_arrival_time = Self::fix_if_sitting_in_cancelled_trip(self.stoch_log.get_mut(&pair).unwrap(), &self.results[&pair].stoch, pair.2, tt);
                 stuck_at = Some(self.stoch_log[pair].last().map(|l| tt.connections[tt.order[l.conn_id]].to_idx).unwrap_or(pair.0));
             }
-            let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, fixed_arrival_time.unwrap_or(current_time), !self.conf.stoch_simulation.contains("with_distr"));
+            let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, fixed_arrival_time.unwrap_or(current_time), !self.conf.stoch_simulation.contains("with_distr"), false);
             Self::preprocess_if_necessary(&mut env, timing_preprocessing);
             let start = Instant::now();
             self.stoch_actions.entry(*pair).and_modify(|a| {
@@ -424,7 +424,7 @@ impl Simulation {
     }
 
     fn load_gtfsrt(&mut self, tt: &mut GtfsTimetable, current_time: i32, path: String, t: &Option<Timetable>) {
-        let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time, true);
+        let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time, true, false);
         println!("Loading GTFSRT {}", path);
         gtfs::load_realtime(
             &path,
@@ -500,7 +500,7 @@ impl Simulation {
         ((mtime-reference_ts)/60) as i32
     }
 
-    fn new_env<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a Vec<connection::Station>, cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, contr: &'a Option<StationContraction>, conf: &SimulationConfig, now: types::Mtime, mean_only: bool) -> topocsa::Environment<'a> {
+    fn new_env<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a Vec<connection::Station>, cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, contr: &'a Option<StationContraction>, conf: &SimulationConfig, now: types::Mtime, mean_only: bool, initial: bool) -> topocsa::Environment<'a> {
         let mut env = topocsa::new(
             store,
             connections,
@@ -511,7 +511,7 @@ impl Simulation {
             conf.epsilon_reachable,
             conf.epsilon_feasible,
             mean_only,
-            conf.transfer_strategy == "domination"
+            conf.transfer_strategy == "domination" || initial && conf.transfer_strategy == "fuzzy_repeated"
         );
         if let Some(contraction) = contr {
             env.set_station_contraction(contraction)
