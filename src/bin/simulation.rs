@@ -47,9 +47,9 @@ struct SimulationConfig {
     stoch_simulation: String,
     transfer: String,
 	#[serde(default)]
-    epsilon_reachable: f32,
+    epsilon_reachable: types::MFloat,
 	#[serde(default)]
-    epsilon_feasible: f32,
+    epsilon_feasible: types::MFloat,
 	#[serde(default)]
     transfer_strategy: String,
     samples: usize,
@@ -101,19 +101,19 @@ fn resolve_connection_idx(
 
 struct LogEntry {
     conn_id: usize,
-    proj_dest_arr: f32,
+    proj_dest_arr: types::MFloat,
     arrival_time_lower_bound: i32
 }
 struct Alternative {
     from_conn_idx: usize,
     to_conn_idx: usize,
-    proj_dest_arr: f32
+    proj_dest_arr: types::MFloat
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct SimulationResult {
     departure: i32,
-    original_dest_arrival_prediction: f32,
+    original_dest_arrival_prediction: types::MFloat,
     actual_dest_arrival: Option<i32>,
     broken: bool,
 	#[serde(default)]
@@ -162,7 +162,7 @@ struct StochActions {
     station_labels: Vec<Vec<topocsa::ConnectionLabel>>,
     connection_pairs: HashMap<i32, i32>,
     connection_pairs_reverse: HashMap<usize, usize>,
-    relevant_stations: HashMap<usize, f32>
+    relevant_stations: HashMap<usize, types::MFloat>
 }
 
 struct Simulation {
@@ -567,7 +567,7 @@ impl Simulation {
         let alternatives = vec![Alternative{
             from_conn_idx: departure_idx,
             to_conn_idx: arrival_idx,
-            proj_dest_arr: det_actions.dest_time as f32
+            proj_dest_arr: det_actions.dest_time as types::MFloat
         }];
         alternatives
     }
@@ -697,7 +697,7 @@ impl Simulation {
         Self::update_connections_taken(result, &tt.connections[tt.order[log.last().unwrap().conn_id]], &tt.stations, log.last().unwrap().proj_dest_arr);
     }
 
-    fn update_connections_taken(result: &mut SimulationResult, connection: &connection::Connection, stations: &[connection::Station], proj_dest_arr: f32) {
+    fn update_connections_taken(result: &mut SimulationResult, connection: &connection::Connection, stations: &[connection::Station], proj_dest_arr: types::MFloat) {
         let mut conn = connection.clone();
         conn.destination_arrival.borrow_mut().get_or_insert(distribution::Distribution::empty(0)).mean = proj_dest_arr;
         conn.message = format!("from: {} {} to: {} {}", stations[conn.from_idx].id, stations[conn.from_idx].name, stations[conn.to_idx].id, stations[conn.to_idx].name);
@@ -738,18 +738,18 @@ struct SimulationAnalysis {
     target_infeasible: i32,
     target_broken: i32,
     baseline_and_target_infeasible: i32,
-    delta_baseline_predicted_actual: Vec<f32>,
-    delta_target_predicted_actual: Vec<f32>,
-    delta_baseline_target_predicted: Vec<f32>,
-    delta_baseline_predicted_target_actual: Vec<f32>,
-    delta_baseline_target_actual_arrival: Vec<f32>,
-    delta_baseline_target_actual_arrival_relative: Vec<f32>,
-    delta_baseline_target_actual_travel_time: Vec<f32>,
-    target_actual_travel_time: Vec<f32>,
-    baseline_algo_elapsed: Vec<f32>,
-    target_preprocessing_elapsed: Vec<f32>,
-    target_first_algo_elapsed: Vec<f32>,
-    target_algo_elapsed: Vec<f32>
+    delta_baseline_predicted_actual: Vec<types::MFloat>,
+    delta_target_predicted_actual: Vec<types::MFloat>,
+    delta_baseline_target_predicted: Vec<types::MFloat>,
+    delta_baseline_predicted_target_actual: Vec<types::MFloat>,
+    delta_baseline_target_actual_arrival: Vec<types::MFloat>,
+    delta_baseline_target_actual_arrival_relative: Vec<types::MFloat>,
+    delta_baseline_target_actual_travel_time: Vec<types::MFloat>,
+    target_actual_travel_time: Vec<types::MFloat>,
+    baseline_algo_elapsed: Vec<types::MFloat>,
+    target_preprocessing_elapsed: Vec<types::MFloat>,
+    target_first_algo_elapsed: Vec<types::MFloat>,
+    target_algo_elapsed: Vec<types::MFloat>
 }
 
 pub fn analyze_simulation(files: Vec<&String>) {
@@ -844,20 +844,20 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
     summary(a.target_actual_travel_time, "target_actual_travel_time", samples);
     //summary(a.baseline_algo_elapsed, "baseline_algo_elapsed", samples);
     summary(a.target_first_algo_elapsed, "target_first_algo_elapsed", samples);
-    summary(a.target_algo_elapsed, "target_algo_elapsed", samples);
-    summary(a.target_preprocessing_elapsed, "target_preprocessing_elapsed", samples);
-    println!("delta_baseline_predicted_actual: {:?}", histogram(delta_baseline_predicted_actual));
+    //summary(a.target_algo_elapsed, "target_algo_elapsed", samples);
+    //summary(a.target_preprocessing_elapsed, "target_preprocessing_elapsed", samples);
+    /*println!("delta_baseline_predicted_actual: {:?}", histogram(delta_baseline_predicted_actual));
     println!("delta_target_predicted_actual: {:?}", histogram(delta_target_predicted_actual));
     let hist_arrival = histogram(delta_baseline_target_actual_arrival);
     println!("delta_baseline_target_actual_arrival: {:?}", hist_arrival);
     println!("delta_baseline_target_actual_arrival cdf: {:?}", cdf(&hist_arrival));
-    println!("delta_baseline_target_actual_travel_time: {:?}", histogram(delta_baseline_target_actual_travel_time));
+    println!("delta_baseline_target_actual_travel_time: {:?}", histogram(delta_baseline_target_actual_travel_time));*/
 }
 
 fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, target: &SimulationResult, meta: &SimulationJourney) {
     if baseline.actual_dest_arrival.is_some() {
-        a.delta_baseline_predicted_actual.push(baseline.actual_dest_arrival.unwrap() as f32-baseline.original_dest_arrival_prediction);
-        a.baseline_algo_elapsed.extend(baseline.algo_elapsed_ms.iter().skip(1).map(|e| *e as f32));
+        a.delta_baseline_predicted_actual.push(baseline.actual_dest_arrival.unwrap() as types::MFloat-baseline.original_dest_arrival_prediction);
+        a.baseline_algo_elapsed.extend(baseline.algo_elapsed_ms.iter().skip(1).map(|e| *e as types::MFloat));
     } else {
         a.baseline_infeasible += 1;
         if baseline.broken {
@@ -865,11 +865,11 @@ fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, targe
         }
     }
     if target.actual_dest_arrival.is_some() {
-        a.delta_target_predicted_actual.push(target.actual_dest_arrival.unwrap() as f32-target.original_dest_arrival_prediction);
-        a.target_actual_travel_time.push((target.actual_dest_arrival.unwrap()-target.departure) as f32);
-        a.target_first_algo_elapsed.push(target.algo_elapsed_ms[0] as f32);
-        a.target_algo_elapsed.extend(target.algo_elapsed_ms.iter().skip(1).map(|e| *e as f32));
-        a.target_preprocessing_elapsed.push(target.preprocessing_elapsed_ms as f32);
+        a.delta_target_predicted_actual.push(target.actual_dest_arrival.unwrap() as types::MFloat-target.original_dest_arrival_prediction);
+        a.target_actual_travel_time.push((target.actual_dest_arrival.unwrap()-target.departure) as types::MFloat);
+        a.target_first_algo_elapsed.push(target.algo_elapsed_ms[0] as types::MFloat);
+        a.target_algo_elapsed.extend(target.algo_elapsed_ms.iter().skip(1).map(|e| *e as types::MFloat));
+        a.target_preprocessing_elapsed.push(target.preprocessing_elapsed_ms as types::MFloat);
     } else {
         a.target_infeasible += 1;
         if target.broken {
@@ -877,21 +877,21 @@ fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, targe
         }
     }
     if baseline.actual_dest_arrival.is_some() && target.actual_dest_arrival.is_some() {
-        /*if (target.actual_dest_arrival.unwrap() as f32-baseline.actual_dest_arrival.unwrap() as f32).abs() > 300.0 {
+        /*if (target.actual_dest_arrival.unwrap() as types::MFloat-baseline.actual_dest_arrival.unwrap() as types::MFloat).abs() > 300.0 {
             println!("{:?} {:?} {:?} {:?} {:?}", meta.pair, meta.from_station_name, meta.to_station_name, target, baseline.actual_dest_arrival);
             println!("{:?}\n", baseline);
         }*/
         a.delta_baseline_target_predicted.push(target.original_dest_arrival_prediction-baseline.original_dest_arrival_prediction);
-        a.delta_baseline_predicted_target_actual.push(target.actual_dest_arrival.unwrap() as f32-baseline.original_dest_arrival_prediction);
-        a.delta_baseline_target_actual_arrival.push(target.actual_dest_arrival.unwrap() as f32-baseline.actual_dest_arrival.unwrap() as f32); 
-        a.delta_baseline_target_actual_arrival_relative.push((target.actual_dest_arrival.unwrap() as f32-baseline.actual_dest_arrival.unwrap() as f32)/(baseline.actual_dest_arrival.unwrap() as f32-(meta.pair.2%1440+5*1440) as f32)*100.0);
-        a.delta_baseline_target_actual_travel_time.push(((target.actual_dest_arrival.unwrap()-target.departure)-(baseline.actual_dest_arrival.unwrap()-baseline.departure)) as f32);
+        a.delta_baseline_predicted_target_actual.push(target.actual_dest_arrival.unwrap() as types::MFloat-baseline.original_dest_arrival_prediction);
+        a.delta_baseline_target_actual_arrival.push(target.actual_dest_arrival.unwrap() as types::MFloat-baseline.actual_dest_arrival.unwrap() as types::MFloat); 
+        a.delta_baseline_target_actual_arrival_relative.push((target.actual_dest_arrival.unwrap() as types::MFloat-baseline.actual_dest_arrival.unwrap() as types::MFloat)/(baseline.actual_dest_arrival.unwrap() as types::MFloat-(meta.pair.2%1440+5*1440) as types::MFloat)*100.0);
+        a.delta_baseline_target_actual_travel_time.push(((target.actual_dest_arrival.unwrap()-target.departure)-(baseline.actual_dest_arrival.unwrap()-baseline.departure)) as types::MFloat);
     } else if baseline.actual_dest_arrival.is_none() && target.actual_dest_arrival.is_none() {
         a.baseline_and_target_infeasible += 1;
     }
 }
 
-fn cdf(histogram: &Vec<(i32, f32)>) -> Vec<(i32, f32)> {
+fn cdf(histogram: &Vec<(i32, types::MFloat)>) -> Vec<(i32, types::MFloat)> {
     let mut cdf = vec![];
     let mut cum = 0.0;
     for c in histogram {
@@ -901,7 +901,7 @@ fn cdf(histogram: &Vec<(i32, f32)>) -> Vec<(i32, f32)> {
     cdf
 }
 
-fn histogram(mut arr: ArrayBase<OwnedRepr<f32>, Dim<[usize; 1]>>) -> Vec<(i32, f32)> {
+fn histogram(mut arr: ArrayBase<OwnedRepr<types::MFloat>, Dim<[usize; 1]>>) -> Vec<(i32, types::MFloat)> {
     //let min = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.01), &Lower).unwrap().min().unwrap().floor() as i32;
     //let max = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.99), &Higher).unwrap().max().unwrap().ceil() as i32+2;
     let min = arr.min().unwrap().floor() as i32;
@@ -912,19 +912,19 @@ fn histogram(mut arr: ArrayBase<OwnedRepr<f32>, Dim<[usize; 1]>>) -> Vec<(i32, f
     let grid = Grid::from(vec![bins]);
     let mut histogram = Histogram::new(grid);
     for v in arr.iter() {
-        let _ = histogram.add_observation(&array![n32(*v)]);
+        let _ = histogram.add_observation(&array![n32(*v as f32)]);
     }
     let histogram_matrix = histogram.counts();
 
-    histogram_matrix.iter().enumerate().map(|(idx, count)| (idx as i32+min, *count as f32 / arr.len() as f32 * 100.0)).collect::<Vec<(i32, f32)>>()
+    histogram_matrix.iter().enumerate().map(|(idx, count)| (idx as i32+min, *count as types::MFloat / arr.len() as types::MFloat * 100.0)).collect::<Vec<(i32, types::MFloat)>>()
 }
 
-fn around2(x: f32) -> f32 {
+fn around2(x: types::MFloat) -> types::MFloat {
     (x * 100.0).round() / 100.0
 }
-fn summary(values: Vec<f32>, name: &str, samples: usize) -> ArrayBase<OwnedRepr<f32>, Dim<[usize; 1]>> {
+fn summary(values: Vec<types::MFloat>, name: &str, samples: usize) -> ArrayBase<OwnedRepr<types::MFloat>, Dim<[usize; 1]>> {
     let trimmed_mean = ndarray::Array::from_iter(values.iter().filter(|v| v.abs() <= 130.0).cloned()).mean().unwrap_or(0.0);
-    let failures = 1.0-values.len() as f32/samples as f32;
+    let failures = 1.0-values.len() as types::MFloat/samples as types::MFloat;
     let mut arr = ndarray::Array::from_vec(values);    
     let q5 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.05), &Lower).unwrap().into_iter().last().unwrap();
     //let q50 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.5), &Nearest).unwrap();

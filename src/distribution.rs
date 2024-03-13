@@ -6,15 +6,15 @@ use crate::types;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Distribution {
     #[serde(skip_deserializing)]
-    pub histogram: Vec<f32>,
+    pub histogram: Vec<types::MFloat>,
 	pub start: types::Mtime,
     #[serde(default)]
-	pub mean: f32,
+	pub mean: types::MFloat,
     #[serde(default)]
-    pub feasible_probability: f32
+    pub feasible_probability: types::MFloat
 }
 
-const EMPTY_HISTOGRAM: Vec<f32> = vec![];
+const EMPTY_HISTOGRAM: Vec<types::MFloat> = vec![];
 
 impl Distribution {
 
@@ -24,7 +24,7 @@ impl Distribution {
     }
 
     pub fn assert(&self) {
-        assert_float_absolute_eq!(self.histogram.iter().sum::<f32>(), 1.0, 1e-3);
+        assert_float_absolute_eq!(self.histogram.iter().sum::<types::MFloat>(), 1.0, 1e-3);
     }
 
     pub fn end(&self) -> types::Mtime {
@@ -46,22 +46,22 @@ impl Distribution {
             return Distribution::empty(start);
         }
         Distribution{
-            histogram: vec![1.0/(width as f32); width],
+            histogram: vec![1.0/(width as types::MFloat); width],
             start: start,
-            mean:  start as f32+((width-1) as f32/2.0),
+            mean:  start as types::MFloat+((width-1) as types::MFloat/2.0),
             feasible_probability: 1.0
         }
     }
 
-    pub fn mean(&self) -> f32 {
+    pub fn mean(&self) -> types::MFloat {
         let mut mean = 0.0;
         for i in 0..self.histogram.len() {
-            mean += (self.start as f32+i as f32)*self.histogram[i];
+            mean += (self.start as types::MFloat+i as types::MFloat)*self.histogram[i];
         }
-        mean
+        mean as types::MFloat
     }
 
-    pub fn quantile(&self, q: f32) -> types::Mtime {
+    pub fn quantile(&self, q: types::MFloat) -> types::Mtime {
         let mut cum = 0.0;
         for i in 0..self.histogram.len() {
             cum += self.histogram[i];
@@ -77,7 +77,7 @@ impl Distribution {
     }
     
     #[inline]
-    pub fn normalize_with(&mut self, mean_only: bool, epsilon: f32) {
+    pub fn normalize_with(&mut self, mean_only: bool, epsilon: types::MFloat) {
         // TODO performance vs accuracy
         if self.feasible_probability == 0.0 {
             return;
@@ -113,12 +113,12 @@ impl Distribution {
         self.mean /= self.feasible_probability;
     }
     
-    pub fn add(&mut self, other: &Distribution, weight: f32) {
+    pub fn add(&mut self, other: &Distribution, weight: types::MFloat) {
         self.add_with(other, weight, false);    
     }
 
     #[inline]
-    pub fn add_with(&mut self, other: &Distribution, weight: f32, mean_only: bool) {
+    pub fn add_with(&mut self, other: &Distribution, weight: types::MFloat, mean_only: bool) {
         if mean_only {
             self.mean += other.mean*weight;
             return;
@@ -140,7 +140,7 @@ impl Distribution {
                 h[i] += self.histogram[i-self_offset];
             }
             if i >= other_offset && i-other_offset < other.histogram.len() {
-                h[i] += other.histogram[i-other_offset]*weight;
+                h[i] += other.histogram[i-other_offset]*weight as types::MFloat;
             }
         }
         self.histogram = h;
@@ -152,12 +152,12 @@ impl Distribution {
         Distribution{
             histogram: self.histogram.clone(),
             start: self.start+start,
-            mean: self.mean+start as f32,
+            mean: self.mean+start as types::MFloat,
             feasible_probability: self.feasible_probability
         }
     }
 
-    pub fn before_probability(&self, other: &Distribution, offset: i32) -> f32 {
+    pub fn before_probability(&self, other: &Distribution, offset: i32) -> types::MFloat {
         let self_len = self.histogram.len() as i32;
         let other_len = other.histogram.len() as i32;
         let diff = other.start-self.start-offset;
@@ -190,7 +190,7 @@ impl Distribution {
     }
 
     pub fn from_buckets(latest_sample_delays: Vec<(Range<i16>, i32)>, total_feasible_sample_count: i32) -> Distribution {
-        let total = total_feasible_sample_count as f32;
+        let total = total_feasible_sample_count as types::MFloat;
         let cancelled = 0..0;
         let mut h = vec![];
         let mut feasibility = 1.0;
@@ -199,18 +199,18 @@ impl Distribution {
         let mut i = latest_sample_delays[0].0.start;
         for bucket in &latest_sample_delays {
             if bucket.0 == cancelled {
-                feasibility = total/(total+bucket.1 as f32);
+                feasibility = total/(total+bucket.1 as types::MFloat);
                 continue;
             }
             while i < bucket.0.start {
                 h.push(0.0);
                 i += 1;
             }      
-            let len = bucket.0.len() as f32;      
+            let len = bucket.0.len() as types::MFloat;      
             for _j in bucket.0.clone() {
-                let fraction = bucket.1 as f32/total/len;
+                let fraction = bucket.1 as types::MFloat/total/len;
                 h.push(fraction);
-                mean += i as f32*fraction;
+                mean += i as types::MFloat*fraction;
                 i += 1;
             }
             if bucket.0.len() > 0 {
@@ -218,14 +218,14 @@ impl Distribution {
             }
         }
         assert_eq!(sum, total_feasible_sample_count);
-        assert_float_absolute_eq!(h.iter().sum::<f32>(), 1.0, 1e-3);
+        assert_float_absolute_eq!(h.iter().sum::<types::MFloat>(), 1.0, 1e-3);
         let d = Distribution{
             histogram: h,
             start: latest_sample_delays[0].0.start as i32,
-            mean:  mean,
-            feasible_probability: feasibility
+            mean:  mean as types::MFloat,
+            feasible_probability: feasibility as types::MFloat
         };
-        assert_float_absolute_eq!(mean, d.mean());
+        assert_float_absolute_eq!(mean as types::MFloat, d.mean());
         d
     }
 }

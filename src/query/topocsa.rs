@@ -15,7 +15,7 @@ use crate::connection;
 use crate::gtfs::StationContraction;
 use crate::types;
 
-pub fn new<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon_reachable: f32, epsilon_feasible: f32, mean_only: bool, domination: bool) -> Environment<'a> {
+pub fn new<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon_reachable: types::MFloat, epsilon_feasible: types::MFloat, mean_only: bool, domination: bool) -> Environment<'a> {
     if order.is_empty() {
         order.extend(0..connections.len());
     }
@@ -34,14 +34,14 @@ pub fn new<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Ve
     }
 }
 
-pub fn prepare<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon: f32, mean_only: bool) -> Environment<'a> {
+pub fn prepare<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon: types::MFloat, mean_only: bool) -> Environment<'a> {
     let mut e = new(store, connections, stations, cut, order, now, epsilon, epsilon, mean_only, false);    
     println!("Starting topocsa...");
     e.preprocess();
     e
 }
 
-pub fn prepare_and_query<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: f32, mean_only: bool) {
+pub fn prepare_and_query<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: types::MFloat, mean_only: bool) {
     let mut order = Vec::with_capacity(connections.len());
     let mut e = prepare(store, connections, stations, cut, &mut order, now, epsilon, mean_only);
     e.query(origin, destination, start_time, max_time);
@@ -54,8 +54,8 @@ pub struct Environment<'a> {
     connections: &'a mut Vec<connection::Connection>,
     stations: &'a [connection::Station],
     now: types::Mtime,
-    epsilon_reachable: f32,
-    epsilon_feasible: f32,
+    epsilon_reachable: types::MFloat,
+    epsilon_feasible: types::MFloat,
     mean_only: bool,
     domination: bool,
     cut: &'a mut FxHashSet<(usize, usize)>,
@@ -73,8 +73,8 @@ pub struct DfsConnectionLabel {
 pub struct ConnectionLabel {
     pub connection_idx: usize,
     pub destination_arrival: distribution::Distribution,
-    pub prob_after: f32,
-    pub departure_mean: f32
+    pub prob_after: types::MFloat,
+    pub departure_mean: types::MFloat
 }
 
 #[derive(Debug)]
@@ -280,7 +280,7 @@ impl<'a> Environment<'a> {
         self.store.borrow().print_stats();
         println!("Done DFSing. {}", start.elapsed().as_millis());
         self.connections.sort_unstable_by(|a, b|
-            labels[self.order[a.id]].order.partial_cmp(&labels[self.order[b.id]].order).unwrap()
+            labels[self.order[a.id]].order.partial_cmp(&labels[self.order[b.id]].order).unwrap() // TODO complete cmp?
         );
         let mut new_order: Vec<usize> = (0..self.connections.len()).map(|id| labels[self.order[id]].order).collect();
         self.order.clear();
@@ -289,6 +289,7 @@ impl<'a> Environment<'a> {
         println!("connections: {} topoidx: {} cut: {}", self.connections.len(), topo_idx, self.cut.len());
     }
 
+    // TODO refactor
     pub fn update(&mut self, connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>) {
         let c = &mut self.connections[self.order[connection_id]];
         if location_idx.is_some() {
@@ -371,7 +372,7 @@ impl<'a> Environment<'a> {
                     continue;
                 }
                 let mut new_distribution = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now);
-                if c.to_idx != destination {
+                if c.to_idx != destination { // TODO calc complete new_distribution?
                     let contr = self.contraction.unwrap();
                     new_distribution = new_distribution.shift(contr.get_transfer_time(c.to_idx, destination) as i32);
                 }
@@ -406,7 +407,7 @@ impl<'a> Environment<'a> {
                     if station_labels[stop_idx].is_empty() {
                         continue;
                     } 
-                    self.new_contr_destination_arrival(stop_idx, i, &station_labels, &mut new_distribution, &mut instr);   
+                    self.new_contr_destination_arrival(stop_idx, i, &station_labels, &mut new_distribution, &mut instr);
                 }
                 new_distribution   
             };
@@ -421,7 +422,7 @@ impl<'a> Environment<'a> {
             if !self.mean_only {
                 departure_conn.destination_arrival.replace(Some(new_distribution.clone())); // TODO remove
             }
-            if new_distribution.feasible_probability > self.epsilon_feasible {
+            if new_distribution.feasible_probability > self.epsilon_feasible {                
                 let mut j = departures.len() as i32-1;
                 while j >= 0 {
                     if new_distribution.mean < departures[j as usize].destination_arrival.mean {
@@ -528,7 +529,7 @@ impl<'a> Environment<'a> {
                 footpaths_i += 1;
             }
             instr.deps += 1;
-            let mut p: f32 = dest_arr_dist.unwrap().feasible_probability;
+            let mut p = dest_arr_dist.unwrap().feasible_probability;
             if !self.domination && last_departure.is_some() {
                 p *= self.store.borrow_mut().before_probability(last_departure.unwrap(), last_product_type, true, departure.unwrap(), departure_product_type, 1, self.now);
             }
@@ -565,7 +566,7 @@ impl<'a> Environment<'a> {
             if self.cut.contains(&(c.id, dep.id)) {
                 continue;
             }
-            let mut p: f32 = dep_label.destination_arrival.feasible_probability*dep_label.prob_after;
+            let mut p = dep_label.destination_arrival.feasible_probability*dep_label.prob_after;
             if !c.is_consecutive(dep) { 
                 let transfer_time = contr.get_transfer_time(c.to_idx, dep.from_idx) as i32;
                 p *= store.before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
@@ -584,11 +585,11 @@ impl<'a> Environment<'a> {
         }
     }
 
-    pub fn relevant_stations(&mut self, origin_idx: usize, destination_idx: usize, station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, f32> {
+    pub fn relevant_stations(&mut self, origin_idx: usize, destination_idx: usize, station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, types::MFloat> {
         println!("from {} {} to {} {}", origin_idx, self.stations[origin_idx].name, destination_idx, self.stations[destination_idx].name);
         let mut stack = vec![(0, 1.0)];
         let mut initial = true;
-        let mut weights_by_station_idx: HashMap<usize, f32> = HashMap::new();
+        let mut weights_by_station_idx: HashMap<usize, types::MFloat> = HashMap::new();
         'outer: while !stack.is_empty() {
             let conn_with_prob = stack.pop().unwrap();
             let c = &self.connections[conn_with_prob.0];
@@ -647,7 +648,7 @@ impl<'a> Environment<'a> {
                     break;
                 }
                 let dep_label = &departures[min_k][departures[min_k].len()-is[min_k]-1];
-                let mut p: f32 = dep_label.destination_arrival.feasible_probability;
+                let mut p: types::MFloat = dep_label.destination_arrival.feasible_probability;
                 let dep = &self.connections[dep_label.connection_idx];
                 is[min_k] += 1;
 
@@ -691,7 +692,7 @@ impl<'a> Environment<'a> {
             initial = false;
             
         }
-        for w in &weights_by_station_idx.iter().map(|w| (*w.0, *w.1)).collect::<Vec<(usize, f32)>>() {
+        for w in &weights_by_station_idx.iter().map(|w| (*w.0, *w.1)).collect::<Vec<(usize, types::MFloat)>>() {
             for f in &self.stations[w.0].footpaths {
                 *weights_by_station_idx.entry(f.target_location_idx).or_default() += w.1;
             }
@@ -700,10 +701,10 @@ impl<'a> Environment<'a> {
         weights_by_station_idx
     }
 
-    pub fn relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, f32>) -> HashMap<i32, i32> {
-        let mut stations: Vec<(&usize, &f32)> = weights_by_station_idx.iter().collect();
+    pub fn relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>) -> HashMap<i32, i32> {
+        let mut stations: Vec<(&usize, &types::MFloat)> = weights_by_station_idx.iter().collect();
         stations.sort_unstable_by(|a,b| b.1.partial_cmp(a.1).unwrap());
-        //println!("{:?}", stations.iter().take(500).map(|s| (&self.stations[s.0].name as &str, s.1)).collect::<Vec<(&str, f32)>>());
+        //println!("{:?}", stations.iter().take(500).map(|s| (&self.stations[s.0].name as &str, s.1)).collect::<Vec<(&str, types::MFloat)>>());
         let mut trip_id_to_conn_idxs: HashMap<i32, Vec<(usize, bool)>> = HashMap::new();
         for i in 0..std::cmp::min(stations.len(), 1000) {
             for arr in &self.stations[*stations[i].0].arrivals {

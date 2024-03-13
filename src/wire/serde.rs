@@ -69,10 +69,10 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connec
                     to_idx, to_mtime(c.arrival.as_ref().unwrap().scheduled, timetable.start_time), if c.arrival.as_ref().unwrap().is_live { Some(c.arrival.as_ref().unwrap().delay_minutes as i16) } else { None }
                 );
                 nc.destination_arrival.replace(if !load_distributions || c.destination_arrival.is_none() { None } else { let da = c.destination_arrival.as_ref().unwrap(); Some(distribution::Distribution {
-                    histogram: da.histogram.to_vec(),
+                    histogram: da.histogram.to_vec().into_iter().map(|h| h as types::MFloat).collect(),
                     start: to_mtime(da.start, timetable.start_time),
-                    mean: (da.mean as f32/60.0) - timetable.start_time as f32,
-                    feasible_probability: da.feasible_probability
+                    mean: (da.mean as types::MFloat/60.0) - timetable.start_time as types::MFloat,
+                    feasible_probability: da.feasible_probability as types::MFloat
                 }) });
                 connections.push(nc);
                 stations[from_idx].departures.push(id);
@@ -133,10 +133,10 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
             }),
             message: Cow::Borrowed(""),
             destination_arrival: if da.is_none() { None } else { let da = da.as_ref().unwrap(); Some(wire::Distribution {
-                histogram: Cow::Owned(da.histogram.clone()),
+                histogram: Cow::Owned(da.histogram.iter().map(|h| *h as f32).collect()),
                 start: from_mtime(da.start, start_time),
                 mean: (da.mean*60.0) as i64 + start_time,
-                feasible_probability: da.feasible_probability
+                feasible_probability: da.feasible_probability as f32
             }) }
         });
     }

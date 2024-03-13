@@ -43,8 +43,8 @@ pub struct Store {
     hot_ttl_buckets: Vec<i16>,
     hot_ttl_buckets_num: usize,
     ttl_lower: i16,
-    reachability: FxHashMap<ReachabilityKey, f32>,
-    hot_reachability: Vec<f32>,
+    reachability: FxHashMap<ReachabilityKey, types::MFloat>,
+    hot_reachability: Vec<types::MFloat>,
     hot_reachability_factors: [usize; 5],
     pub min_delay_diff: i16,
     min_epsilon_delay_diff: i16,
@@ -196,7 +196,7 @@ impl Store {
         if (dist.end() as i16) > min_max_delay.1 {
             min_max_delay.1 = dist.end() as i16;
         }
-        let e = (0.01 as f32).sqrt();
+        let e = (0.01 as types::MFloat).sqrt();
         if (dist.quantile(e) as i16)-1 < epsilon_min_max_delay.0 {
             epsilon_min_max_delay.0 = dist.quantile(e) as i16-1;
         }
@@ -321,13 +321,13 @@ impl Store {
     }
 
     #[inline]
-    pub fn delay_distribution_mean(&self, stop_info: &connection::StopInfo, is_departure: bool, product_type: i16, now: types::Mtime) -> f32 {
+    pub fn delay_distribution_mean(&self, stop_info: &connection::StopInfo, is_departure: bool, product_type: i16, now: types::Mtime) -> types::MFloat {
         let ttl = self.ttl_bucket(stop_info.projected()-now);
-        self.raw_delay_distribution(self.delay_bucket(stop_info.delay, ttl), is_departure, product_type, ttl).mean+stop_info.projected() as f32
+        self.raw_delay_distribution(self.delay_bucket(stop_info.delay, ttl), is_departure, product_type, ttl).mean+stop_info.projected() as types::MFloat
     }
 
     #[inline(always)]
-    fn calculate_before_probability(&mut self, key: ReachabilityKey, from_prior_ttl: i32, to_prior_ttl: i32) -> f32 {
+    fn calculate_before_probability(&mut self, key: ReachabilityKey, from_prior_ttl: i32, to_prior_ttl: i32) -> types::MFloat {
         let a = self.raw_delay_distribution(key.from_prior_delay, key.from_is_departure, key.from_product_type, key.from_prior_ttl);
         let d = self.raw_delay_distribution(key.to_prior_delay, true, key.to_product_type, key.to_prior_ttl);
         let mut p = a.before_probability(d, -key.diff as i32);
@@ -366,7 +366,7 @@ impl Store {
     }
 
     #[inline]
-    pub fn before_probability(&mut self, from: &connection::StopInfo, from_product_type: i16, from_is_departure: bool, to: &connection::StopInfo, to_product_type: i16, transfer_time: i32, now: types::Mtime) -> f32 {
+    pub fn before_probability(&mut self, from: &connection::StopInfo, from_product_type: i16, from_is_departure: bool, to: &connection::StopInfo, to_product_type: i16, transfer_time: i32, now: types::Mtime) -> types::MFloat {
         let diff = (to.projected()-from.projected()-transfer_time) as i16;
         if diff < self.min_delay_diff {
             return 0.0;
@@ -408,7 +408,7 @@ impl Store {
         }
     }
 
-    pub fn reachable_probability_conn(&mut self, arr: &connection::Connection, dep: &connection::Connection, now: types::Mtime) -> f32 {
+    pub fn reachable_probability_conn(&mut self, arr: &connection::Connection, dep: &connection::Connection, now: types::Mtime) -> types::MFloat {
         let p = self.before_probability(&arr.arrival, arr.product_type, false, &dep.departure, dep.product_type, 1, now);
         if arr.trip_id != dep.trip_id || arr.route_idx != dep.route_idx || arr.arrival.scheduled > dep.departure.scheduled {
             return p
@@ -419,7 +419,7 @@ impl Store {
         1.0
     }
 
-    pub fn before_probability_conn(&mut self, before: &connection::Connection, after: &connection::Connection, now: types::Mtime) -> f32 {
+    pub fn before_probability_conn(&mut self, before: &connection::Connection, after: &connection::Connection, now: types::Mtime) -> types::MFloat {
         self.before_probability(&before.departure, before.product_type, true, &after.departure, after.product_type, 1, now)
     } 
 }

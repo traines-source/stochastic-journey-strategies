@@ -4,7 +4,7 @@ extern crate assert_float_eq;
 use stost::connection;
 use stost::distribution_store;
 use stost::distribution;
-
+use stost::types;
 
 fn setup<'a>() -> (distribution_store::Store, connection::Route, connection::Station, connection::Station, connection::Station) {
     let store = distribution_store::Store::new();
@@ -556,7 +556,7 @@ fn partial_feasibility() {
     assert_float_relative_eq!(a.feasible_probability, 0.75);
     assert_eq!(a.histogram.len(), 8);
     assert_float_relative_eq!(a.histogram[0], 0.125);
-    assert_float_absolute_eq!(a.histogram.iter().sum::<f32>(), 1.0, 1e-3);
+    assert_float_absolute_eq!(a.histogram.iter().sum::<types::MFloat>(), 1.0, 1e-3);
     
  
     let binding = c1.destination_arrival.borrow();
@@ -566,7 +566,7 @@ fn partial_feasibility() {
     assert_float_relative_eq!(a.feasible_probability, 1.0);
     assert_eq!(a.histogram.len(), 8);
     assert_float_relative_eq!(a.histogram[0], 0.125);
-    assert_float_absolute_eq!(a.histogram.iter().sum::<f32>(), 1.0, 1e-3);
+    assert_float_absolute_eq!(a.histogram.iter().sum::<types::MFloat>(), 1.0, 1e-3);
 }
 
 #[test]
