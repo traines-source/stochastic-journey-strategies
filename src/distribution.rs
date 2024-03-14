@@ -228,6 +228,15 @@ impl Distribution {
         assert_float_absolute_eq!(mean as types::MFloat, d.mean());
         d
     }
+
+    pub fn nonnegative(&mut self) {
+        if self.start < 0 {
+            let until0 = cmp::min(self.histogram.len(), (-self.start+1) as usize);
+            self.histogram.splice(0..until0, std::iter::once(self.histogram.iter().take(until0).sum()));
+            self.start = 0;
+            self.mean = self.mean();
+        }
+    }
 }
 
 
@@ -498,5 +507,24 @@ mod tests {
         assert_float_relative_eq!(a.histogram[5], 0.0);
         assert_float_relative_eq!(a.histogram[6], 0.25);
         assert_float_relative_eq!(a.histogram[7], 0.25);
+    }
+
+    #[test]
+    fn test_from_buckets_nonegative() {
+        let buckets = vec![(-5..-3, 25), (-1..3, 50), (6..8, 25), (0..0, 5)];
+        let mut a = Distribution::from_buckets(buckets, 100);
+        a.nonnegative();
+        assert_eq!(a.histogram.len(), 8);
+        assert_eq!(a.start, 0);
+        assert_eq!(a.mean, 2.0);
+        assert_float_relative_eq!(a.feasible_probability, 0.95238095238);
+        assert_float_relative_eq!(a.histogram[0], 0.5);
+        assert_float_relative_eq!(a.histogram[1], 0.125);
+        assert_float_relative_eq!(a.histogram[2], 0.125);
+        assert_float_relative_eq!(a.histogram[3], 0.0);
+        assert_float_relative_eq!(a.histogram[4], 0.0);
+        assert_float_relative_eq!(a.histogram[5], 0.0);
+        assert_float_relative_eq!(a.histogram[6], 0.125);
+        assert_float_relative_eq!(a.histogram[7], 0.125);
     }
 }

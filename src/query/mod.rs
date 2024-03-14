@@ -1,5 +1,6 @@
 pub mod recursive;
 pub mod topocsa;
+pub mod csameat;
 
 use crate::distribution_store;
 use crate::connection;

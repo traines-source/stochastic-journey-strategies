@@ -421,7 +421,23 @@ impl Store {
 
     pub fn before_probability_conn(&mut self, before: &connection::Connection, after: &connection::Connection, now: types::Mtime) -> types::MFloat {
         self.before_probability(&before.departure, before.product_type, true, &after.departure, after.product_type, 1, now)
-    } 
+    }
+
+    pub fn between_probability_conn(&mut self, c: &connection::Connection, lower: types::Mtime, upper: types::Mtime, now: types::Mtime) -> types::MFloat {
+        let ttl = self.ttl_bucket(c.arrival.projected()-now);
+        let d = self.raw_delay_distribution(self.delay_bucket(c.arrival.delay, ttl), false, c.product_type, ttl);
+        let mut cum = 0.0;
+        for i in std::cmp::max(0, lower-d.start)..std::cmp::min(upper-d.start, d.histogram.len() as i32) {
+            cum += d.histogram[i as usize];
+        }
+        cum
+    }
+
+    pub fn nonnegative(&mut self) {
+        for d in self.delay.iter_mut() {
+            d.1.nonnegative();
+        }
+    }
 }
 
 #[cfg(test)]
