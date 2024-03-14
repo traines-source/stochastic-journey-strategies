@@ -62,8 +62,12 @@ impl<'a> Query<'a> for Environment<'a> {
         let start_ts = Instant::now();
         let station_labels = self.full_query(origin, destination, start_time, max_time);
         let decision_graph = self.get_decision_graph(origin, destination, &station_labels);
-        println!("elapsed: {}", start_ts.elapsed().as_millis());
+        println!("csameat elapsed: {}", start_ts.elapsed().as_millis());
         decision_graph
+    }
+
+    fn pair_query(&mut self, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>> {  
+        self.query(origin, destination, start_time, max_time)
     }
 
     fn relevant_stations(&mut self, _origin_idx: usize, _destination_idx: usize, _station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, types::MFloat> {

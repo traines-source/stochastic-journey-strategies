@@ -18,7 +18,7 @@ use rustc_hash::FxHashSet;
 use ndarray_stats::QuantileExt;
 use serde::Deserialize;
 use serde::Serialize;
-use stost::connection;
+use stost::{connection, query::csameat};
 use stost::gtfs::GtfsTimetable;
 use stost::gtfs::OriginDestinationSample;
 use stost::gtfs::StationContraction;
@@ -306,10 +306,19 @@ impl Simulation {
                 } else {
                     HashMap::new()
                 };
+                let connection_pairs = if self.conf.stoch_simulation == "csameat" {
+                    let start = Instant::now();
+                    let dummy = HashMap::new();
+                    let connection_pairs = env.relevant_connection_pairs(&dummy);
+                    timing_stoch += start.elapsed().as_millis();
+                    connection_pairs
+                } else {
+                    HashMap::new()
+                };
                 self.stoch_actions.insert(*pair, StochActions{
                     station_labels: stoch,
-                    connection_pairs_reverse: HashMap::new(),
-                    connection_pairs: HashMap::new(),
+                    connection_pairs_reverse: connection_pairs.iter().map(|(arr,dep)| (*dep as usize, *arr as usize)).collect(),
+                    connection_pairs: connection_pairs,
                     relevant_stations: relevant_stations
                 });
             }
@@ -425,6 +434,7 @@ impl Simulation {
     }
 
     fn load_gtfsrt(&mut self, tt: &mut GtfsTimetable, current_time: i32, path: String, t: &Option<Timetable>) {
+        {
         let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time, true, false);
         println!("Loading GTFSRT {}", path);
         gtfs::load_realtime(
@@ -435,10 +445,11 @@ impl Simulation {
                 env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
             },
         );
+        }
         gtfs::sort_station_departures_asc(&mut tt.stations, &tt.connections, &tt.order);
     }
 
-    fn preprocess_if_necessary(env: &mut topocsa::Environment, timing_preprocessing: &mut u128) {
+    fn preprocess_if_necessary<'a>(env: &mut Box<dyn Query + 'a>, timing_preprocessing: &mut u128) {
         if *timing_preprocessing != 0 {
             return;
         }
@@ -501,8 +512,17 @@ impl Simulation {
         ((mtime-reference_ts)/60) as i32
     }
 
-    fn new_env<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a Vec<connection::Station>, cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, contr: &'a Option<StationContraction>, conf: &SimulationConfig, now: types::Mtime, mean_only: bool, initial: bool) -> topocsa::Environment<'a> {
-        let mut env = topocsa::Environment::new(
+    fn new_env<'a: 'b, 'b>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a Vec<connection::Station>, cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, contr: &'a Option<StationContraction>, conf: &SimulationConfig, now: types::Mtime, mean_only: bool, initial: bool) -> Box<dyn Query<'a> + 'b> {
+        let mut env: Box<dyn Query> = if conf.stoch_simulation.contains("csameat") {
+            Box::new(csameat::Environment::new(
+                store,
+                connections,
+                stations,
+                order,
+                now
+            ))
+        } else {
+            Box::new(topocsa::Environment::new(
             store,
             connections,
             stations,
@@ -513,7 +533,8 @@ impl Simulation {
             conf.epsilon_feasible,
             mean_only,
             conf.transfer_strategy == "domination" || initial && conf.transfer_strategy == "fuzzy_repeated"
-        );
+            ))
+        };
         if let Some(contraction) = contr {
             env.set_station_contraction(contraction)
         }

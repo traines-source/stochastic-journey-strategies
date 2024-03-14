@@ -80,6 +80,10 @@ impl<'a> Query<'a> for Environment<'a> {
         r
     }
 
+    fn pair_query(&mut self, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>> {  
+        self.full_query(origin, destination, start_time, max_time, connection_pairs)
+    }
+
     fn relevant_stations(&mut self, origin_idx: usize, destination_idx: usize, station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, types::MFloat> {
         self.get_relevant_stations(origin_idx, destination_idx, station_labels)
     }
@@ -300,7 +304,7 @@ impl<'a> Environment<'a> {
         println!("connections: {} topoidx: {} cut: {}", self.connections.len(), topo_idx, self.cut.len());
     }
 
-    pub fn pair_query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>> {
+    fn full_query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>> {
         let mut connection_pair_ids = vec![-1; if connection_pairs.len() > 0 { self.connections.len() } else { 0 }];
         for pair in connection_pairs.iter() {
             connection_pair_ids[self.order[*pair.0 as usize]] = *pair.1;
