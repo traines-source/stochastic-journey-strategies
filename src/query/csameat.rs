@@ -12,39 +12,6 @@ use crate::types;
 use super::Query;
 use super::ConnectionLabel;
 
-
-pub fn new<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon_reachable: types::MFloat, epsilon_feasible: types::MFloat, mean_only: bool, domination: bool) -> Environment<'a> {
-    if order.is_empty() {
-        order.extend(0..connections.len());
-    }
-    Environment {
-        store: RefCell::new(store),
-        connections: connections,
-        stations: stations,
-        now,
-        order,
-        contraction: None,
-        number_of_trips: 0,
-        connection_pairs_reverse: vec![],
-        connection_pairs: HashMap::new(),
-        max_dc: 90
-    }
-}
-
-pub fn prepare<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon: types::MFloat, mean_only: bool) -> Environment<'a> {
-    let mut e = new(store, connections, stations, cut, order, now, epsilon, epsilon, mean_only, false);    
-    println!("Starting topocsa...");
-    e.preprocess();
-    e
-}
-
-pub fn prepare_and_query<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: types::MFloat, mean_only: bool) {
-    let mut order = Vec::with_capacity(connections.len());
-    let mut e = prepare(store, connections, stations, cut, &mut order, now, epsilon, mean_only);
-    e.query(origin, destination, start_time, max_time);
-    println!("Done.");
-}
-
 #[derive(Debug)]
 pub struct Environment<'a> {
     store: RefCell<&'a mut distribution_store::Store>,
@@ -58,7 +25,6 @@ pub struct Environment<'a> {
     connection_pairs: HashMap<i32, i32>,
     max_dc: types::Mtime
 }
-
 
 impl PartialEq for ConnectionLabel {
     fn eq(&self, other: &Self) -> bool {
@@ -117,6 +83,24 @@ impl<'a> Query<'a> for Environment<'a> {
 
 impl<'a> Environment<'a> {
     
+    pub fn new(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], order: &'a mut Vec<usize>, now: types::Mtime) -> Environment<'a> {
+        if order.is_empty() {
+            order.extend(0..connections.len());
+        }
+        Environment {
+            store: RefCell::new(store),
+            connections: connections,
+            stations: stations,
+            now,
+            order,
+            contraction: None,
+            number_of_trips: 0,
+            connection_pairs_reverse: vec![],
+            connection_pairs: HashMap::new(),
+            max_dc: 90
+        }
+    }
+
     fn do_preprocess(&mut self) {
         println!("Start preprocessing...");
         self.connections.sort_unstable_by(|a, b|

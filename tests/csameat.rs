@@ -24,7 +24,7 @@ fn gtfs_with_contr() {
 
     let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
     //gtfs::shorten_footpaths(&mut tt.stations);
-    let mut env = csameat::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 0, 0.01, 0.001, true, true);
+    let mut env = csameat::Environment::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.order, 0);
     let contr = gtfs::get_station_contraction(&tt.stations);
     env.set_station_contraction(&contr);
     let o = 10000;

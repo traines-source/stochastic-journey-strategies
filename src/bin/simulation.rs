@@ -502,7 +502,7 @@ impl Simulation {
     }
 
     fn new_env<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a Vec<connection::Station>, cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, contr: &'a Option<StationContraction>, conf: &SimulationConfig, now: types::Mtime, mean_only: bool, initial: bool) -> topocsa::Environment<'a> {
-        let mut env = topocsa::new(
+        let mut env = topocsa::Environment::new(
             store,
             connections,
             stations,

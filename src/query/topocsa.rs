@@ -18,39 +18,6 @@ use crate::query::ConnectionLabel;
 
 use super::Query;
 
-pub fn new<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon_reachable: types::MFloat, epsilon_feasible: types::MFloat, mean_only: bool, domination: bool) -> Environment<'a> {
-    if order.is_empty() {
-        order.extend(0..connections.len());
-    }
-    Environment {
-        store: RefCell::new(store),
-        connections: connections,
-        stations: stations,
-        now,
-        epsilon_reachable,
-        epsilon_feasible,
-        mean_only,
-        domination,
-        cut,
-        order,
-        contraction: None
-    }
-}
-
-pub fn prepare<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon: types::MFloat, mean_only: bool) -> Environment<'a> {
-    let mut e = new(store, connections, stations, cut, order, now, epsilon, epsilon, mean_only, false);    
-    println!("Starting topocsa...");
-    e.preprocess();
-    e
-}
-
-pub fn prepare_and_query<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: types::MFloat, mean_only: bool) {
-    let mut order = Vec::with_capacity(connections.len());
-    let mut e = prepare(store, connections, stations, cut, &mut order, now, epsilon, mean_only);
-    e.query(origin, destination, start_time, max_time);
-    println!("Done.");
-}
-
 #[derive(Debug)]
 pub struct Environment<'a> {
     store: RefCell<&'a mut distribution_store::Store>,
@@ -72,7 +39,6 @@ pub struct DfsConnectionLabel {
     i: usize,
     order: usize
 }
-
 
 #[derive(Debug)]
 pub struct Instrumentation {
@@ -130,6 +96,25 @@ impl<'a> Query<'a> for Environment<'a> {
 }
 
 impl<'a> Environment<'a> {
+
+    pub fn new(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon_reachable: types::MFloat, epsilon_feasible: types::MFloat, mean_only: bool, domination: bool) -> Environment<'a> {
+        if order.is_empty() {
+            order.extend(0..connections.len());
+        }
+        Environment {
+            store: RefCell::new(store),
+            connections: connections,
+            stations: stations,
+            now,
+            epsilon_reachable,
+            epsilon_feasible,
+            mean_only,
+            domination,
+            cut,
+            order,
+            contraction: None
+        }
+    }
 
     fn dfs(&mut self, anchor_idx: usize, topo_idx: &mut usize, labels: &mut Vec<DfsConnectionLabel>, visited: &mut Vec<i16>, stops_completed_up: &mut Vec<usize>, instr: &mut Instrumentation) {
         let mut stack: Vec<usize> = Vec::with_capacity(1000);
@@ -729,6 +714,20 @@ impl<'a> Environment<'a> {
             }
         }
     }
+}
+
+pub fn prepare<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon: types::MFloat, mean_only: bool) -> Environment<'a> {
+    let mut e = Environment::new(store, connections, stations, cut, order, now, epsilon, epsilon, mean_only, false);    
+    println!("Starting topocsa...");
+    e.preprocess();
+    e
+}
+
+pub fn prepare_and_query<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: types::MFloat, mean_only: bool) {
+    let mut order = Vec::with_capacity(connections.len());
+    let mut e = prepare(store, connections, stations, cut, &mut order, now, epsilon, mean_only);
+    e.query(origin, destination, start_time, max_time);
+    println!("Done.");
 }
 
 
