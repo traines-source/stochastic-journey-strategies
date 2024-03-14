@@ -185,14 +185,14 @@ impl<'a> Environment<'a> {
                 if !c.arrival.in_out_allowed {
                     break;
                 }
-                let transfer_time = 1;//contr.get_transfer_time(c.to_idx, self.connections[dep.connection_idx].from_idx) as i32;
+                let transfer_time = contr.get_transfer_time(c.to_idx, self.connections[dep_label.connection_idx].from_idx) as i32;
                 let latest_arrival = dep_label.departure_mean as i32 - c.arrival.projected() - transfer_time;
                 
                 let m = self.store.borrow_mut().between_probability_conn(c, last_latest_arrival+1, latest_arrival+1, self.now);
                 cum += dep_label.destination_arrival.mean * m;
                 mass += m;
-                last_latest_arrival = latest_arrival;
-                if dep_label.departure_mean as i32 > c.arrival.projected() + self.max_dc {
+                last_latest_arrival = std::cmp::max(latest_arrival, last_latest_arrival);
+                if dep_label.departure_mean as i32 > c.arrival.projected() + transfer_time + self.max_dc {
                     t3 = cum;
                     break;
                 }
