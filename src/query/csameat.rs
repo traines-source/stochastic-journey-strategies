@@ -1,20 +1,17 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::time::Instant;
 use rustc_hash::FxHashSet;
-
-
-use indexmap::IndexSet;
-use serde::Deserialize;
-use serde::Serialize;
 
 use crate::distribution;
 use crate::distribution_store;
 use crate::connection;
 use crate::gtfs::StationContraction;
 use crate::types;
+use super::Query;
+use super::ConnectionLabel;
+
 
 pub fn new<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon_reachable: types::MFloat, epsilon_feasible: types::MFloat, mean_only: bool, domination: bool) -> Environment<'a> {
     if order.is_empty() {
@@ -29,6 +26,7 @@ pub fn new<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Ve
         contraction: None,
         number_of_trips: 0,
         connection_pairs_reverse: vec![],
+        connection_pairs: HashMap::new(),
         max_dc: 90
     }
 }
@@ -57,16 +55,10 @@ pub struct Environment<'a> {
     contraction: Option<&'a StationContraction>,
     number_of_trips: usize,
     connection_pairs_reverse: Vec<usize>,
+    connection_pairs: HashMap<i32, i32>,
     max_dc: types::Mtime
 }
 
-#[derive(Debug, Clone)]
-pub struct ConnectionLabel {
-    pub connection_idx: usize,
-    pub destination_arrival: distribution::Distribution,
-    pub prob_after: types::MFloat,
-    pub departure_mean: types::MFloat
-}
 
 impl PartialEq for ConnectionLabel {
     fn eq(&self, other: &Self) -> bool {
@@ -89,13 +81,43 @@ impl PartialOrd for ConnectionLabel {
     }
 }
 
-impl<'a> Environment<'a> {
 
-    pub fn set_station_contraction(&mut self, contr: &'a StationContraction) {
+impl<'a> Query<'a> for Environment<'a> {
+
+    fn set_station_contraction(&mut self, contr: &'a StationContraction) {
         self.contraction = Some(contr);
-    }    
+    }
+
+    fn preprocess(&mut self) {
+        self.do_preprocess();
+    }
+
+    fn query(&mut self, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime) -> Vec<Vec<ConnectionLabel>> {
+        let start_ts = Instant::now();
+        let station_labels = self.full_query(origin, destination, start_time, max_time);
+        let decision_graph = self.get_decision_graph(origin, destination, &station_labels);
+        println!("elapsed: {}", start_ts.elapsed().as_millis());
+        decision_graph
+    }
+
+    fn relevant_stations(&mut self, _origin_idx: usize, _destination_idx: usize, _station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, types::MFloat> {
+        HashMap::new()
+    }
+
+    fn relevant_connection_pairs(&mut self, _weights_by_station_idx: &HashMap<usize, types::MFloat>) -> HashMap<i32, i32> {
+        std::mem::replace(&mut self.connection_pairs, HashMap::new())   
+    }
+
+    fn update(&mut self, connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>) {
+        let c = &mut self.connections[self.order[connection_id]];
+        c.update(is_departure, location_idx, in_out_allowed, delay);
+    }
+
+}
+
+impl<'a> Environment<'a> {
     
-    pub fn preprocess(&mut self) {
+    fn do_preprocess(&mut self) {
         println!("Start preprocessing...");
         self.connections.sort_unstable_by(|a, b|
             b.departure.projected().cmp(&a.departure.projected())
@@ -109,31 +131,6 @@ impl<'a> Environment<'a> {
         println!("Done preprocessing.");
     }
 
-    pub fn update(&mut self, connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>) {
-        let c = &mut self.connections[self.order[connection_id]];
-        if location_idx.is_some() {
-            if is_departure {
-                c.from_idx = location_idx.unwrap();
-            } else {
-                c.to_idx = location_idx.unwrap();
-            }
-        }
-        if in_out_allowed.is_some() {
-            if is_departure {
-                c.departure.in_out_allowed = in_out_allowed.unwrap();
-            } else {
-                c.arrival.in_out_allowed = in_out_allowed.unwrap();
-            }           
-        }
-        if delay.is_some() {
-            if is_departure {
-                c.departure.delay = delay;
-            } else {
-                c.arrival.delay = delay;
-            }
-        }
-    }
-
     fn dominates(&self, q: &ConnectionLabel, p: &ConnectionLabel) -> bool {
         if q.destination_arrival.mean < p.destination_arrival.mean {
             return true;
@@ -144,7 +141,7 @@ impl<'a> Environment<'a> {
         return false;
     }
 
-    pub fn query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime) -> Vec<Vec<ConnectionLabel>> {
+    pub fn full_query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime) -> Vec<Vec<ConnectionLabel>> {
         let contr = self.contraction.unwrap();
         self.connection_pairs_reverse = vec![0; self.connections.len()];
         let mut station_labels: Vec<Vec<ConnectionLabel>> = (0..self.stations.len()).map(|i| Vec::new()).collect();
@@ -239,12 +236,11 @@ impl<'a> Environment<'a> {
         station_labels
     }
 
-    pub fn get_decision_graph(&self, origin: usize, destination: usize, station_labels: &Vec<Vec<ConnectionLabel>>) -> (Vec<Vec<ConnectionLabel>>, HashMap<i32, i32>) {
+    pub fn get_decision_graph(&mut self, origin: usize, destination: usize, station_labels: &Vec<Vec<ConnectionLabel>>) -> Vec<Vec<ConnectionLabel>> {
         let contr = self.contraction.unwrap();
-        let mut connection_pairs: HashMap<i32, i32>  = HashMap::new();
         let mut decision_graph: Vec<Vec<ConnectionLabel>> = (0..self.stations.len()).map(|i| Vec::new()).collect();
         if station_labels[contr.stop_to_group[origin]].is_empty() {
-            return (decision_graph, connection_pairs);
+            return decision_graph;
         }
         let mut priority_queue = std::collections::BinaryHeap::new();
         let origin_contr = contr.stop_to_group[origin];
@@ -258,7 +254,7 @@ impl<'a> Environment<'a> {
             let stop_idx = contr.stop_to_group[arr.to_idx];
             let dest_contr = contr.stop_to_group[destination];
             
-            connection_pairs.insert(arr.id as i32, c.id as i32);
+            self.connection_pairs.insert(arr.id as i32, c.id as i32);
             let existing_deps = decision_graph.get_mut(contr.stop_to_group[c.from_idx]).unwrap();
             if !existing_deps.last().is_some_and(|l| p.connection_idx == l.connection_idx) {
                 existing_deps.push(p.clone());
@@ -275,6 +271,6 @@ impl<'a> Environment<'a> {
                 }
             }
         }
-        (decision_graph, connection_pairs)
+        decision_graph
     }
 }

@@ -108,6 +108,30 @@ impl<'a> Connection {
 	pub fn is_consecutive(&self, next: &Connection) -> bool {
 		self.trip_id == next.trip_id && self.route_idx == next.route_idx && self.arrival.scheduled <= next.departure.scheduled && self.id != next.id && self.to_idx == next.from_idx
 	}
+
+	pub fn update(&mut self, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>) {
+        if location_idx.is_some() {
+            if is_departure {
+                self.from_idx = location_idx.unwrap();
+            } else {
+                self.to_idx = location_idx.unwrap();
+            }
+        }
+        if in_out_allowed.is_some() {
+            if is_departure {
+                self.departure.in_out_allowed = in_out_allowed.unwrap();
+            } else {
+                self.arrival.in_out_allowed = in_out_allowed.unwrap();
+            }           
+        }
+        if delay.is_some() {
+            if is_departure {
+                self.departure.delay = delay;
+            } else {
+                self.arrival.delay = delay;
+            }
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

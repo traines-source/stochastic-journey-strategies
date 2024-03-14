@@ -4,6 +4,7 @@ extern crate rmp_serde as rmps;
 use std::collections::HashMap;
 use stost::distribution_store;
 use stost::query::csameat;
+use stost::query::Query;
 use stost::gtfs;
 
 const CACHE_PATH: &str = "./tests/fixtures/timetable.ign.cache";
@@ -30,8 +31,10 @@ fn gtfs_with_contr() {
     let d = 20000;
     env.preprocess();
     println!("querying...");
-    let station_labels = env.query(o, d, 7200, 8640);
-    let (decision_graph, connection_pairs) = env.get_decision_graph(o, d, &station_labels);
+    let station_labels = env.full_query(o, d, 7200, 8640);
+    let decision_graph = env.get_decision_graph(o, d, &station_labels);
+    let dummy = HashMap::new();
+    let connection_pairs = env.relevant_connection_pairs(&dummy);
     let origin_deps = &station_labels[contr.stop_to_group[o]];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];

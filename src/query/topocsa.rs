@@ -14,6 +14,9 @@ use crate::distribution_store;
 use crate::connection;
 use crate::gtfs::StationContraction;
 use crate::types;
+use crate::query::ConnectionLabel;
+
+use super::Query;
 
 pub fn new<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon_reachable: types::MFloat, epsilon_feasible: types::MFloat, mean_only: bool, domination: bool) -> Environment<'a> {
     if order.is_empty() {
@@ -70,12 +73,6 @@ pub struct DfsConnectionLabel {
     order: usize
 }
 
-pub struct ConnectionLabel {
-    pub connection_idx: usize,
-    pub destination_arrival: distribution::Distribution,
-    pub prob_after: types::MFloat,
-    pub departure_mean: types::MFloat
-}
 
 #[derive(Debug)]
 pub struct Instrumentation {
@@ -99,11 +96,40 @@ struct CsaInstrumentation {
     infeas_iter: usize,
 }
 
-impl<'a> Environment<'a> {
+impl<'a> Query<'a> for Environment<'a> {
 
-    pub fn set_station_contraction(&mut self, contr: &'a StationContraction) {
+    fn set_station_contraction(&mut self, contr: &'a StationContraction) {
         self.contraction = Some(contr);
     }
+
+    fn preprocess(&mut self) {
+        self.do_preprocess();
+    }
+
+    fn query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime) -> Vec<Vec<ConnectionLabel>> {
+        let pairs = HashMap::new();
+        let start_ts = Instant::now();
+        let r = self.pair_query(_origin, destination, start_time, max_time, &pairs);
+        println!("elapsed: {}", start_ts.elapsed().as_millis());
+        r
+    }
+
+    fn relevant_stations(&mut self, origin_idx: usize, destination_idx: usize, station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, types::MFloat> {
+        self.get_relevant_stations(origin_idx, destination_idx, station_labels)
+    }
+
+    fn relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>) -> HashMap<i32, i32> {
+        self.get_relevant_connection_pairs(weights_by_station_idx)   
+    }
+
+    fn update(&mut self, connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>) {
+        let c = &mut self.connections[self.order[connection_id]];
+        c.update(is_departure, location_idx, in_out_allowed, delay);
+    }
+
+}
+
+impl<'a> Environment<'a> {
 
     fn dfs(&mut self, anchor_idx: usize, topo_idx: &mut usize, labels: &mut Vec<DfsConnectionLabel>, visited: &mut Vec<i16>, stops_completed_up: &mut Vec<usize>, instr: &mut Instrumentation) {
         let mut stack: Vec<usize> = Vec::with_capacity(1000);
@@ -243,7 +269,7 @@ impl<'a> Environment<'a> {
         //println!("instr: {:?}", instr);
     }
     
-    pub fn preprocess(&mut self) {
+    fn do_preprocess(&mut self) {
         self.cut.clear();
         println!("Start preprocessing...");
         let mut conn_idxs: Vec<usize> = (0..self.connections.len()).collect();
@@ -287,42 +313,6 @@ impl<'a> Environment<'a> {
         self.order.append(&mut new_order);
         println!("Done preprocessing.");
         println!("connections: {} topoidx: {} cut: {}", self.connections.len(), topo_idx, self.cut.len());
-    }
-
-    // TODO refactor
-    pub fn update(&mut self, connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>) {
-        let c = &mut self.connections[self.order[connection_id]];
-        if location_idx.is_some() {
-            //println!("Platform change is_dep: {} new_location: {} c: {:?}", is_departure, location_idx.unwrap(), c);
-            if is_departure {
-                c.from_idx = location_idx.unwrap();
-            } else {
-                c.to_idx = location_idx.unwrap();
-            }
-        }
-        if in_out_allowed.is_some() {
-            //println!("In_out_allowed change is_dep: {} new_location: {} c: {:?}", is_departure, in_out_allowed.unwrap(), c);
-            if is_departure {
-                c.departure.in_out_allowed = in_out_allowed.unwrap();
-            } else {
-                c.arrival.in_out_allowed = in_out_allowed.unwrap();
-            }           
-        }
-        if delay.is_some() {
-            if is_departure {
-                c.departure.delay = delay;
-            } else {
-                c.arrival.delay = delay;
-            }
-        }
-    }
-
-    pub fn query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime) -> Vec<Vec<ConnectionLabel>> {
-        let pairs = HashMap::new();
-        let start_ts = Instant::now();
-        let r = self.pair_query(_origin, destination, start_time, max_time, &pairs);
-        println!("elapsed: {}", start_ts.elapsed().as_millis());
-        r
     }
 
     pub fn pair_query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>> {
@@ -585,7 +575,7 @@ impl<'a> Environment<'a> {
         }
     }
 
-    pub fn relevant_stations(&mut self, origin_idx: usize, destination_idx: usize, station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, types::MFloat> {
+    fn get_relevant_stations(&mut self, origin_idx: usize, destination_idx: usize, station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, types::MFloat> {
         println!("from {} {} to {} {}", origin_idx, self.stations[origin_idx].name, destination_idx, self.stations[destination_idx].name);
         let mut stack = vec![(0, 1.0)];
         let mut initial = true;
@@ -701,7 +691,7 @@ impl<'a> Environment<'a> {
         weights_by_station_idx
     }
 
-    pub fn relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>) -> HashMap<i32, i32> {
+    fn get_relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>) -> HashMap<i32, i32> {
         let mut stations: Vec<(&usize, &types::MFloat)> = weights_by_station_idx.iter().collect();
         stations.sort_unstable_by(|a,b| b.1.partial_cmp(a.1).unwrap());
         //println!("{:?}", stations.iter().take(500).map(|s| (&self.stations[s.0].name as &str, s.1)).collect::<Vec<(&str, types::MFloat)>>());

@@ -22,6 +22,7 @@ use stost::connection;
 use stost::gtfs::GtfsTimetable;
 use stost::gtfs::OriginDestinationSample;
 use stost::gtfs::StationContraction;
+use stost::query::Query;
 use stost::types;
 use std::collections::HashMap;
 use std::io::Write;
@@ -159,7 +160,7 @@ pub struct SimulationRun {
 }
 
 struct StochActions {
-    station_labels: Vec<Vec<topocsa::ConnectionLabel>>,
+    station_labels: Vec<Vec<stost::query::ConnectionLabel>>,
     connection_pairs: HashMap<i32, i32>,
     connection_pairs_reverse: HashMap<usize, usize>,
     relevant_stations: HashMap<usize, types::MFloat>

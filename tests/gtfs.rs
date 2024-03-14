@@ -12,6 +12,7 @@ use stost::distribution_store;
 use stost::query::topocsa;
 use stost::gtfs;
 use std::time::Instant;
+use stost::query::Query;
 
 const CACHE_PATH: &str = "./tests/fixtures/timetable.ign.cache";
 const GTFS_PATH: &str = "../gtfs/swiss-gtfs/2023-11-06/";
@@ -122,7 +123,7 @@ fn gtfs_with_contr() {
     let second_best_conn = &origin_deps[origin_deps.len()/3];
     //println!("{:?}", contr);
 
-    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
+    println!("{:?} {:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, best_conn.destination_arrival.mean(), &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
 }
 
 #[test]
