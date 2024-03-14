@@ -769,7 +769,8 @@ pub fn analyze_simulation(files: Vec<&String>) {
                 baseline_mode = true;
                 baseline_results = Some(vec![]);
                 day_idx = 0;
-            } else if day_idx == 0 {
+            }
+            if day_idx == 0 {
                 println!("eps: {} fuzzy: {} meanonly: {} short: {} relonly: {}", run.config.epsilon_feasible != 0.0, run.config.transfer_strategy != "domination", !run.config.stoch_simulation.contains("with_distr"), run.config.transfer == "short", run.config.stoch_simulation.contains("relevant"));
             }
             run_at = run.simulation_run_at;
@@ -938,7 +939,7 @@ fn summary(values: Vec<types::MFloat>, name: &str, samples: usize) -> ArrayBase<
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        println!("Usage: simulation (run|analyze) FILE");
+        println!("Usage: simulation (run|analyze) [TARGET_FILES] [BASELINE_FILES]");
         return;
     }
     match args[1].as_str() {
