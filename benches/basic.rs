@@ -5,6 +5,7 @@ use stost::connection;
 use stost::connection::StopInfo;
 use stost::distribution_store;
 use stost::gtfs;
+use stost::query::Query;
 use stost::wire::serde;
 use stost::query::topocsa;
 use rustc_hash::FxHashSet;
@@ -55,7 +56,7 @@ fn from_gtfs(c: &mut Criterion) {
     store.load_distributions("./data/ch_sbb.csv");
 
     let mut tt = gtfs::load_gtfs_cache("./tests/fixtures/timetable.ign.cache");
-    let mut env = topocsa::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 7500, 0.01, 0.01, true, false);
+    let mut env = topocsa::Environment::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 7500, 0.01, 0.01, true, false);
     let contr = gtfs::get_station_contraction(&tt.stations);
     env.set_station_contraction(&contr);
     let o = 10000;
