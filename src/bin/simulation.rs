@@ -317,7 +317,7 @@ impl Simulation {
                     connection_pairs_reverse
                 } else {
                     HashMap::new()
-                };connection_pairs_reverse
+                };
                 self.stoch_actions.insert(*pair, StochActions{
                     station_labels: stoch,
                     connection_pairs: connection_pairs_reverse.iter().map(|(dep,arr)| (*arr, *dep)).collect(),
