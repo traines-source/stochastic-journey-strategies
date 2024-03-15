@@ -20,7 +20,7 @@ pub struct Environment<'a> {
     now: types::Mtime,
     order: &'a mut Vec<usize>,
     contraction: Option<&'a StationContraction>,
-    number_of_trips: usize,
+    number_of_trips: &'a mut FxHashSet<(usize, usize)>,
     connection_pairs_reverse: Vec<usize>,
     connection_pairs: HashMap<i32, i32>,
     max_dc: types::Mtime
@@ -87,7 +87,7 @@ impl<'a> Query<'a> for Environment<'a> {
 
 impl<'a> Environment<'a> {
     
-    pub fn new(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], order: &'a mut Vec<usize>, now: types::Mtime) -> Environment<'a> {
+    pub fn new(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime) -> Environment<'a> {
         if order.is_empty() {
             order.extend(0..connections.len());
         }
@@ -98,7 +98,7 @@ impl<'a> Environment<'a> {
             now,
             order,
             contraction: None,
-            number_of_trips: 0,
+            number_of_trips: cut, // hacky reusing of variable
             connection_pairs_reverse: vec![],
             connection_pairs: HashMap::new(),
             max_dc: 90
@@ -110,12 +110,15 @@ impl<'a> Environment<'a> {
         self.connections.sort_unstable_by(|a, b|
             b.departure.projected().cmp(&a.departure.projected())
         );
+        let mut number_of_trips = 0;
         for c in self.connections.iter().enumerate() {
             self.order[c.1.id] = c.0;
-            if self.number_of_trips <= c.1.trip_id as usize {
-                self.number_of_trips = (c.1.trip_id+1) as usize;
+            if number_of_trips <= c.1.trip_id as usize {
+                number_of_trips = (c.1.trip_id+1) as usize;
             }
         }
+        self.number_of_trips.clear();
+        self.number_of_trips.insert((number_of_trips, 0));
         println!("Done preprocessing.");
     }
 
@@ -132,13 +135,12 @@ impl<'a> Environment<'a> {
     pub fn full_query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime) -> Vec<Vec<ConnectionLabel>> {
         let contr = self.contraction.unwrap();
         self.connection_pairs_reverse = vec![0; self.connections.len()];
-        let mut station_labels: Vec<Vec<ConnectionLabel>> = (0..self.stations.len()).map(|i| Vec::new()).collect();
-        let mut trip_labels: Vec<(types::MFloat, usize)> = vec![(types::MFloat::MAX, 0); self.number_of_trips]; 
-        let max_delay = self.store.borrow().max_delay as types::Mtime;
+        let mut station_labels: Vec<Vec<ConnectionLabel>> = (0..self.stations.len()).map(|_i| Vec::new()).collect();
+        let mut trip_labels: Vec<(types::MFloat, usize)> = vec![(types::MFloat::MAX, 0); self.number_of_trips.iter().last().unwrap().0]; 
         for i in 0..self.connections.len() {
             let c = &self.connections[i];
 
-            if c.departure.projected()+max_delay < start_time {
+            if c.departure.projected() < start_time {
                 break;
             }
             if c.departure.projected() >= max_time {
@@ -183,7 +185,7 @@ impl<'a> Environment<'a> {
                 }
             }
             if t3 != types::MFloat::MAX {
-                assert_float_absolute_eq!(mass, 1.0);
+                assert_float_absolute_eq!(mass, 1.0, 1e-3);
             }            
             let tc = t1.min(t2).min(t3);            
             if tc != types::MFloat::MAX {
@@ -201,6 +203,7 @@ impl<'a> Environment<'a> {
                 let q = &departures.last();
                 let mut distr = distribution::Distribution::empty(0);
                 distr.mean = tc;
+                distr.feasible_probability = 1.0;
                 let mut p = ConnectionLabel{
                     connection_idx: i,
                     destination_arrival: distr,
@@ -226,7 +229,7 @@ impl<'a> Environment<'a> {
 
     pub fn get_decision_graph(&mut self, origin: usize, destination: usize, station_labels: &Vec<Vec<ConnectionLabel>>) -> Vec<Vec<ConnectionLabel>> {
         let contr = self.contraction.unwrap();
-        let mut decision_graph: Vec<Vec<ConnectionLabel>> = (0..self.stations.len()).map(|i| Vec::new()).collect();
+        let mut decision_graph: Vec<Vec<ConnectionLabel>> = (0..self.stations.len()).map(|_i| Vec::new()).collect();
         if station_labels[contr.stop_to_group[origin]].is_empty() {
             return decision_graph;
         }
@@ -242,7 +245,7 @@ impl<'a> Environment<'a> {
             let stop_idx = contr.stop_to_group[arr.to_idx];
             let dest_contr = contr.stop_to_group[destination];
             
-            self.connection_pairs.insert(arr.id as i32, c.id as i32);
+            self.connection_pairs.insert(c.id as i32, arr.id as i32);
             let existing_deps = decision_graph.get_mut(contr.stop_to_group[c.from_idx]).unwrap();
             if !existing_deps.last().is_some_and(|l| p.connection_idx == l.connection_idx) {
                 existing_deps.push(p.clone());

@@ -182,6 +182,9 @@ impl Simulation {
         let conf = load_config(config_file);
         let mut store = distribution_store::Store::new();
         store.load_distributions(&conf.distributions_path);
+        if conf.stoch_simulation.contains("csameat") {
+            store.nonnegative();
+        }
         Simulation {
             conf: conf,
             store: store,
@@ -306,19 +309,19 @@ impl Simulation {
                 } else {
                     HashMap::new()
                 };
-                let connection_pairs = if self.conf.stoch_simulation == "csameat" {
+                let connection_pairs_reverse = if self.conf.stoch_simulation == "csameat" {
                     let start = Instant::now();
                     let dummy = HashMap::new();
-                    let connection_pairs = env.relevant_connection_pairs(&dummy);
+                    let connection_pairs_reverse = env.relevant_connection_pairs(&dummy);
                     timing_stoch += start.elapsed().as_millis();
-                    connection_pairs
+                    connection_pairs_reverse
                 } else {
                     HashMap::new()
-                };
+                };connection_pairs_reverse
                 self.stoch_actions.insert(*pair, StochActions{
                     station_labels: stoch,
-                    connection_pairs_reverse: connection_pairs.iter().map(|(arr,dep)| (*dep as usize, *arr as usize)).collect(),
-                    connection_pairs: connection_pairs,
+                    connection_pairs: connection_pairs_reverse.iter().map(|(dep,arr)| (*arr, *dep)).collect(),
+                    connection_pairs_reverse: connection_pairs_reverse.into_iter().map(|(dep,arr)| (dep as usize, arr as usize)).collect(),
                     relevant_stations: relevant_stations
                 });
             }
@@ -435,16 +438,16 @@ impl Simulation {
 
     fn load_gtfsrt(&mut self, tt: &mut GtfsTimetable, current_time: i32, path: String, t: &Option<Timetable>) {
         {
-        let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time, true, false);
-        println!("Loading GTFSRT {}", path);
-        gtfs::load_realtime(
-            &path,
-            t.as_ref().unwrap(),
-            &tt.transport_and_day_to_connection_id,
-            |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
-                env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
-            },
-        );
+            let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time, true, false);
+            println!("Loading GTFSRT {}", path);
+            gtfs::load_realtime(
+                &path,
+                t.as_ref().unwrap(),
+                &tt.transport_and_day_to_connection_id,
+                |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
+                    env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
+                },
+            );
         }
         gtfs::sort_station_departures_asc(&mut tt.stations, &tt.connections, &tt.order);
     }
@@ -518,21 +521,22 @@ impl Simulation {
                 store,
                 connections,
                 stations,
+                cut,
                 order,
                 now
             ))
         } else {
             Box::new(topocsa::Environment::new(
-            store,
-            connections,
-            stations,
-            cut,
-            order,
-            now,
-            conf.epsilon_reachable,
-            conf.epsilon_feasible,
-            mean_only,
-            conf.transfer_strategy == "domination" || initial && conf.transfer_strategy == "fuzzy_repeated"
+                store,
+                connections,
+                stations,
+                cut,
+                order,
+                now,
+                conf.epsilon_reachable,
+                conf.epsilon_feasible,
+                mean_only,
+                conf.transfer_strategy == "domination" || initial && conf.transfer_strategy == "fuzzy_repeated"
             ))
         };
         if let Some(contraction) = contr {
@@ -682,6 +686,7 @@ impl Simulation {
                 }
                 if alternatives.len() > 0 {
                     result.connection_missed = Some(tt.connections[alternatives.last().unwrap().from_conn_idx].clone());
+                    println!("Missed: {:?}", tt.connections[alternatives.last().unwrap().from_conn_idx]);
                 }
                 println!("Setting to broken.");
                 result.broken = true;
@@ -792,7 +797,7 @@ pub fn analyze_simulation(files: Vec<&String>) {
                 day_idx = 0;
             }
             if day_idx == 0 {
-                println!("eps: {} fuzzy: {} meanonly: {} short: {} relonly: {}", run.config.epsilon_feasible != 0.0, run.config.transfer_strategy != "domination", !run.config.stoch_simulation.contains("with_distr"), run.config.transfer == "short", run.config.stoch_simulation.contains("relevant"));
+                println!("meanonly: {} short: {} relonly: {} fuzzy: {} eps: {}", !run.config.stoch_simulation.contains("with_distr"), run.config.transfer == "short", run.config.stoch_simulation.contains("relevant"), run.config.transfer_strategy != "domination", run.config.epsilon_feasible != 0.0, );
             }
             run_at = run.simulation_run_at;
         }
@@ -814,8 +819,10 @@ fn analyze_multiday_simulation(run: Vec<SimulationJourney>, baseline: Option<Vec
         let baseline_map = HashMap::from_iter(baseline.iter().map(|r| ((r.pair.0, r.pair.1, r.pair.2), r)));
         println!("\nComparison between stoch target and det baseline");
         analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), false);
+        //analyze_run_with_separate_baseline(&baseline_map, run.iter().filter(|r| r.pair.2 < 8000).collect(), false);
         println!("\nComparison between stoch target and stoch baseline");
         analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), true);
+        //analyze_run_with_separate_baseline(&baseline_map, run.iter().filter(|r| r.pair.2 < 8000).collect(), true);
     }
 }
 
@@ -867,8 +874,8 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
     summary(a.target_actual_travel_time, "target_actual_travel_time", samples);
     //summary(a.baseline_algo_elapsed, "baseline_algo_elapsed", samples);
     summary(a.target_first_algo_elapsed, "target_first_algo_elapsed", samples);
-    //summary(a.target_algo_elapsed, "target_algo_elapsed", samples);
-    //summary(a.target_preprocessing_elapsed, "target_preprocessing_elapsed", samples);
+    summary(a.target_algo_elapsed, "target_algo_elapsed", samples);
+    summary(a.target_preprocessing_elapsed, "target_preprocessing_elapsed", samples);
     /*println!("delta_baseline_predicted_actual: {:?}", histogram(delta_baseline_predicted_actual));
     println!("delta_target_predicted_actual: {:?}", histogram(delta_target_predicted_actual));
     let hist_arrival = histogram(delta_baseline_target_actual_arrival);

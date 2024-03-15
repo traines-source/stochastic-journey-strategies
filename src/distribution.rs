@@ -235,6 +235,7 @@ impl Distribution {
             self.histogram.splice(0..until0, std::iter::once(self.histogram.iter().take(until0).sum()));
             self.start = 0;
             self.mean = self.mean();
+            assert_float_absolute_eq!(1.0, self.histogram.iter().sum::<f32>(), 1e-3);
         }
     }
 }
