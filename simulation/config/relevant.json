@@ -10,7 +10,7 @@
     "epsilon_reachable": 0.01,
     "epsilon_feasible": 0.001,
     "transfer_strategy": "domination",
-    "samples": 1000,
+    "samples": 10000,
     "start_mams": [420, 600, 1080],
     "start_date": [2023, 11, 2],
     "num_days": 3,
