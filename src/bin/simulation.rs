@@ -628,8 +628,8 @@ impl Simulation {
                 return None // TODO properly use transfer strategy?
             }
             Some(Alternative{
-                from_conn_idx: l.connection_idx,
-                to_conn_idx: if stoch_actions.connection_pairs_reverse.is_empty() { l.connection_idx } else { tt.order[stoch_actions.connection_pairs_reverse[&tt.connections[l.connection_idx].id]] },
+                from_conn_idx: tt.order[l.connection_id],
+                to_conn_idx: if stoch_actions.connection_pairs_reverse.is_empty() { tt.order[l.connection_id] } else { tt.order[stoch_actions.connection_pairs_reverse[&l.connection_id]] },
                 proj_dest_arr: l.destination_arrival.mean
             })
         }));

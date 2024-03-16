@@ -100,7 +100,7 @@ fn gtfs() {
     let origin_deps = &station_labels[o];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
-    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
 }
 
 #[test]
@@ -123,7 +123,7 @@ fn gtfs_with_contr() {
     let second_best_conn = &origin_deps[origin_deps.len()/3];
     //println!("{:?}", contr);
 
-    println!("{:?} {:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, best_conn.destination_arrival.mean(), &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
+    println!("{:?} {:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, best_conn.destination_arrival.mean(), &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
 }
 
 #[test]
@@ -173,7 +173,7 @@ fn gtfs_with_relevant_stations() {
     let second_best_conn = &origin_deps[origin_deps.len()/3];
     //println!("{:?}", contr);
 
-    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
 }
 
 #[test]
@@ -206,7 +206,7 @@ fn gtfs_with_rt() {
     let origin_deps = &station_labels[o];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
-    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
 }
 
 #[test]
@@ -250,7 +250,7 @@ fn load_only_gtfs_with_rt() {
     let origin_deps = &station_labels[o];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
-    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &tt.connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
 
     for i in 0..tt.connections.len() {
         assert_eq!(tt.connections[tt.order[i]].id, i); 
@@ -286,7 +286,7 @@ fn gtfs_small() {
     let origin_deps = &station_labels[o];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
-    println!("{:?} {:?} {:?} {:?} {:?}{:?}", stations[o].name, stations[d].name, &connections[best_conn.connection_idx].departure, best_conn.destination_arrival, &connections[second_best_conn.connection_idx].departure, second_best_conn.destination_arrival);
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", stations[o].name, stations[d].name, &connections[order[best_conn.connection_id]].departure, best_conn.destination_arrival, &connections[order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
     
 }
 

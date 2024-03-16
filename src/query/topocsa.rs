@@ -427,7 +427,7 @@ impl<'a> Environment<'a> {
                             departures.drain(replace_up_to..j as usize);
                         }
                         departures[replace_up_to] = ConnectionLabel{
-                            connection_idx: departure_conn_idx,
+                            connection_id: departure_conn.id,
                             destination_arrival: new_distribution,
                             prob_after: 1.0,
                             departure_mean: departure_mean
@@ -437,18 +437,18 @@ impl<'a> Environment<'a> {
                 } else if self.contraction.is_some() {
                     if ((j+1) as usize) < departures.len() { 
                         let ref_label = &departures[(j+1) as usize];
-                        let reference = &self.connections[ref_label.connection_idx];
+                        let reference = &self.connections[self.order[ref_label.connection_id]];
                         prob_after = self.store.borrow_mut().before_probability(&reference.departure, reference.product_type, true, &departure_conn.departure, departure_conn.product_type, 1, self.now)
                     }
                     if prob_after > 0.0 && j >= 0 {
                         let ref_label = departures.get_mut(j as usize).unwrap();
-                        let reference = &self.connections[ref_label.connection_idx];
+                        let reference = &self.connections[self.order[ref_label.connection_id]];
                         ref_label.prob_after = self.store.borrow_mut().before_probability(&departure_conn.departure, departure_conn.product_type, true, &reference.departure, reference.product_type, 1, self.now);
                     }
                 }
                 if prob_after > 0.0 {                    
                     departures.insert((j+1) as usize, ConnectionLabel{
-                        connection_idx: departure_conn_idx,
+                        connection_id: departure_conn.id,
                         destination_arrival: new_distribution,
                         prob_after: prob_after,
                         departure_mean: departure_mean
@@ -486,7 +486,7 @@ impl<'a> Environment<'a> {
             if departures_i < departures.len() {
                 let dep_i = departures.len()-1-departures_i;
                 let label = &departures[dep_i];
-                let dep = &self.connections[label.connection_idx];
+                let dep = &self.connections[self.order[label.connection_id]];
                 if self.cut.contains(&(c.id, dep.id)) {
                     departures_i += 1;
                     continue;
@@ -541,7 +541,7 @@ impl<'a> Environment<'a> {
         let mut store = self.store.borrow_mut();
         for dep_label in departures.iter().rev() {
             instr.deps += 1;
-            let dep = &self.connections[dep_label.connection_idx];
+            let dep = &self.connections[self.order[dep_label.connection_id]];
             if self.cut.contains(&(c.id, dep.id)) {
                 continue;
             }
@@ -628,7 +628,7 @@ impl<'a> Environment<'a> {
                 }
                 let dep_label = &departures[min_k][departures[min_k].len()-is[min_k]-1];
                 let mut p: types::MFloat = dep_label.destination_arrival.feasible_probability;
-                let dep = &self.connections[dep_label.connection_idx];
+                let dep = &self.connections[self.order[dep_label.connection_id]];
                 is[min_k] += 1;
 
                 /*if !self.domination && initial && last_departure.is_some() && dep.departure.projected() < last_departure.unwrap().projected() { 
@@ -665,7 +665,7 @@ impl<'a> Environment<'a> {
                     remaining_probability = (1.0-p).clamp(0.0,1.0)*remaining_probability;
                 }
                 if dep_prob > self.epsilon_feasible && dep_label.destination_arrival.feasible_probability >= 1.0-self.epsilon_feasible {
-                    stack.push((dep_label.connection_idx, dep_prob));
+                    stack.push((self.order[dep_label.connection_id], dep_prob));
                 }
             }
             initial = false;

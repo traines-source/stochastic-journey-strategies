@@ -20,7 +20,7 @@ pub fn query<'a>(store: &'a mut distribution_store::Store, connections: &mut Vec
 
 #[derive(Debug, Clone)]
 pub struct ConnectionLabel {
-    pub connection_idx: usize,
+    pub connection_id: usize,
     pub destination_arrival: distribution::Distribution,
     pub prob_after: types::MFloat,
     pub departure_mean: types::MFloat

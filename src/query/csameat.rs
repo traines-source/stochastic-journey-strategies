@@ -28,7 +28,7 @@ pub struct Environment<'a> {
 
 impl PartialEq for ConnectionLabel {
     fn eq(&self, other: &Self) -> bool {
-        other.connection_idx == self.connection_idx
+        other.connection_id == self.connection_id
     }
 }
 
@@ -172,7 +172,7 @@ impl<'a> Environment<'a> {
                 if !c.arrival.in_out_allowed {
                     break;
                 }
-                let transfer_time = contr.get_transfer_time(c.to_idx, self.connections[dep_label.connection_idx].from_idx) as i32;
+                let transfer_time = contr.get_transfer_time(c.to_idx, self.connections[self.order[dep_label.connection_id]].from_idx) as i32;
                 let latest_arrival = dep_label.departure_mean as i32 - c.arrival.projected() - transfer_time;
                 
                 let m = self.store.borrow_mut().between_probability_conn(c, last_latest_arrival+1, latest_arrival+1, self.now);
@@ -205,7 +205,7 @@ impl<'a> Environment<'a> {
                 distr.mean = tc;
                 distr.feasible_probability = 1.0;
                 let mut p = ConnectionLabel{
-                    connection_idx: i,
+                    connection_id: c.id,
                     destination_arrival: distr,
                     prob_after: 1.0,
                     departure_mean: c.departure.projected() as types::MFloat
@@ -237,7 +237,7 @@ impl<'a> Environment<'a> {
         let origin_contr = contr.stop_to_group[origin];
 
         let p = station_labels[origin_contr].iter().rev().filter(|l| {
-            let from_idx = self.connections[l.connection_idx].from_idx;
+            let from_idx = self.connections[self.order[l.connection_id]].from_idx;
             let init_transfer_time = if from_idx == origin { 0 } else { contr.get_transfer_time(origin, from_idx) as i32 };
             start_time + init_transfer_time <= l.departure_mean as i32
         }).next().unwrap();
@@ -245,8 +245,8 @@ impl<'a> Environment<'a> {
 
         while !priority_queue.is_empty() {
             let p = priority_queue.pop().unwrap();
-            let c = &self.connections[p.connection_idx];
-            let arr = &self.connections[self.connection_pairs_idx_reverse[p.connection_idx] as usize];
+            let c = &self.connections[self.order[p.connection_id]];
+            let arr = &self.connections[self.connection_pairs_idx_reverse[self.order[p.connection_id]] as usize];
             assert_eq!(c.trip_id, arr.trip_id);
             let stop_idx = contr.stop_to_group[arr.to_idx];
             let dest_contr = contr.stop_to_group[destination];
@@ -254,7 +254,7 @@ impl<'a> Environment<'a> {
             let other = self.connection_pairs.insert(c.id as i32, arr.id as i32);
             assert_eq!(other.unwrap_or(arr.id as i32), arr.id as i32);
             let existing_deps = decision_graph.get_mut(contr.stop_to_group[c.from_idx]).unwrap();
-            if !existing_deps.last().is_some_and(|l| p.connection_idx == l.connection_idx) {
+            if !existing_deps.last().is_some_and(|l| p.connection_id == l.connection_id) {
                 existing_deps.push(p.clone());
 
                 if dest_contr != stop_idx {
