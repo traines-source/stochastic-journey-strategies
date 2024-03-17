@@ -108,7 +108,7 @@ impl<'a> Environment<'a> {
     fn do_preprocess(&mut self) {
         println!("Start preprocessing...");
         self.connections.sort_unstable_by(|a, b|
-            b.departure.projected().cmp(&a.departure.projected())
+            b.departure.projected().cmp(&a.departure.projected()).then(b.id.cmp(&a.id))
         );
         let mut number_of_trips = 0;
         for c in self.connections.iter().enumerate() {
