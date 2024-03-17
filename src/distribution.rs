@@ -5,7 +5,6 @@ use serde::{Serialize, Deserialize};
 use crate::types;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Distribution {
-    #[serde(skip_deserializing)]
     pub histogram: Vec<types::MFloat>,
 	pub start: types::Mtime,
     #[serde(default)]

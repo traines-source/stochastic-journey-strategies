@@ -1,7 +1,11 @@
+#[macro_use]
+extern crate assert_float_eq;
+
 use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::env;
 use std::error::Error;
+
 use glob::glob;
 use motis_nigiri::Timetable;
 use ndarray_stats::{
@@ -395,16 +399,16 @@ impl Simulation {
             Self::preprocess_if_necessary(&mut env, timing_preprocessing);
             let start = Instant::now();
             if self.conf.stoch_simulation.starts_with("adaptive_online_relevant") {
-            self.stoch_actions.entry(*pair).and_modify(|a| {
-                if let Some(sidx) = stuck_at {
-                    a.relevant_stations.insert(sidx, 1000.0);
-                    for f in &tt.stations[sidx].footpaths {
-                        a.relevant_stations.insert(f.target_location_idx, 1000.0);
+                self.stoch_actions.entry(*pair).and_modify(|a| {
+                    if let Some(sidx) = stuck_at {
+                        a.relevant_stations.insert(sidx, 1000.0);
+                        for f in &tt.stations[sidx].footpaths {
+                            a.relevant_stations.insert(f.target_location_idx, 1000.0);
+                        }
                     }
-                }
-                a.connection_pairs = env.relevant_connection_pairs(&a.relevant_stations);
-                a.connection_pairs_reverse = a.connection_pairs.iter().map(|(arr,dep)| (*dep as usize, *arr as usize)).collect();
-            });
+                    a.connection_pairs = env.relevant_connection_pairs(&a.relevant_stations);
+                    a.connection_pairs_reverse = a.connection_pairs.iter().map(|(arr,dep)| (*dep as usize, *arr as usize)).collect();
+                });
             }
             let stoch = env.pair_query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window, &self.stoch_actions[pair].connection_pairs);
             let timing_stoch = start.elapsed().as_millis();
@@ -767,13 +771,17 @@ struct SimulationAnalysis {
     target_infeasible: i32,
     target_broken: i32,
     baseline_and_target_infeasible: i32,
+    baseline_and_target_infeasible_original: i32,
     delta_baseline_predicted_actual: Vec<types::MFloat>,
     delta_target_predicted_actual: Vec<types::MFloat>,
     delta_baseline_target_predicted: Vec<types::MFloat>,
     delta_baseline_predicted_target_actual: Vec<types::MFloat>,
     delta_baseline_target_actual_arrival: Vec<types::MFloat>,
     delta_baseline_target_actual_arrival_relative: Vec<types::MFloat>,
+    delta_baseline_target_actual_arrival_relative_trimmed: Vec<types::MFloat>,
     delta_baseline_target_actual_travel_time: Vec<types::MFloat>,
+    target_destination_arrival_percentiles: [i32; 100],
+    target_mean_percentiles: [i32; 100],
     target_actual_travel_time: Vec<types::MFloat>,
     baseline_algo_elapsed: Vec<types::MFloat>,
     target_preprocessing_elapsed: Vec<types::MFloat>,
@@ -816,25 +824,27 @@ pub fn analyze_simulation(files: Vec<&String>) {
 fn analyze_multiday_simulation(run: Vec<SimulationJourney>, baseline: Option<Vec<SimulationJourney>>) {
     println!("\nComparison between stoch target and det target");
     analyze_run(run.iter().map(|r| &r.det).collect(), run.iter().map(|r| &r.stoch).collect(), run.iter().collect());
-    //analyze_run(run.iter().filter(|r| r.pair.2 < 8000).map(|r| &r.det).collect(), run.iter().filter(|r| r.pair.2 < 8000).map(|r| &r.stoch).collect(), run.iter().filter(|r| r.pair.2 < 8000).collect());
+    //analyze_run(run.iter().filter(|r| r.pair.2 < 7700).map(|r| &r.det).collect(), run.iter().filter(|r| r.pair.2 < 7700).map(|r| &r.stoch).collect(), run.iter().filter(|r| r.pair.2 < 7700).collect());
     if let Some(baseline) = baseline {
         let baseline_map = HashMap::from_iter(baseline.iter().map(|r| ((r.pair.0, r.pair.1, r.pair.2), r)));
         println!("\nComparison between stoch target and det baseline");
-        analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), false);
+        analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), false, true);
         //analyze_run_with_separate_baseline(&baseline_map, run.iter().filter(|r| r.pair.2 < 8000).collect(), false);
         println!("\nComparison between stoch target and stoch baseline");
-        analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), true);
+        analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), true, true);
         //analyze_run_with_separate_baseline(&baseline_map, run.iter().filter(|r| r.pair.2 < 8000).collect(), true);
+        println!("\nComparison between det target and det baseline");
+        analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), false, false);
     }
 }
 
-fn analyze_run_with_separate_baseline(baseline: &HashMap<(usize, usize, i32), &SimulationJourney>, target: Vec<&SimulationJourney>, both_stoch: bool) {
+fn analyze_run_with_separate_baseline(baseline: &HashMap<(usize, usize, i32), &SimulationJourney>, target: Vec<&SimulationJourney>, baseline_stoch: bool, target_stoch: bool) {
     let mut baseline_list = vec![];
     let mut target_list = vec![];
     for target_journey in &target {
         if let Some(baseline_journey) = baseline.get(&target_journey.pair) {
-            baseline_list.push(if both_stoch { &baseline_journey.stoch } else { &baseline_journey.det });
-            target_list.push(&target_journey.stoch);
+            baseline_list.push(if baseline_stoch { &baseline_journey.stoch } else { &baseline_journey.det });
+            target_list.push(if target_stoch { &target_journey.stoch } else { &target_journey.det });
         } 
     }
     analyze_run(baseline_list, target_list, target);
@@ -847,13 +857,17 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
         target_infeasible: 0,
         target_broken: 0,
         baseline_and_target_infeasible: 0,
+        baseline_and_target_infeasible_original: 0,
         delta_baseline_predicted_actual: vec![],
         delta_target_predicted_actual: vec![],
         delta_baseline_target_predicted: vec![],
         delta_baseline_predicted_target_actual: vec![],
         delta_baseline_target_actual_arrival: vec![],
         delta_baseline_target_actual_arrival_relative: vec![],
+        delta_baseline_target_actual_arrival_relative_trimmed: vec![],
         delta_baseline_target_actual_travel_time: vec![],
+        target_destination_arrival_percentiles: [0; 100],
+        target_mean_percentiles: [0; 100],
         target_actual_travel_time: vec![],
         baseline_algo_elapsed: vec![],
         target_preprocessing_elapsed: vec![],
@@ -864,14 +878,18 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
     for i in 0..baseline.len() {
         analyze_result(&mut a, baseline[i], target[i], &meta[i]);
     }
-    println!("infeasible: both: {} baseline: {} target: {} broken: baseline: {} target: {} feasible: both: {} total: {}", a.baseline_and_target_infeasible, a.baseline_infeasible, a.target_infeasible, a.baseline_broken, a.target_broken, a.delta_baseline_target_actual_travel_time.len(), baseline.len());
+    println!("infeasible: both: {} both original: {} baseline: {} target: {} broken: baseline: {} target: {} feasible: both: {} total: {}", a.baseline_and_target_infeasible, a.baseline_and_target_infeasible_original, a.baseline_infeasible, a.target_infeasible, a.baseline_broken, a.target_broken, a.delta_baseline_target_actual_travel_time.len(), baseline.len());
     let samples = baseline.len();
+    //let samples_target = a.target_actual_travel_time.len();
+    //print_percentogram(&a.target_destination_arrival_percentiles, samples_target, "target_destination_arrival_percentiles");
+    //print_percentogram(&a.target_mean_percentiles, samples_target, "target_mean_percentiles");
     let delta_baseline_predicted_actual = summary(a.delta_baseline_predicted_actual, "delta_baseline_predicted_actual", samples);
     let delta_target_predicted_actual = summary(a.delta_target_predicted_actual, "delta_target_predicted_actual", samples);
     summary(a.delta_baseline_target_predicted, "delta_baseline_target_predicted", samples);
     summary(a.delta_baseline_predicted_target_actual, "delta_baseline_predicted_target_actual", samples);
     let delta_baseline_target_actual_arrival = summary(a.delta_baseline_target_actual_arrival, "delta_baseline_target_actual_arrival", samples);
     summary(a.delta_baseline_target_actual_arrival_relative, "delta_baseline_target_actual_arrival_relative", samples);
+    summary(a.delta_baseline_target_actual_arrival_relative_trimmed, "delta_baseline_target_actual_arrival_relative_trimmed", samples);
     let delta_baseline_target_actual_travel_time = summary(a.delta_baseline_target_actual_travel_time, "delta_baseline_target_actual_travel_time", samples);
     summary(a.target_actual_travel_time, "target_actual_travel_time", samples);
     //summary(a.baseline_algo_elapsed, "baseline_algo_elapsed", samples);
@@ -887,6 +905,9 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
 }
 
 fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, target: &SimulationResult, meta: &SimulationJourney) {
+    if baseline.original_dest_arrival_prediction == 0.0 && target.original_dest_arrival_prediction == 0.0 {
+        a.baseline_and_target_infeasible_original += 1;
+    }
     if baseline.actual_dest_arrival.is_some() {
         a.delta_baseline_predicted_actual.push(baseline.actual_dest_arrival.unwrap() as types::MFloat-baseline.original_dest_arrival_prediction);
         a.baseline_algo_elapsed.extend(baseline.algo_elapsed_ms.iter().skip(1).map(|e| *e as types::MFloat));
@@ -897,6 +918,7 @@ fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, targe
         }
     }
     if target.actual_dest_arrival.is_some() {
+        //percentograms(a, target);
         a.delta_target_predicted_actual.push(target.actual_dest_arrival.unwrap() as types::MFloat-target.original_dest_arrival_prediction);
         a.target_actual_travel_time.push((target.actual_dest_arrival.unwrap()-target.departure) as types::MFloat);
         a.target_first_algo_elapsed.push(target.algo_elapsed_ms[0] as types::MFloat);
@@ -915,8 +937,15 @@ fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, targe
         }*/
         a.delta_baseline_target_predicted.push(target.original_dest_arrival_prediction-baseline.original_dest_arrival_prediction);
         a.delta_baseline_predicted_target_actual.push(target.actual_dest_arrival.unwrap() as types::MFloat-baseline.original_dest_arrival_prediction);
-        a.delta_baseline_target_actual_arrival.push(target.actual_dest_arrival.unwrap() as types::MFloat-baseline.actual_dest_arrival.unwrap() as types::MFloat); 
-        a.delta_baseline_target_actual_arrival_relative.push((target.actual_dest_arrival.unwrap() as types::MFloat-baseline.actual_dest_arrival.unwrap() as types::MFloat)/(baseline.actual_dest_arrival.unwrap() as types::MFloat-(meta.pair.2%1440+5*1440) as types::MFloat)*100.0);
+        let diff = target.actual_dest_arrival.unwrap() as types::MFloat-baseline.actual_dest_arrival.unwrap() as types::MFloat;
+        a.delta_baseline_target_actual_arrival.push(diff); 
+        let relative = (target.actual_dest_arrival.unwrap() as types::MFloat-baseline.actual_dest_arrival.unwrap() as types::MFloat)/(baseline.actual_dest_arrival.unwrap() as types::MFloat-(meta.pair.2%1440+5*1440) as types::MFloat)*100.0;
+        if !relative.is_nan() {
+            a.delta_baseline_target_actual_arrival_relative.push(relative);
+            if diff.abs() <= 130.0 {
+                a.delta_baseline_target_actual_arrival_relative_trimmed.push(relative);
+            }
+        }
         a.delta_baseline_target_actual_travel_time.push(((target.actual_dest_arrival.unwrap()-target.departure)-(baseline.actual_dest_arrival.unwrap()-baseline.departure)) as types::MFloat);
     } else if baseline.actual_dest_arrival.is_none() && target.actual_dest_arrival.is_none() {
         a.baseline_and_target_infeasible += 1;
@@ -931,6 +960,58 @@ fn cdf(histogram: &Vec<(i32, types::MFloat)>) -> Vec<(i32, types::MFloat)> {
         cdf.push((c.0, cum));
     }
     cdf
+}
+
+fn percentograms(a: &mut SimulationAnalysis, target: &SimulationResult) {
+    let dest = target.connections_taken.first().unwrap().destination_arrival.borrow();
+    let distr = dest.as_ref().unwrap();
+    //println!("weirder {} {} {}", distr.start, distr.start+distr.histogram.len() as i32, target.actual_dest_arrival.unwrap());
+
+    let mut cum = 0.0;
+    let mut percentile = 1;
+    let mut i = 0;
+    let mut found = false;
+    let mut found_mean = false;
+    for v in &distr.histogram {
+        cum += v;
+        let last_percentile = percentile;
+        while cum*100.0 >= percentile as f32 {
+            //println!("weird {} {} {}", distr.start, i, target.actual_dest_arrival.unwrap()); 
+            //println!("{} {} {}", percentile, cum, distr.start+i);
+            percentile += 1;
+        }
+        let linear_percentile = ((percentile-1-last_percentile) as f32/2.0+last_percentile as f32).floor() as usize;
+        if !found && percentile > 1 && target.actual_dest_arrival.unwrap() >= distr.start && target.actual_dest_arrival.unwrap() <= distr.start+i {
+            a.target_destination_arrival_percentiles[linear_percentile-1] += 1;
+            found = true;
+        }
+        if !found_mean && percentile > 1 && distr.mean as i32 >= distr.start && distr.mean as i32 <= distr.start+i {
+            a.target_mean_percentiles[linear_percentile-1] += 1;
+            found_mean = true;
+        }
+        
+        if found && found_mean {
+            break;
+        }
+        i += 1;
+    }
+    if !found && target.actual_dest_arrival.unwrap() >= distr.start && target.actual_dest_arrival.unwrap() <= distr.start+distr.histogram.len() as i32-1 {
+        a.target_destination_arrival_percentiles[99] += 1; 
+    }
+    if !found_mean && distr.mean as i32 >= distr.start && distr.mean as i32 <= distr.start+distr.histogram.len() as i32-1 {
+        a.target_mean_percentiles[99] += 1; 
+    }
+    assert_float_absolute_eq!(distr.mean, distr.mean(), 5.0);
+}
+
+fn print_percentogram(percentiles: &[i32; 100], samples: usize, name: &str) {
+    let mut acc = [(0, 0.0); 100];
+    let mut cum = 0;
+    for v in percentiles.iter().enumerate() {
+        cum += v.1;
+        acc[v.0] = (v.0+1, cum as f32*100.0/samples as f32);
+    }
+    println!("{}: {:?} {:?}", name, acc, percentiles);
 }
 
 fn histogram(mut arr: ArrayBase<OwnedRepr<types::MFloat>, Dim<[usize; 1]>>) -> Vec<(i32, types::MFloat)> {
@@ -955,9 +1036,14 @@ fn around2(x: types::MFloat) -> types::MFloat {
     (x * 100.0).round() / 100.0
 }
 fn summary(values: Vec<types::MFloat>, name: &str, samples: usize) -> ArrayBase<OwnedRepr<types::MFloat>, Dim<[usize; 1]>> {
+    let len = values.len();
     let trimmed_mean = ndarray::Array::from_iter(values.iter().filter(|v| v.abs() <= 130.0).cloned()).mean().unwrap_or(0.0);
-    let failures = 1.0-values.len() as types::MFloat/samples as types::MFloat;
+    let failures = 1.0-len as types::MFloat/samples as types::MFloat;
     let mut arr = ndarray::Array::from_vec(values);    
+    if len == 0 {
+        println!("{}: empty", name);
+        return arr;
+    }
     let q5 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.05), &Lower).unwrap().into_iter().last().unwrap();
     //let q50 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.5), &Nearest).unwrap();
     let q95 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.95), &Higher).unwrap().into_iter().last().unwrap();
