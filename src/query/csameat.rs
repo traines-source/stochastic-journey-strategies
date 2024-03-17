@@ -230,18 +230,19 @@ impl<'a> Environment<'a> {
     pub fn get_decision_graph(&mut self, origin: usize, destination: usize, start_time: types::Mtime, station_labels: &Vec<Vec<ConnectionLabel>>) -> Vec<Vec<ConnectionLabel>> {
         let contr = self.contraction.unwrap();
         let mut decision_graph: Vec<Vec<ConnectionLabel>> = (0..self.stations.len()).map(|_i| Vec::new()).collect();
-        if station_labels[contr.stop_to_group[origin]].is_empty() {
-            return decision_graph;
-        }
+        
         let mut priority_queue = std::collections::BinaryHeap::new();
         let origin_contr = contr.stop_to_group[origin];
 
-        let p = station_labels[origin_contr].iter().rev().filter(|l| {
+        let anchor = station_labels[origin_contr].iter().rev().filter(|l| {
             let from_idx = self.connections[self.order[l.connection_id]].from_idx;
             let init_transfer_time = if from_idx == origin { 0 } else { contr.get_transfer_time(origin, from_idx) as i32 };
             start_time + init_transfer_time <= l.departure_mean as i32
-        }).next().unwrap();
-        priority_queue.push(p);
+        }).next();
+        if anchor.is_none() {
+            return decision_graph;
+        }
+        priority_queue.push(anchor.unwrap());
 
         while !priority_queue.is_empty() {
             let p = priority_queue.pop().unwrap();
