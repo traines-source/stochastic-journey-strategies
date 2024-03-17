@@ -394,6 +394,7 @@ impl Simulation {
             let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, fixed_arrival_time.unwrap_or(current_time), !self.conf.stoch_simulation.contains("with_distr"), false);
             Self::preprocess_if_necessary(&mut env, timing_preprocessing);
             let start = Instant::now();
+            if self.conf.stoch_simulation.starts_with("adaptive_online_relevant") {
             self.stoch_actions.entry(*pair).and_modify(|a| {
                 if let Some(sidx) = stuck_at {
                     a.relevant_stations.insert(sidx, 1000.0);
@@ -404,6 +405,7 @@ impl Simulation {
                 a.connection_pairs = env.relevant_connection_pairs(&a.relevant_stations);
                 a.connection_pairs_reverse = a.connection_pairs.iter().map(|(arr,dep)| (*dep as usize, *arr as usize)).collect();
             });
+            }
             let stoch = env.pair_query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window, &self.stoch_actions[pair].connection_pairs);
             let timing_stoch = start.elapsed().as_millis();
             println!("elapsed: {} connpairs: {}", timing_stoch, self.stoch_actions[pair].connection_pairs.len());
