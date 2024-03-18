@@ -1,4 +1,5 @@
 use rouille::Response;
+use stost::walking;
 use std::io::Read;
 use std::sync::Mutex;
 
@@ -35,7 +36,7 @@ fn main() {
         let mut routes = vec![];
         let mut connections = vec![];
         let (start_time, o_idx, d_idx, now, system) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
-        connection::create_footpaths(&mut stations);
+        walking::create_quadratic_footpaths(&mut stations);
         /*if system == "ch_sbb" {
             stations = ch_stations;
             routes = ch_routes;

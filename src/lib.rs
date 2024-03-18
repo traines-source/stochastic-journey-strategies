@@ -5,6 +5,7 @@ pub mod types;
 pub mod query;
 pub mod wire;
 pub mod gtfs;
+pub mod walking;
 
 #[macro_use]
 extern crate assert_float_eq;

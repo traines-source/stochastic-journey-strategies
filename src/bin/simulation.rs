@@ -22,7 +22,7 @@ use rustc_hash::FxHashSet;
 use ndarray_stats::QuantileExt;
 use serde::Deserialize;
 use serde::Serialize;
-use stost::{connection, query::csameat};
+use stost::{connection, query::csameat, walking};
 use stost::gtfs::GtfsTimetable;
 use stost::gtfs::OriginDestinationSample;
 use stost::gtfs::StationContraction;
@@ -501,7 +501,7 @@ impl Simulation {
                 let mut routes = vec![];
                 tt.transport_and_day_to_connection_id = gtfs::retrieve(t.as_ref().unwrap(), &mut tt.stations, &mut routes, &mut tt.connections);
                 if self.conf.transfer == "short" {
-                    connection::shorten_footpaths(&mut tt.stations);
+                    walking::shorten_footpaths(&mut tt.stations);
                 }
                 self.contr = Some(gtfs::get_station_contraction(&tt.stations));
             }
