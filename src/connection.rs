@@ -32,8 +32,8 @@ pub struct Station {
 	pub name: String,
 	pub arrivals: Vec<usize>,
 	pub departures: Vec<usize>,
-	pub lat: f32,
-	pub lon: f32,
+	pub lat: f64,
+	pub lon: f64,
 	pub transfer_time: u16,
 	pub parent_idx: usize,
 	pub footpaths: Vec<motis_nigiri::Footpath>
@@ -50,6 +50,20 @@ impl<'a> Station {
 			lon: 0.,
 			transfer_time: 1,
 			parent_idx: 0,
+			footpaths: vec![]
+		}
+	}
+
+	pub fn clone_metadata(&self) -> Station {
+		Station {
+			id: self.id.clone(),
+			name: self.name.clone(),
+			arrivals: vec![],
+			departures: vec![],
+			lat: self.lat,
+			lon: self.lon,
+			transfer_time: self.transfer_time,
+			parent_idx: self.parent_idx,
 			footpaths: vec![]
 		}
 	}
@@ -102,6 +116,21 @@ impl<'a> Connection {
 			product_type: product_type,
 			destination_arrival: RefCell::new(None)
 		}	
+	}
+
+	pub fn merge_pair(&self, arrival: &Connection, id: usize) -> Connection {
+		Connection {
+            id: id,
+            route_idx: arrival.route_idx,
+            product_type: arrival.product_type,
+            trip_id: arrival.trip_id,
+            from_idx: self.from_idx,
+            to_idx: arrival.to_idx,
+            departure: self.departure.clone(),
+            arrival: arrival.arrival.clone(),
+            message: "".to_string(),
+            destination_arrival: RefCell::new(None)
+        }
 	}
 
 	#[inline(always)]

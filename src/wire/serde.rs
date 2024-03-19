@@ -47,8 +47,8 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connec
 			name: s.name.to_string(),
 			arrivals: vec![],
 			departures: vec![],
-			lat: s.lat,
-			lon: s.lon,
+			lat: s.lat as f64,
+			lon: s.lon as f64,
 			transfer_time: 1,
 			parent_idx: 0,
 			footpaths: vec![]
@@ -104,8 +104,8 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
         wire_stations.push(wire::Station{
             id: Cow::Borrowed(&s.id),
             name: Cow::Borrowed(&s.name),
-            lat: s.lat,
-            lon: s.lon
+            lat: s.lat as f32,
+            lon: s.lon as f32
         });
     }
     for c in connections {
