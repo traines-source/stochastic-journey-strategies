@@ -128,7 +128,11 @@ pub fn create_relevant_timetable_with_extended_walking(
     order: &[usize],
     connection_pairs: HashMap<i32, i32>,
     weights_by_station_idx: &HashMap<usize, types::MFloat>,
-) -> GtfsTimetable {
+    origin_idx: usize,
+    destination_idx: usize
+) -> (GtfsTimetable, usize, usize) {
+    let origin_id = &stations[origin_idx].id;
+    let destination_id = &stations[destination_idx].id;
     let mut new_connections = vec![];
     let mut new_stations = vec![];
     let mut new_stations_map = HashMap::new();
@@ -178,15 +182,19 @@ pub fn create_relevant_timetable_with_extended_walking(
         }
     }
     new_connections.append(&mut walking_connections);
-    let order: Vec<usize> = (0..new_connections.len()).collect();
-    sort_station_departures_asc(&mut new_stations, &new_connections, &order);
-    GtfsTimetable {
-        stations: new_stations,
-        connections: new_connections,
-        cut: FxHashSet::default(),
-        order: order,
-        transport_and_day_to_connection_id: HashMap::new(),
-    }
+    let new_order: Vec<usize> = (0..new_connections.len()).collect();
+    sort_station_departures_asc(&mut new_stations, &new_connections, &new_order);
+    (
+        GtfsTimetable {
+            stations: new_stations,
+            connections: new_connections,
+            cut: FxHashSet::default(),
+            order: new_order,
+            transport_and_day_to_connection_id: HashMap::new(),
+        },
+        new_stations_map[origin_id],
+        new_stations_map[destination_id]
+    )
 }
 
 fn create_walking_connection(

@@ -82,6 +82,6 @@ fn recursive_runs() {
     let mut connections = vec![];
     let (start_time, o, d, now, _) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false); 
     recursive::query(&mut store, &mut connections, &stations, &stations[o], &stations[d], 0, 100, serde::to_mtime(now, start_time), HashSet::new());
-    let bytes = serde::serialize_protobuf(&stations, &routes, &connections, &stations[o], &stations[d], start_time);
+    let bytes = serde::serialize_protobuf(&stations, &routes, &connections, o, d, start_time);
     serde::write_protobuf(&bytes, "./tests/fixtures/basic_out.pb");
 }

@@ -97,7 +97,7 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connec
     (start_time, o, d, now, request_message.system.to_string())
 }
 
-pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection::Route], connections: &[connection::Connection], origin: &connection::Station, destination: &connection::Station, start_time: i64) -> Vec<u8> {
+pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection::Route], connections: &[connection::Connection], origin_idx: usize, destination_idx: usize, start_time: i64) -> Vec<u8> {
     let mut wire_stations: Vec<wire::Station> = Vec::new();
     let mut trips: IndexMap<usize, Vec<wire::Connection>> = IndexMap::new();
     for s in stations {
@@ -162,8 +162,8 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
             start_time: start_time
         }),
         query: Some(wire::Query{
-            origin: Cow::Borrowed(&origin.id),
-            destination: Cow::Borrowed(&destination.id),
+            origin: Cow::Borrowed(&stations[origin_idx].id),
+            destination: Cow::Borrowed(&stations[destination_idx].id),
             now: 0
         }),
         system: Cow::Borrowed("")

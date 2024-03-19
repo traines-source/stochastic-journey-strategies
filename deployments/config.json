@@ -1,0 +1,16 @@
+{
+    "systems": {
+        "ch_sbb": {
+            "provide_timetable": true,
+            "provide_relevant_stations": false,
+            "gtfs_glob": "/gtfs/swiss-gtfs/*/*.zip",
+            "gtfsrt_glob": "/gtfsrt/swiss-gtfs-rt/*/*.gtfsrt"
+        },
+        "de_db": {
+            "provide_timetable": false,
+            "provide_relevant_stations": false,
+            "gtfs_glob": "-",
+            "gtfsrt_glob": "-"
+        }
+    }
+}

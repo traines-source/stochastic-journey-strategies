@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 use crate::distribution;
 use crate::types;
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Route {
 	pub id: String,
 	pub name: String,
