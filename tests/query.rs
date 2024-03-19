@@ -8,7 +8,7 @@ use stost::types;
 
 fn setup<'a>() -> (distribution_store::Store, connection::Route, connection::Station, connection::Station, connection::Station) {
     let store = distribution_store::Store::new();
-    let route = connection::Route::new("1".to_string(), "route1".to_string(), 1);
+    let route = connection::Route::new(1, "route1".to_string(), 1);
 
     let cs1 = vec![];
     let cs2 = vec![];

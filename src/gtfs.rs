@@ -4,7 +4,7 @@ use chrono;
 
 use motis_nigiri::Timetable;
 
-use crate::connection;
+use crate::connection::{self, Route};
 
 use rustc_hash::FxHashSet;
 use serde::{Serialize, Deserialize};
@@ -50,7 +50,7 @@ pub fn load_timetable<'a, 'b>(gtfs_path: &str, start_date: chrono::NaiveDate, en
     Timetable::load(gtfs_path, start_date, end_date)
 }
 
-pub fn retrieve<'a, 'b>(t: &Timetable, stations: &'a mut Vec<connection::Station>, _routes: &'a mut Vec<connection::Route>, connections: &'b mut Vec<connection::Connection>) -> HashMap<(usize, u16), usize> {
+pub fn retrieve<'a, 'b>(t: &Timetable, stations: &'a mut Vec<connection::Station>, routes: &'a mut Vec<connection::Route>, connections: &'b mut Vec<connection::Connection>) -> HashMap<(usize, u16), usize> {
     let gtfs_locations = t.get_locations();
     for mut l in gtfs_locations {
         let mut station = connection::Station {
@@ -67,24 +67,22 @@ pub fn retrieve<'a, 'b>(t: &Timetable, stations: &'a mut Vec<connection::Station
         station.footpaths.append(&mut l.footpaths);
         stations.push(station);
     }
+    let gtfs_routes = t.get_routes();
+    for r in gtfs_routes {
+        routes.push(Route::new(r.route_idx, "".to_string(), r.clasz as i16));
+    }
     let mut gtfs_connections = t.get_connections();
     for c in &mut gtfs_connections {
         let id = connections.len();
         assert_eq!(id, c.id);
-        // TODO routes
-        /*let route_idx = match stations_idx.get(&c.route_idx) {
-            Some(idx) => idx,
-            None => {
-                let route_idx = routes.len();
-                routes.push(connection::Route::new())
-                t.get_route(c.route_idx);
-                routes_idx.insert(c.route_idx, )
-        }*/
-        let r = t.get_route(c.route_idx);
+        let route = routes.get_mut(c.route_idx).unwrap();
+        if route.name == "" {
+            route.name = c.name;
+        }
         let from_idx = c.from_idx.try_into().unwrap();
         let to_idx = c.to_idx.try_into().unwrap();
         let mut conn = connection::Connection::new(
-            id, c.route_idx.try_into().unwrap(), r.clasz.try_into().unwrap(), c.trip_id.try_into().unwrap(), false,
+            id, c.route_idx.try_into().unwrap(), route.product_type, c.trip_id.try_into().unwrap(), false,
             from_idx, c.departure.try_into().unwrap(), None,
             to_idx, c.arrival.try_into().unwrap(), None
         );
@@ -118,7 +116,11 @@ pub fn get_station_contraction(stations: &[connection::Station]) -> StationContr
     let mut max_dur_info = "".to_owned();
     for station in stations.iter().enumerate() {
         if contr.stop_to_group[station.0] == 0 {
-            contr.stop_to_group[station.0] = if station.1.parent_idx != 0 { station.1.parent_idx } else { station.0 };
+            contr.stop_to_group[station.0] = if station.1.parent_idx != 0 {
+                station.1.parent_idx
+            } else {
+                station.0
+            };
             contr.stop_to_group_idx[station.0] = 0;
             for f in station.1.footpaths.iter().enumerate() {
                 contr.stop_to_group[f.1.target_location_idx] = contr.stop_to_group[station.0];

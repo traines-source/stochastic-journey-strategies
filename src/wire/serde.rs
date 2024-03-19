@@ -56,7 +56,6 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connec
     }
     let mut route_idx = 0;
     for r in &timetable.routes {
-        routes.push(connection::Route::new(r.id.to_string(), r.name.to_string(), r.product_type as i16));
         let mut trip_id = 0;
         for t in &r.trips {
             for c in &t.connections {
@@ -99,7 +98,7 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connec
 
 pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection::Route], connections: &[connection::Connection], origin_idx: usize, destination_idx: usize, start_time: i64) -> Vec<u8> {
     let mut wire_stations: Vec<wire::Station> = Vec::new();
-    let mut trips: IndexMap<usize, Vec<wire::Connection>> = IndexMap::new();
+    let mut trips: IndexMap<(i32, usize), Vec<wire::Connection>> = IndexMap::new();
     for s in stations {
         wire_stations.push(wire::Station{
             id: Cow::Borrowed(&s.id),
@@ -108,12 +107,12 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
             lon: s.lon as f32
         });
     }
-    for c in connections {
-        if !trips.contains_key(&c.route_idx) {
-            trips.insert(c.route_idx, vec![]);
+    for c in connections.iter().rev() {
+        if !trips.contains_key(&(c.trip_id, c.route_idx)) {
+            trips.insert((c.trip_id, c.route_idx), vec![]);
         }
         let da = c.destination_arrival.borrow();
-        trips.get_mut(&c.route_idx).unwrap().push(wire::Connection{
+        trips.get_mut(&(c.trip_id, c.route_idx)).unwrap().push(wire::Connection{
             from_id: Cow::Borrowed(&stations.get(c.from_idx).unwrap().id),
             to_id: Cow::Borrowed(&stations.get(c.to_idx).unwrap().id),
             cancelled: false,
@@ -140,21 +139,20 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
             }) }
         });
     }
-    let mut wire_routes = Vec::new();
+    let mut wire_routes: Vec<wire::Route> = routes.iter().map(|r| wire::Route {
+        id: Cow::Owned(format!("{}", r.id)),
+        name: Cow::Borrowed(""),
+        product_type: 0,
+        message: Cow::Borrowed(""),
+        direction: Cow::Borrowed(""),
+        trips: vec![]
+    }).collect();
     for (key, mut connections) in trips.into_iter() {
-        connections.sort_by(|a, b| a.departure.as_ref().unwrap().scheduled.partial_cmp(&b.departure.as_ref().unwrap().scheduled).unwrap());
-        wire_routes.push(wire::Route {
-            id: Cow::Borrowed(&routes[key].id),
-            name: Cow::Borrowed(""),
-            product_type: 0,
-            message: Cow::Borrowed(""),
-            direction: Cow::Borrowed(""),
-            trips: vec![wire::Trip{
-                connections: connections
-            }]
+        connections.sort_by(|a, b| a.departure.as_ref().unwrap().scheduled.cmp(&b.departure.as_ref().unwrap().scheduled)); // maybe unnecessary
+        wire_routes.get_mut(key.1).unwrap().trips.push(wire::Trip{
+            connections: connections
         });
     }
-
     let response_message = wire::Message{
         timetable: Some(wire::Timetable{
             stations: wire_stations,

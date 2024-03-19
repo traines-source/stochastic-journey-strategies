@@ -7,7 +7,7 @@ use crate::types;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Route {
-	pub id: String,
+	pub id: usize,
 	pub name: String,
 	pub product_type: i16,
 	pub message: String,
@@ -15,7 +15,7 @@ pub struct Route {
 }
 
 impl Route {
-	pub fn new(id: String, name: String, product_type: i16) -> Route {
+	pub fn new(id: usize, name: String, product_type: i16) -> Route {
 		Route {
 			id: id,
 			name: name,
