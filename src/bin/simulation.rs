@@ -824,15 +824,15 @@ pub fn analyze_simulation(files: Vec<&String>) {
 fn analyze_multiday_simulation(run: Vec<SimulationJourney>, baseline: Option<Vec<SimulationJourney>>) {
     println!("\nComparison between stoch target and det target");
     analyze_run(run.iter().map(|r| &r.det).collect(), run.iter().map(|r| &r.stoch).collect(), run.iter().collect());
-    //analyze_run(run.iter().filter(|r| r.pair.2 < 7700).map(|r| &r.det).collect(), run.iter().filter(|r| r.pair.2 < 7700).map(|r| &r.stoch).collect(), run.iter().filter(|r| r.pair.2 < 7700).collect());
+    //analyze_run(run.iter().filter(|r| r.pair.2%1440 != 1080).map(|r| &r.det).collect(), run.iter().filter(|r| r.pair.2%1440 != 1080).map(|r| &r.stoch).collect(), run.iter().filter(|r| r.pair.2%1440 != 1080).collect());
     if let Some(baseline) = baseline {
         let baseline_map = HashMap::from_iter(baseline.iter().map(|r| ((r.pair.0, r.pair.1, r.pair.2), r)));
         println!("\nComparison between stoch target and det baseline");
         analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), false, true);
-        //analyze_run_with_separate_baseline(&baseline_map, run.iter().filter(|r| r.pair.2 < 8000).collect(), false);
-        println!("\nComparison between stoch target and stoch baseline");
+        //analyze_run_with_separate_baseline(&baseline_map, run.iter().filter(|r| r.pair.2%1440 != 1080).collect(), false, true);
+        println!("\nComparison between stoch target and stoch baseline before 19h");
         analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), true, true);
-        //analyze_run_with_separate_baseline(&baseline_map, run.iter().filter(|r| r.pair.2 < 8000).collect(), true);
+        //analyze_run_with_separate_baseline(&baseline_map, run.iter().filter(|r| r.pair.2%1440 != 1080).collect(), true, true);
         println!("\nComparison between det target and det baseline");
         analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), false, false);
     }
@@ -841,13 +841,15 @@ fn analyze_multiday_simulation(run: Vec<SimulationJourney>, baseline: Option<Vec
 fn analyze_run_with_separate_baseline(baseline: &HashMap<(usize, usize, i32), &SimulationJourney>, target: Vec<&SimulationJourney>, baseline_stoch: bool, target_stoch: bool) {
     let mut baseline_list = vec![];
     let mut target_list = vec![];
+    let mut meta = vec![];
     for target_journey in &target {
         if let Some(baseline_journey) = baseline.get(&target_journey.pair) {
             baseline_list.push(if baseline_stoch { &baseline_journey.stoch } else { &baseline_journey.det });
             target_list.push(if target_stoch { &target_journey.stoch } else { &target_journey.det });
+            meta.push(*target_journey);
         } 
     }
-    analyze_run(baseline_list, target_list, target);
+    analyze_run(baseline_list, target_list, meta);
 }
 
 fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>, meta: Vec<&SimulationJourney>) {
@@ -892,16 +894,20 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
     summary(a.delta_baseline_target_actual_arrival_relative_trimmed, "delta_baseline_target_actual_arrival_relative_trimmed", samples);
     let delta_baseline_target_actual_travel_time = summary(a.delta_baseline_target_actual_travel_time, "delta_baseline_target_actual_travel_time", samples);
     summary(a.target_actual_travel_time, "target_actual_travel_time", samples);
-    //summary(a.baseline_algo_elapsed, "baseline_algo_elapsed", samples);
+    summary(a.baseline_algo_elapsed, "baseline_algo_elapsed", samples);
     summary(a.target_first_algo_elapsed, "target_first_algo_elapsed", samples);
     summary(a.target_algo_elapsed, "target_algo_elapsed", samples);
     summary(a.target_preprocessing_elapsed, "target_preprocessing_elapsed", samples);
-    /*println!("delta_baseline_predicted_actual: {:?}", histogram(delta_baseline_predicted_actual));
-    println!("delta_target_predicted_actual: {:?}", histogram(delta_target_predicted_actual));
-    let hist_arrival = histogram(delta_baseline_target_actual_arrival);
-    println!("delta_baseline_target_actual_arrival: {:?}", hist_arrival);
-    println!("delta_baseline_target_actual_arrival cdf: {:?}", cdf(&hist_arrival));
-    println!("delta_baseline_target_actual_travel_time: {:?}", histogram(delta_baseline_target_actual_travel_time));*/
+    //println!("delta_baseline_predicted_actual: {:?}", histogram(delta_baseline_predicted_actual));
+    //println!("delta_target_predicted_actual: {:?}", histogram(delta_target_predicted_actual));
+    //let hist_arrival = histogram(delta_baseline_target_actual_arrival);
+    //println!("delta_baseline_target_actual_arrival: {:?}", hist_arrival);
+    //println!("delta_baseline_target_actual_arrival cdf: {:?}", cdf(&hist_arrival));
+    //println!("delta_baseline_target_actual_travel_time: {:?}", histogram(delta_baseline_target_actual_travel_time));
+}
+
+fn get_pair_mam(meta: &SimulationJourney) -> types::Mtime {
+    meta.pair.2%1440+5*1440
 }
 
 fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, target: &SimulationResult, meta: &SimulationJourney) {
@@ -931,6 +937,10 @@ fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, targe
         }
     }
     if baseline.actual_dest_arrival.is_some() && target.actual_dest_arrival.is_some() {
+        /*print_distribution(target, meta);
+        if a.delta_baseline_target_predicted.len() > 3 {
+            panic!("");
+        }*/
         /*if (target.actual_dest_arrival.unwrap() as types::MFloat-baseline.actual_dest_arrival.unwrap() as types::MFloat).abs() > 300.0 {
             println!("{:?} {:?} {:?} {:?} {:?}", meta.pair, meta.from_station_name, meta.to_station_name, target, baseline.actual_dest_arrival);
             println!("{:?}\n", baseline);
@@ -939,7 +949,7 @@ fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, targe
         a.delta_baseline_predicted_target_actual.push(target.actual_dest_arrival.unwrap() as types::MFloat-baseline.original_dest_arrival_prediction);
         let diff = target.actual_dest_arrival.unwrap() as types::MFloat-baseline.actual_dest_arrival.unwrap() as types::MFloat;
         a.delta_baseline_target_actual_arrival.push(diff); 
-        let relative = (target.actual_dest_arrival.unwrap() as types::MFloat-baseline.actual_dest_arrival.unwrap() as types::MFloat)/(baseline.actual_dest_arrival.unwrap() as types::MFloat-(meta.pair.2%1440+5*1440) as types::MFloat)*100.0;
+        let relative = (target.actual_dest_arrival.unwrap()-baseline.actual_dest_arrival.unwrap()) as types::MFloat/(baseline.actual_dest_arrival.unwrap()-get_pair_mam(meta)) as types::MFloat*100.0;
         if !relative.is_nan() {
             a.delta_baseline_target_actual_arrival_relative.push(relative);
             if diff.abs() <= 130.0 {
@@ -1012,6 +1022,13 @@ fn print_percentogram(percentiles: &[i32; 100], samples: usize, name: &str) {
         acc[v.0] = (v.0+1, cum as f32*100.0/samples as f32);
     }
     println!("{}: {:?} {:?}", name, acc, percentiles);
+}
+
+fn print_distribution(result: &SimulationResult, meta: &SimulationJourney) {
+    let d = result.connections_taken.first().unwrap().destination_arrival.borrow();
+    let distr = d.as_ref().unwrap();
+    println!("pair {:?} mean {} actual {}", meta.pair, distr.mean-get_pair_mam(meta) as types::MFloat, result.actual_dest_arrival.unwrap()-get_pair_mam(meta));
+    println!("{:?}", distr.histogram.iter().enumerate().map(|v| (v.0 as types::Mtime+distr.start-get_pair_mam(meta), *v.1*100.0)).collect::<Vec<(types::Mtime, types::MFloat)>>());
 }
 
 fn histogram(mut arr: ArrayBase<OwnedRepr<types::MFloat>, Dim<[usize; 1]>>) -> Vec<(i32, types::MFloat)> {
