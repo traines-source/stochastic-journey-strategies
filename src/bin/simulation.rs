@@ -831,8 +831,8 @@ fn analyze_multiday_simulation(run: Vec<SimulationJourney>, baseline: Option<Vec
         analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), false, true);
         //analyze_run_with_separate_baseline(&baseline_map, run.iter().filter(|r| r.pair.2%1440 != 1080).collect(), false, true);
         println!("\nComparison between stoch target and stoch baseline before 19h");
-        analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), true, true);
-        //analyze_run_with_separate_baseline(&baseline_map, run.iter().filter(|r| r.pair.2%1440 != 1080).collect(), true, true);
+        //analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), true, true);
+        analyze_run_with_separate_baseline(&baseline_map, run.iter().filter(|r| r.pair.2%1440 != 1080).collect(), true, true);
         println!("\nComparison between det target and det baseline");
         analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), false, false);
     }

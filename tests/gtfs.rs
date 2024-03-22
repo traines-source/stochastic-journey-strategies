@@ -215,13 +215,7 @@ fn load_only_gtfs_with_rt() {
     let mut store = distribution_store::Store::new();
     store.load_distributions("./data/ch_sbb.csv");
 
-    let mut tt = gtfs::GtfsTimetable {
-        stations: vec![],
-        connections: vec![],
-        cut: FxHashSet::default(),
-        order: vec![],
-        transport_and_day_to_connection_id: HashMap::new()
-    };
+    let mut tt = gtfs::GtfsTimetable::new();
     let mut routes = vec![];
     let t = gtfs::load_timetable("/gtfs/swiss-gtfs/2024-01-15/", day(2024, 1, 15), day(2024, 1, 16));
     let mapping = gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);    
@@ -290,3 +284,38 @@ fn gtfs_small() {
     
 }
 
+
+
+
+#[test]
+#[ignore]
+fn gtfs_repeated() {
+    let mut store = distribution_store::Store::new();
+    store.load_distributions("./data/ch_sbb.csv");
+
+    let mut stats = vec![];
+
+    for i in vec![1, 10, 20, 30, 40, 50] {
+        let mut tt = gtfs::GtfsTimetable::new();
+        let mut routes = vec![];
+        let t = gtfs::load_timetable(GTFS_PATH, day(2023, 11, 1), day(2023, 11+i/30, 1+i%30));
+        gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);    
+        let mut env = topocsa::Environment::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 0, 0.01, 0.01, true, true);
+        let contr = gtfs::get_station_contraction(&tt.stations);
+        env.set_station_contraction(&contr);
+        let o = 10000;
+        let d = 20000;
+        let start_ts = Instant::now();
+        env.preprocess();
+        let prepr = start_ts.elapsed().as_millis();
+        let mem = memory_stats::memory_stats().unwrap().physical_mem;
+        let start_ts = Instant::now();
+        let station_labels = env.query(o, d, 7200, (7200+i*1440) as i32);
+        let query = start_ts.elapsed().as_millis();
+        stats.push((i, prepr, query, mem));
+        let origin_deps = &station_labels[contr.stop_to_group[o]];
+        let best_conn = origin_deps.last().unwrap();
+        println!("STATS: {:?} {:?}", best_conn.destination_arrival.mean(), stats);
+    }
+
+}
