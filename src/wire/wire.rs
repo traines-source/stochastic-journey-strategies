@@ -251,8 +251,9 @@ impl<'a> MessageWrite for Route<'a> {
 pub struct Station<'a> {
     pub id: Cow<'a, str>,
     pub name: Cow<'a, str>,
-    pub lat: f32,
-    pub lon: f32,
+    pub lat: f64,
+    pub lon: f64,
+    pub parent: Cow<'a, str>,
 }
 
 impl<'a> MessageRead<'a> for Station<'a> {
@@ -262,8 +263,9 @@ impl<'a> MessageRead<'a> for Station<'a> {
             match r.next_tag(bytes) {
                 Ok(10) => msg.id = r.read_string(bytes).map(Cow::Borrowed)?,
                 Ok(18) => msg.name = r.read_string(bytes).map(Cow::Borrowed)?,
-                Ok(29) => msg.lat = r.read_float(bytes)?,
-                Ok(37) => msg.lon = r.read_float(bytes)?,
+                Ok(25) => msg.lat = r.read_double(bytes)?,
+                Ok(33) => msg.lon = r.read_double(bytes)?,
+                Ok(42) => msg.parent = r.read_string(bytes).map(Cow::Borrowed)?,
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -277,15 +279,17 @@ impl<'a> MessageWrite for Station<'a> {
         0
         + if self.id == "" { 0 } else { 1 + sizeof_len((&self.id).len()) }
         + if self.name == "" { 0 } else { 1 + sizeof_len((&self.name).len()) }
-        + if self.lat == 0f32 { 0 } else { 1 + 4 }
-        + if self.lon == 0f32 { 0 } else { 1 + 4 }
+        + if self.lat == 0f64 { 0 } else { 1 + 8 }
+        + if self.lon == 0f64 { 0 } else { 1 + 8 }
+        + if self.parent == "" { 0 } else { 1 + sizeof_len((&self.parent).len()) }
     }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
         if self.id != "" { w.write_with_tag(10, |w| w.write_string(&**&self.id))?; }
         if self.name != "" { w.write_with_tag(18, |w| w.write_string(&**&self.name))?; }
-        if self.lat != 0f32 { w.write_with_tag(29, |w| w.write_float(*&self.lat))?; }
-        if self.lon != 0f32 { w.write_with_tag(37, |w| w.write_float(*&self.lon))?; }
+        if self.lat != 0f64 { w.write_with_tag(25, |w| w.write_double(*&self.lat))?; }
+        if self.lon != 0f64 { w.write_with_tag(33, |w| w.write_double(*&self.lon))?; }
+        if self.parent != "" { w.write_with_tag(42, |w| w.write_string(&**&self.parent))?; }
         Ok(())
     }
 }

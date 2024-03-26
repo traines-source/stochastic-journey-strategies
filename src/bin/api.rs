@@ -3,6 +3,7 @@ use rouille::Response;
 use rstar::RTree;
 use serde::Deserialize;
 use stost::gtfs::StationContraction;
+use stost::wire::serde::QueryMetadata;
 use std::collections::HashMap;
 use std::env;
 use std::io::Read;
@@ -37,6 +38,8 @@ struct ApiSystem {
     //t: Option<Timetable>,
     #[serde(skip_deserializing)]
     tt: Option<GtfsTimetable>,
+    #[serde(skip_deserializing)]
+    station_idx: HashMap<String, usize>,
     #[serde(skip_deserializing)]
     routes: Vec<Route>,
     #[serde(skip_deserializing)]
@@ -79,7 +82,8 @@ fn prepare_configured_systems(config: &mut ApiConfig) {
             let mut tt = gtfs::GtfsTimetable::new();
             tt.transport_and_day_to_connection_id =
                 gtfs::retrieve(&t, &mut tt.stations, &mut c.1.routes, &mut tt.connections);
-            c.1.contraction = Some(gtfs::get_station_contraction(&tt.stations));
+            c.1.contraction = Some(gtfs::get_station_contraction(&mut tt.stations));
+            c.1.station_idx = tt.stations.iter().enumerate().map(|s| (s.1.id.clone(), s.0)).collect();
             c.1.reference_ts = t.get_start_day_ts();
             let mut env = topocsa::Environment::new(
                 &mut store,
@@ -121,13 +125,12 @@ fn prepare_configured_systems(config: &mut ApiConfig) {
 
 fn query_on_timetable(
     system_conf: &mut ApiSystem,
-    now: i64,
-    start_ts: i64,
-    origin_idx: usize,
-    destination_idx: usize,
+    mut metadata: QueryMetadata
 ) -> Vec<u8> {
+    let origin_idx = system_conf.station_idx[&metadata.origin_id];
+    let destination_idx = system_conf.station_idx[&metadata.destination_id];
     let tt = system_conf.tt.as_mut().unwrap();
-    let now = to_mtime(now, system_conf.reference_ts);
+    let now = to_mtime(metadata.now, system_conf.reference_ts);
     let mut env = topocsa::Environment::new(
         system_conf.store.as_mut().unwrap(),
         &mut tt.connections,
@@ -143,28 +146,32 @@ fn query_on_timetable(
     env.set_station_contraction(system_conf.contraction.as_ref().unwrap());
     println!("preprocessing...");
     env.preprocess();
-    let start_time = to_mtime(start_ts, system_conf.reference_ts);
+    let start_time = to_mtime(metadata.start_ts, system_conf.reference_ts);
     println!("querying...");
     let station_labels = env.query(origin_idx, destination_idx, start_time, start_time + 1440);
     let mut weights_by_station_idx =
         env.relevant_stations(origin_idx, destination_idx, &station_labels);
+    if weights_by_station_idx.is_empty() {
+        return vec![];
+    }
     walking::relevant_stations_with_extended_walking(
         &mut weights_by_station_idx,
         &tt.stations,
         &system_conf.rtree,
     );
-    let connection_pairs = env.relevant_connection_pairs(&weights_by_station_idx);
+    let connection_pairs = env.relevant_connection_pairs(&weights_by_station_idx, 1000);
     println!("creating relevant tt...");
-    let relevant_timetable = walking::create_relevant_timetable_with_extended_walking(
+    let walking_timetable = walking::create_relevant_timetable_with_extended_walking(
         &mut tt.connections,
         &tt.stations,
         &tt.order,
         connection_pairs,
         &weights_by_station_idx,
         origin_idx,
-        destination_idx,
+        destination_idx
     );
-    let mut rel_tt = relevant_timetable.0;
+    let mut rel_tt = walking_timetable.0;
+    println!("conns incl. walking: {}", rel_tt.connections.len());
     let mut rel_env = topocsa::Environment::new(
         system_conf.store.as_mut().unwrap(),
         &mut rel_tt.connections,
@@ -180,18 +187,31 @@ fn query_on_timetable(
     rel_env.preprocess();
     println!("querying relevant tt...");
     rel_env.query(
-        relevant_timetable.1,
-        relevant_timetable.2,
+        walking_timetable.1,
+        walking_timetable.2,
         start_time,
         start_time + 1440,
     );
-    stost::wire::serde::serialize_protobuf(
+    let weights_by_station_idx =
+        rel_env.relevant_stations(walking_timetable.1, walking_timetable.2, &station_labels);
+    let connection_pairs = rel_env.relevant_connection_pairs(&weights_by_station_idx, 100);
+    let no_extended_walking = HashMap::new();
+    let relevant_timetable = walking::create_relevant_timetable_with_extended_walking(
+        &mut rel_tt.connections,
         &rel_tt.stations,
+        &rel_tt.order,
+        connection_pairs,
+        &no_extended_walking,
+        walking_timetable.1, walking_timetable.2
+    );
+    metadata.origin_idx = relevant_timetable.1;
+    metadata.destination_idx = relevant_timetable.2;
+    stost::wire::serde::serialize_protobuf(
+        &relevant_timetable.0.stations,
         &system_conf.routes,
-        &rel_tt.connections,
-        relevant_timetable.1,
-        relevant_timetable.2,
-        start_ts,
+        &relevant_timetable.0.connections,
+        system_conf.contraction.as_ref(),
+        &metadata
     )
 }
 
@@ -200,10 +220,7 @@ fn query_on_given(
     input_stations: &mut Vec<connection::Station>,
     input_routes: &Vec<connection::Route>,
     input_connections: &mut Vec<connection::Connection>,
-    now: i64,
-    start_ts: i64,
-    origin_idx: usize,
-    destination_idx: usize,
+    metadata: QueryMetadata,
 ) -> Vec<u8> {
     walking::create_quadratic_footpaths(input_stations);
     println!("querying...");
@@ -211,19 +228,18 @@ fn query_on_given(
         system_conf.store.as_mut().unwrap(),
         input_connections,
         &input_stations,
-        origin_idx,
-        destination_idx,
+        metadata.origin_idx,
+        metadata.destination_idx,
         0,
         1440 * 2,
-        to_mtime(now, start_ts),
+        to_mtime(metadata.now, metadata.start_ts),
     );
     stost::wire::serde::serialize_protobuf(
         &input_stations,
         &input_routes,
         &input_connections,
-        origin_idx,
-        destination_idx,
-        start_ts,
+        system_conf.contraction.as_ref(),
+        &metadata,
     )
 }
 
@@ -246,7 +262,7 @@ fn main() {
         let mut input_stations: Vec<connection::Station> = vec![];
         let mut input_routes = vec![];
         let mut input_connections = vec![];
-        let (start_ts, origin_idx, destination_idx, now, system) =
+        let metadata =
             stost::wire::serde::deserialize_protobuf(
                 bytes,
                 &mut input_stations,
@@ -255,19 +271,16 @@ fn main() {
                 false,
             );
         let mut c = conf_mutex.lock().unwrap();
-        let system_conf = c.systems.get_mut(&system).expect("invalid system");
+        let system_conf = c.systems.get_mut(&metadata.system).expect("invalid system");
         let bytes = if system_conf.provide_timetable {
-            query_on_timetable(system_conf, now, start_ts, origin_idx, destination_idx)
+            query_on_timetable(system_conf, metadata)
         } else {
             query_on_given(
                 system_conf,
                 &mut input_stations,
                 &input_routes,
                 &mut input_connections,
-                now,
-                start_ts,
-                origin_idx,
-                destination_idx,
+                metadata,
             )
         };
         println!("finished querying.");

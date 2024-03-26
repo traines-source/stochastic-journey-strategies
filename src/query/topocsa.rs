@@ -88,8 +88,8 @@ impl<'a> Query<'a> for Environment<'a> {
         self.get_relevant_stations(origin_idx, destination_idx, station_labels)
     }
 
-    fn relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>) -> HashMap<i32, i32> {
-        self.get_relevant_connection_pairs(weights_by_station_idx)   
+    fn relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>, max_stop_count: usize) -> HashMap<i32, i32> {
+        self.get_relevant_connection_pairs(weights_by_station_idx, max_stop_count)
     }
 
     fn update(&mut self, connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>) {
@@ -680,12 +680,12 @@ impl<'a> Environment<'a> {
         weights_by_station_idx
     }
 
-    fn get_relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>) -> HashMap<i32, i32> {
+    fn get_relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>, max_station_count: usize) -> HashMap<i32, i32> {
         let mut stations: Vec<(&usize, &types::MFloat)> = weights_by_station_idx.iter().collect();
         stations.sort_unstable_by(|a,b| b.1.partial_cmp(a.1).unwrap());
         //println!("{:?}", stations.iter().take(500).map(|s| (&self.stations[s.0].name as &str, s.1)).collect::<Vec<(&str, types::MFloat)>>());
         let mut trip_id_to_conn_idxs: HashMap<i32, Vec<(usize, bool)>> = HashMap::new();
-        for i in 0..std::cmp::min(stations.len(), 1000) {
+        for i in 0..std::cmp::min(stations.len(), max_station_count) {
             for arr in &self.stations[*stations[i].0].arrivals {
                 self.insert_relevant_conn_idx(arr, &mut trip_id_to_conn_idxs, false);
             }

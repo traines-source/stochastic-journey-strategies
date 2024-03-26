@@ -8,11 +8,21 @@ use indexmap::IndexMap;
 
 use quick_protobuf::{MessageRead, MessageWrite, BytesReader, Writer};
 
+use crate::gtfs::StationContraction;
 use crate::types;
 use crate::wire::wire;
 use crate::connection;
 use crate::distribution;
 
+pub struct QueryMetadata {
+    pub start_ts: i64,
+    pub origin_id: String,
+    pub origin_idx: usize,
+    pub destination_id: String,
+    pub destination_idx: usize,
+    pub now: i64,
+    pub system: String
+}
 
 pub fn write_protobuf(bytes: &Vec<u8>, filepath: &str) {
     let mut file = fs::OpenOptions::new()
@@ -34,7 +44,7 @@ pub fn from_mtime(mtime: types::Mtime, reference: i64) -> i64 {
     (mtime*60) as i64 + reference
 }
 
-pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connection::Station>, routes: &'b mut Vec<connection::Route>, connections: &'b mut Vec<connection::Connection>, load_distributions: bool) -> (i64, usize, usize, i64, String) {
+pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connection::Station>, _routes: &'b mut Vec<connection::Route>, connections: &'b mut Vec<connection::Connection>, load_distributions: bool) -> QueryMetadata {
     let mut reader = BytesReader::from_bytes(&bytes);
     let request_message = wire::Message::from_reader(&mut reader, &bytes).expect("Cannot read Timetable");
         
@@ -87,24 +97,34 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connec
     let query = request_message.query.as_ref().unwrap();
     let start_time = request_message.timetable.as_ref().unwrap().start_time;
 
-    let origin = query.origin.borrow() as &str;
-    let destination = query.destination.borrow() as &str;
-    let o = stations_idx[origin];
-    let d = stations_idx[destination];
+    let origin_id = query.origin.to_string();
+    let destination_id = query.destination.to_string();
+    let origin_idx = *stations_idx.get(&origin_id as &str).unwrap_or(&0);
+    let destination_idx = *stations_idx.get(&destination_id as &str).unwrap_or(&0);
+    
     let now = query.now;
-    println!("orig {} dest {} stations {} connections {}", o, d, stations.len(), connections.len());
-    (start_time, o, d, now, request_message.system.to_string())
+    println!("orig {} dest {} stations {} connections {}", origin_id, destination_id, stations.len(), connections.len());
+    QueryMetadata {
+        start_ts: start_time,
+        origin_id,
+        origin_idx,
+        destination_id,
+        destination_idx,
+        now,
+        system: request_message.system.to_string()
+    }
 }
 
-pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection::Route], connections: &[connection::Connection], origin_idx: usize, destination_idx: usize, start_time: i64) -> Vec<u8> {
+pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection::Route], connections: &[connection::Connection], contraction: Option<&StationContraction>, metadata: &QueryMetadata) -> Vec<u8> {
     let mut wire_stations: Vec<wire::Station> = Vec::new();
     let mut trips: IndexMap<(i32, usize), Vec<wire::Connection>> = IndexMap::new();
-    for s in stations {
+    for s in stations.iter().enumerate() {
         wire_stations.push(wire::Station{
-            id: Cow::Borrowed(&s.id),
-            name: Cow::Borrowed(&s.name),
-            lat: s.lat as f32,
-            lon: s.lon as f32
+            id: Cow::Borrowed(&s.1.id),
+            name: Cow::Borrowed(&s.1.name),
+            lat: s.1.lat,
+            lon: s.1.lon,
+            parent: Cow::Owned(if s.1.parent_idx != 0 { s.1.parent_idx.to_string() } else { "".to_string() })
         });
     }
     for c in connections.iter().rev() {
@@ -117,14 +137,14 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
             to_id: Cow::Borrowed(&stations.get(c.to_idx).unwrap().id),
             cancelled: false,
             departure: Some(wire::StopInfo{
-                scheduled: from_mtime(c.departure.scheduled, start_time),
+                scheduled: from_mtime(c.departure.scheduled, metadata.start_ts),
                 delay_minutes: c.departure.delay.unwrap_or(0) as i32,
                 is_live: c.departure.delay.is_some(),
                 scheduled_track: Cow::Borrowed(""),
                 projected_track: Cow::Borrowed("")
             }),
             arrival: Some(wire::StopInfo{
-                scheduled: from_mtime(c.arrival.scheduled, start_time),
+                scheduled: from_mtime(c.arrival.scheduled, metadata.start_ts),
                 delay_minutes: c.arrival.delay.unwrap_or(0) as i32,
                 is_live: c.arrival.delay.is_some(),
                 scheduled_track: Cow::Borrowed(""),
@@ -133,8 +153,8 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
             message: Cow::Borrowed(""),
             destination_arrival: if da.is_none() { None } else { let da = da.as_ref().unwrap(); Some(wire::Distribution {
                 histogram: Cow::Owned(da.histogram.iter().map(|h| *h as f32).collect()),
-                start: from_mtime(da.start, start_time),
-                mean: (da.mean*60.0) as i64 + start_time,
+                start: from_mtime(da.start, metadata.start_ts),
+                mean: (da.mean*60.0) as i64 + metadata.start_ts,
                 feasible_probability: da.feasible_probability as f32
             }) }
         });
@@ -157,11 +177,11 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
         timetable: Some(wire::Timetable{
             stations: wire_stations,
             routes: wire_routes,
-            start_time: start_time
+            start_time: metadata.start_ts
         }),
         query: Some(wire::Query{
-            origin: Cow::Borrowed(&stations[origin_idx].id),
-            destination: Cow::Borrowed(&stations[destination_idx].id),
+            origin: Cow::Borrowed(&stations[metadata.origin_idx].id),
+            destination: Cow::Borrowed(&stations[metadata.destination_idx].id),
             now: 0
         }),
         system: Cow::Borrowed("")

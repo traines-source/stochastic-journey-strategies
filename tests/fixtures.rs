@@ -10,6 +10,7 @@ use stost::distribution_store;
 use stost::wire::serde;
 use stost::query::topocsa;
 use stost::query::recursive;
+use stost::wire::serde::QueryMetadata;
 
 fn compare_connections(original: &[connection::Connection], new: &[connection::Connection]) {
     let mut i = 0;
@@ -37,11 +38,11 @@ fn topocsa_recursive_identical() {
     let mut stations = vec![];
     let mut routes = vec![];
     let mut connections = vec![];
-    let (start_time, o, d, now, _) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
+    let meta = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
     let mut connections_clone = connections.clone();
     let mut cut = FxHashSet::default();
-    topocsa::prepare_and_query(&mut store, &mut connections, &stations, &mut cut, o, d, 0, 100, serde::to_mtime(now, start_time), 0.0, false);
-    recursive::query(&mut store, &mut connections_clone, &stations, &stations[o], &stations[d], 0, 100, serde::to_mtime(now, start_time), HashSet::from_iter(cut.into_iter()));
+    topocsa::prepare_and_query(&mut store, &mut connections, &stations, &mut cut, meta.origin_idx, meta.destination_idx, 0, 100, serde::to_mtime(meta.now, meta.start_ts), 0.0, false);
+    recursive::query(&mut store, &mut connections_clone, &stations, &stations[meta.origin_idx], &stations[meta.destination_idx], 0, 100, serde::to_mtime(meta.now, meta.start_ts), HashSet::from_iter(cut.into_iter()));
 
     compare_connections(&connections_clone, &connections);
 }
@@ -57,9 +58,9 @@ fn topocsa_runs() {
     let mut stations = vec![];
     let mut routes = vec![];
     let mut connections = vec![];
-    let (start_time, o, d, now, _) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
+    let meta = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
     let mut cut = FxHashSet::default();
-    topocsa::prepare_and_query(&mut store, &mut connections, &stations, &mut cut, o, d, 0, 100, serde::to_mtime(now, start_time), 0.0, false);
+    topocsa::prepare_and_query(&mut store, &mut connections, &stations, &mut cut, meta.origin_idx, meta.destination_idx, 0, 100, serde::to_mtime(meta.now, meta.start_ts), 0.0, false);
 
     let bytes: Vec<u8> = serde::read_protobuf("./tests/fixtures/basic_out.pb");
     let mut _stations = vec![];
@@ -80,8 +81,8 @@ fn recursive_runs() {
     let mut stations = vec![];
     let mut routes = vec![];
     let mut connections = vec![];
-    let (start_time, o, d, now, _) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false); 
-    recursive::query(&mut store, &mut connections, &stations, &stations[o], &stations[d], 0, 100, serde::to_mtime(now, start_time), HashSet::new());
-    let bytes = serde::serialize_protobuf(&stations, &routes, &connections, o, d, start_time);
+    let meta = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false); 
+    recursive::query(&mut store, &mut connections, &stations, &stations[meta.origin_idx], &stations[meta.destination_idx], 0, 100, serde::to_mtime(meta.now, meta.start_ts), HashSet::new());
+    let bytes = serde::serialize_protobuf(&stations, &routes, &connections, None, &meta);
     serde::write_protobuf(&bytes, "./tests/fixtures/basic_out.pb");
 }

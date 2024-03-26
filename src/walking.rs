@@ -141,7 +141,7 @@ pub fn create_relevant_timetable_with_extended_walking(
             .entry(&stations[orig_idx].id)
             .or_insert_with(|| {
                 let new_idx = new_stations.len();
-                new_stations[new_idx] = stations[orig_idx].clone_metadata();
+                new_stations.push(stations[orig_idx].clone_metadata());
                 new_idx
             })
     };
@@ -166,8 +166,8 @@ pub fn create_relevant_timetable_with_extended_walking(
         new_connections.push(new);
     }
     let mut walking_connections = vec![];
-    for c in &new_connections {
-        for s in weights_by_station_idx.iter() {
+    for s in weights_by_station_idx.iter() {
+        for c in &new_connections {
             let dist = geodist_meters(&new_stations[c.to_idx], &stations[*s.0]);
             if dist < MAX_WALKING_METRES {
                 let to_idx = get_or_insert_new_station_idx(*s.0, &mut new_stations);

@@ -32,6 +32,6 @@ pub trait Query<'a> {
     fn query(&mut self, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime) -> Vec<Vec<ConnectionLabel>>;
     fn pair_query(&mut self, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>>;    
     fn relevant_stations(&mut self, origin_idx: usize, destination_idx: usize, station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, types::MFloat>;
-    fn relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>) -> HashMap<i32, i32>;
+    fn relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>, max_station_count: usize) -> HashMap<i32, i32>;
     fn update(&mut self, connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>);
 }
