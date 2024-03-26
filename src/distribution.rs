@@ -237,6 +237,19 @@ impl Distribution {
             assert_float_absolute_eq!(1.0, self.histogram.iter().sum::<f32>(), 1e-3);
         }
     }
+    pub fn nonnegative_alt(&mut self) {
+        if self.start < 0 {
+            let until0 = cmp::min(self.histogram.len(), (-self.start+1) as usize);
+            self.histogram.splice(0..until0, std::iter::once(self.histogram[until0-1]));
+            self.start = 0;
+            let temp = self.feasible_probability;
+            self.feasible_probability = self.histogram.iter().sum::<f32>();
+            self.normalize();
+            self.feasible_probability = temp;
+            self.mean = self.mean();
+            assert_float_absolute_eq!(1.0, self.histogram.iter().sum::<f32>(), 1e-3);
+        }
+    }
 }
 
 
