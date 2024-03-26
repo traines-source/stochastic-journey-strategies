@@ -713,7 +713,7 @@ impl Simulation {
     fn can_take(next_c: &connection::Connection, arrival_time: i32, transfer_time: i32, log: &mut Vec<LogEntry>, tt: &GtfsTimetable) -> bool {
         if log.len() > 0 {
             let c = &tt.connections[tt.order[log.last().unwrap().conn_id]];
-            if c.is_consecutive(next_c) {
+            if c.is_consecutive(next_c) && c.id < next_c.id {
                 return true;
             }
             if !c.arrival.in_out_allowed {
