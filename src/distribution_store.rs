@@ -10,6 +10,7 @@ use itertools::Itertools;
 use crate::distribution;
 use crate::connection;
 use crate::types;
+use crate::walking::WALKING_PRODUCT_TYPE;
 
 const PRODUCT_TYPES_NUM: i16 = 13;
 
@@ -307,8 +308,8 @@ impl Store {
         match self.delay.get(&key) {
             Some(d) => d,
             None => {
-                if key.product_type == 100 {
-                    return self.delay.get(&DelayKey { product_type: 100, prior_delay: (0,0), prior_ttl: (0,0), is_departure: key.is_departure }).unwrap();
+                if key.product_type == WALKING_PRODUCT_TYPE {
+                    return self.delay.get(&DelayKey { product_type: WALKING_PRODUCT_TYPE, prior_delay: (0,0), prior_ttl: (0,0), is_departure: key.is_departure }).unwrap();
                 }
                 return self.delay.get(&DelayKey { product_type: -1, prior_delay: (0,0), prior_ttl: (0,0), is_departure: false }).unwrap();                
             }

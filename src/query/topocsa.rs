@@ -88,8 +88,8 @@ impl<'a> Query<'a> for Environment<'a> {
         self.get_relevant_stations(origin_idx, destination_idx, station_labels)
     }
 
-    fn relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>, max_stop_count: usize) -> HashMap<i32, i32> {
-        self.get_relevant_connection_pairs(weights_by_station_idx, max_stop_count)
+    fn relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>, max_stop_count: usize, start_time: types::Mtime, max_time: types::Mtime) -> HashMap<i32, i32> {
+        self.get_relevant_connection_pairs(weights_by_station_idx, max_stop_count, start_time, max_time)
     }
 
     fn update(&mut self, connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>) {
@@ -680,17 +680,19 @@ impl<'a> Environment<'a> {
         weights_by_station_idx
     }
 
-    fn get_relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>, max_station_count: usize) -> HashMap<i32, i32> {
+    fn get_relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>, max_station_count: usize, start_time: types::Mtime, max_time: types::Mtime) -> HashMap<i32, i32> {
         let mut stations: Vec<(&usize, &types::MFloat)> = weights_by_station_idx.iter().collect();
         stations.sort_unstable_by(|a,b| b.1.partial_cmp(a.1).unwrap());
         //println!("{:?}", stations.iter().take(500).map(|s| (&self.stations[s.0].name as &str, s.1)).collect::<Vec<(&str, types::MFloat)>>());
         let mut trip_id_to_conn_idxs: HashMap<i32, Vec<(usize, bool)>> = HashMap::new();
+        let max_delay = self.store.borrow().max_delay as types::Mtime;
+
         for i in 0..std::cmp::min(stations.len(), max_station_count) {
             for arr in &self.stations[*stations[i].0].arrivals {
-                self.insert_relevant_conn_idx(arr, &mut trip_id_to_conn_idxs, false);
+                self.insert_relevant_conn_idx(arr, &mut trip_id_to_conn_idxs, false, start_time, max_time, max_delay);
             }
             for dep in &self.stations[*stations[i].0].departures {
-                self.insert_relevant_conn_idx(dep, &mut trip_id_to_conn_idxs, true);
+                self.insert_relevant_conn_idx(dep, &mut trip_id_to_conn_idxs, true, start_time, max_time, max_delay);
             }
         }
         let mut connection_pairs = HashMap::new();
@@ -708,9 +710,12 @@ impl<'a> Environment<'a> {
         connection_pairs
     }
 
-    fn insert_relevant_conn_idx(&mut self, conn_id: &usize, trip_id_to_conn_idxs: &mut HashMap<i32, Vec<(usize, bool)>>, is_departure: bool) {
+    fn insert_relevant_conn_idx(&mut self, conn_id: &usize, trip_id_to_conn_idxs: &mut HashMap<i32, Vec<(usize, bool)>>, is_departure: bool, start_time: types::Mtime, max_time: types::Mtime, max_delay: types::Mtime) {
         let connidx = self.order[*conn_id];
         let c = &self.connections[connidx];
+        if c.departure.projected()+max_delay < start_time || c.departure.projected() >= max_time {
+            return;
+        }
         match trip_id_to_conn_idxs.get_mut(&c.trip_id) {
             Some(list) => list.push((connidx, is_departure)),
             None => {

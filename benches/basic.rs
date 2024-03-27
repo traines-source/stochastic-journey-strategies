@@ -22,12 +22,12 @@ fn from_relevant(c: &mut Criterion) {
     let mut connections = vec![];
     let mut order = vec![];
     let mut cut = FxHashSet::default();
-    let (start_time, o, d, now, _) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
-    let mut env = topocsa::prepare(&mut store, &mut connections, &stations, &mut cut, &mut order, serde::to_mtime(now, start_time), 0.0, true);
+    let meta = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
+    let mut env = topocsa::prepare(&mut store, &mut connections, &stations, &mut cut, &mut order, serde::to_mtime(meta.now, meta.start_ts), 0.0, true);
 
     let mut group = c.benchmark_group("once");
     //measurement_time(Duration::from_secs(10))
-    group.bench_function("from_relevant", |b| b.iter(|| env.query(black_box(o), black_box(d), black_box(7200), black_box(8640))));
+    group.bench_function("from_relevant", |b| b.iter(|| env.query(black_box(meta.origin_idx), black_box(meta.destination_idx), black_box(7200), black_box(8640))));
     group.finish();
 }
 
@@ -41,12 +41,12 @@ fn measure_prepare(c: &mut Criterion) {
     let mut connections = vec![];
     let mut cut = FxHashSet::default();
 
-    let (start_time, o, d, now, _) = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
+    let meta = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
 
     let mut group = c.benchmark_group("once");
     group.bench_function("measure_prepare", |b| b.iter(|| {
         let mut order = vec![];
-        topocsa::prepare(black_box(&mut store), black_box(&mut connections.clone()), black_box(&stations), black_box(&mut cut), black_box(&mut order), black_box(serde::to_mtime(now, start_time)), black_box(0.0), black_box(true));
+        topocsa::prepare(black_box(&mut store), black_box(&mut connections.clone()), black_box(&stations), black_box(&mut cut), black_box(&mut order), black_box(serde::to_mtime(meta.now, meta.start_ts)), black_box(0.0), black_box(true));
     }));
     group.finish();
 }

@@ -316,7 +316,7 @@ impl Simulation {
                 let connection_pairs_reverse = if self.conf.stoch_simulation.contains("csameat") {
                     let start = Instant::now();
                     let dummy = HashMap::new();
-                    let connection_pairs_reverse = env.relevant_connection_pairs(&dummy, 0);
+                    let connection_pairs_reverse = env.relevant_connection_pairs(&dummy, 0, pair.2, pair.2+self.conf.query_window);
                     timing_stoch += start.elapsed().as_millis();
                     connection_pairs_reverse
                 } else {
@@ -406,7 +406,7 @@ impl Simulation {
                             a.relevant_stations.insert(f.target_location_idx, 1000.0);
                         }
                     }
-                    a.connection_pairs = env.relevant_connection_pairs(&a.relevant_stations, 1000);
+                    a.connection_pairs = env.relevant_connection_pairs(&a.relevant_stations, 1000, pair.2, pair.2+self.conf.query_window);
                     a.connection_pairs_reverse = a.connection_pairs.iter().map(|(arr,dep)| (*dep as usize, *arr as usize)).collect();
                 });
             }

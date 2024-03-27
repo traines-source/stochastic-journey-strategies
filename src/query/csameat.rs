@@ -74,7 +74,7 @@ impl<'a> Query<'a> for Environment<'a> {
         HashMap::new()
     }
 
-    fn relevant_connection_pairs(&mut self, _weights_by_station_idx: &HashMap<usize, types::MFloat>, _max_stop_count: usize) -> HashMap<i32, i32> {
+    fn relevant_connection_pairs(&mut self, _weights_by_station_idx: &HashMap<usize, types::MFloat>, _max_stop_count: usize, _start_time: types::Mtime, _max_time: types::Mtime) -> HashMap<i32, i32> {
         std::mem::replace(&mut self.connection_pairs, HashMap::new())   
     }
 

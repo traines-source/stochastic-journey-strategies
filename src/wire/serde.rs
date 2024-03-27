@@ -10,6 +10,9 @@ use quick_protobuf::{MessageRead, MessageWrite, BytesReader, Writer};
 
 use crate::gtfs::StationContraction;
 use crate::types;
+use crate::walking;
+use crate::walking::WALKING_MSG;
+use crate::walking::WALKING_PRODUCT_TYPE;
 use crate::wire::wire;
 use crate::connection;
 use crate::distribution;
@@ -41,10 +44,13 @@ pub fn to_mtime(t: i64, reference: i64) -> types::Mtime {
 }
 
 pub fn from_mtime(mtime: types::Mtime, reference: i64) -> i64 {
+    if mtime == 0 {
+        return 0
+    }
     (mtime*60) as i64 + reference
 }
 
-pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connection::Station>, _routes: &'b mut Vec<connection::Route>, connections: &'b mut Vec<connection::Connection>, load_distributions: bool) -> QueryMetadata {
+pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connection::Station>, routes: &'b mut Vec<connection::Route>, connections: &'b mut Vec<connection::Connection>, load_distributions: bool) -> QueryMetadata {
     let mut reader = BytesReader::from_bytes(&bytes);
     let request_message = wire::Message::from_reader(&mut reader, &bytes).expect("Cannot read Timetable");
         
@@ -66,6 +72,13 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connec
     }
     let mut route_idx = 0;
     for r in &timetable.routes {
+        routes.push(connection::Route {
+            id: r.id.to_string(),
+            direction: "".to_string(),
+            name: "".to_string(),
+            product_type: r.product_type as i16,
+            message: "".to_string()
+        });
         let mut trip_id = 0;
         for t in &r.trips {
             for c in &t.connections {
@@ -115,7 +128,7 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connec
     }
 }
 
-pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection::Route], connections: &[connection::Connection], contraction: Option<&StationContraction>, metadata: &QueryMetadata) -> Vec<u8> {
+pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection::Route], connections: &[connection::Connection], _contraction: Option<&StationContraction>, metadata: &QueryMetadata) -> Vec<u8> {
     let mut wire_stations: Vec<wire::Station> = Vec::new();
     let mut trips: IndexMap<(i32, usize), Vec<wire::Connection>> = IndexMap::new();
     for s in stations.iter().enumerate() {
@@ -127,12 +140,34 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
             parent: Cow::Owned(if s.1.parent_idx != 0 { s.1.parent_idx.to_string() } else { "".to_string() })
         });
     }
+    let mut wire_routes: Vec<wire::Route> = routes.iter().map(|r| {
+        wire::Route {
+            id: Cow::Borrowed(&r.id),
+            name: Cow::Borrowed(&r.name),
+            product_type: r.product_type as i32,
+            message: Cow::Borrowed(&r.message),
+            direction: Cow::Borrowed(&r.direction),
+            trips: vec![]
+        }
+    }).collect();
     for c in connections.iter().rev() {
-        if !trips.contains_key(&(c.trip_id, c.route_idx)) {
-            trips.insert((c.trip_id, c.route_idx), vec![]);
+        let mut route_idx = c.route_idx;
+        if c.message == WALKING_MSG {
+            route_idx = wire_routes.len();
+            wire_routes.push(wire::Route{
+                id: Cow::Owned(wire_routes.len().to_string()),
+                name: Cow::Owned(walking::geodist_meters_string(&stations.get(c.from_idx).unwrap(), &stations.get(c.to_idx).unwrap())),
+                product_type: WALKING_PRODUCT_TYPE as i32,
+                message: Cow::Owned("".to_string()),
+                direction: Cow::Owned("".to_string()),
+                trips: vec![]
+            });
+        }
+        if !trips.contains_key(&(c.trip_id, route_idx)) {
+            trips.insert((c.trip_id, route_idx), vec![]);
         }
         let da = c.destination_arrival.borrow();
-        trips.get_mut(&(c.trip_id, c.route_idx)).unwrap().push(wire::Connection{
+        trips.get_mut(&(c.trip_id, route_idx)).unwrap().push(wire::Connection{
             from_id: Cow::Borrowed(&stations.get(c.from_idx).unwrap().id),
             to_id: Cow::Borrowed(&stations.get(c.to_idx).unwrap().id),
             cancelled: false,
@@ -151,7 +186,7 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
                 projected_track: Cow::Borrowed("")
             }),
             message: Cow::Borrowed(""),
-            destination_arrival: if da.is_none() { None } else { let da = da.as_ref().unwrap(); Some(wire::Distribution {
+            destination_arrival: if da.is_none() || da.as_ref().unwrap().mean == 0.0 { None } else { let da = da.as_ref().unwrap(); Some(wire::Distribution {
                 histogram: Cow::Owned(da.histogram.iter().map(|h| *h as f32).collect()),
                 start: from_mtime(da.start, metadata.start_ts),
                 mean: (da.mean*60.0) as i64 + metadata.start_ts,
@@ -159,16 +194,8 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
             }) }
         });
     }
-    let mut wire_routes: Vec<wire::Route> = routes.iter().map(|r| wire::Route {
-        id: Cow::Owned(format!("{}", r.id)),
-        name: Cow::Borrowed(""),
-        product_type: 0,
-        message: Cow::Borrowed(""),
-        direction: Cow::Borrowed(""),
-        trips: vec![]
-    }).collect();
     for (key, mut connections) in trips.into_iter() {
-        connections.sort_by(|a, b| a.departure.as_ref().unwrap().scheduled.cmp(&b.departure.as_ref().unwrap().scheduled)); // maybe unnecessary
+        //connections.sort_by(|a, b| a.departure.as_ref().unwrap().scheduled.cmp(&b.departure.as_ref().unwrap().scheduled)); // maybe unnecessary
         wire_routes.get_mut(key.1).unwrap().trips.push(wire::Trip{
             connections: connections
         });

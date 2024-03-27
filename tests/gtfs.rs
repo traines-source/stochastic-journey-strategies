@@ -163,7 +163,7 @@ fn gtfs_with_relevant_stations() {
     let start_ts = Instant::now();
     let relevant_stations = env.relevant_stations(o, d, &sl);
     println!("elapsed relevant stations: {}", start_ts.elapsed().as_millis());
-    let connection_pairs = env.relevant_connection_pairs(&relevant_stations, 1000);
+    let connection_pairs = env.relevant_connection_pairs(&relevant_stations, 1000, start_time, max_time);
     println!("elapsed incl relevant connections: {} len: {}", start_ts.elapsed().as_millis(), connection_pairs.len());
     env.preprocess();
     let station_labels = env.pair_query(o, d, start_time, max_time, &connection_pairs);

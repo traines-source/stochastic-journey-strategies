@@ -35,7 +35,7 @@ fn gtfs_with_contr() {
     let station_labels = env.full_query(o, d, 7200, 8640);
     let decision_graph = env.get_decision_graph(o, d, 7200, &station_labels);
     let dummy = HashMap::new();
-    let connection_pairs = env.relevant_connection_pairs(&dummy, 0);
+    let connection_pairs = env.relevant_connection_pairs(&dummy, 0, 7200, 8640);
     let origin_deps = &station_labels[contr.stop_to_group[o]];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
@@ -87,7 +87,7 @@ fn gtfs_with_rt() {
     let station_labels = env.full_query(o, d, 7500, 8220);
     let decision_graph = env.get_decision_graph(o, d, 7500, &station_labels);
     let dummy = HashMap::new();
-    let connection_pairs_reverse = env.relevant_connection_pairs(&dummy, 0);
+    let connection_pairs_reverse = env.relevant_connection_pairs(&dummy, 0, 7200, 8220);
     let origin_deps = &station_labels[contr.stop_to_group[o]];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];

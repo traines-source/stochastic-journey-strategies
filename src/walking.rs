@@ -11,6 +11,11 @@ use std::{cell::RefCell, collections::HashMap};
 const WALKING_METRES_PER_SECOND: f64 = 1.5;
 const MAX_WALKING_METRES: f64 = 5000.0;
 pub const WALKING_MSG: &str = "walking";
+pub const WALKING_PRODUCT_TYPE: i16 = 100;
+
+pub fn geodist_meters_string(stop1: &Station, stop2: &Station) -> String {
+    format!("{}m", geodist_meters(stop1, stop2).round())
+}
 
 fn geodist_meters(stop1: &Station, stop2: &Station) -> f64 {
     lonlat_geodist_meters(stop1.lon, stop1.lat, stop2.lon, stop2.lat)
@@ -145,6 +150,8 @@ pub fn create_relevant_timetable_with_extended_walking(
                 new_idx
             })
     };
+    get_or_insert_new_station_idx(origin_idx, &mut new_stations);
+    get_or_insert_new_station_idx(destination_idx, &mut new_stations);
     for pair in connection_pairs.iter() {
         let departure = &connections[order[*pair.1 as usize]];
         let arrival = &connections[order[*pair.0 as usize]];
@@ -163,13 +170,19 @@ pub fn create_relevant_timetable_with_extended_walking(
             .push(new.id);
         new.from_idx = new_from_idx;
         new.to_idx = new_to_idx;
+        if weights_by_station_idx.is_empty() {
+            new.destination_arrival = departure.destination_arrival.clone()
+        }
         new_connections.push(new);
     }
     let mut walking_connections = vec![];
     for s in weights_by_station_idx.iter() {
         for c in &new_connections {
+            if new_stations[c.to_idx].id == stations[*s.0].id {
+                continue;
+            }
             let dist = geodist_meters(&new_stations[c.to_idx], &stations[*s.0]);
-            if dist < MAX_WALKING_METRES {
+            if dist < 100.0 {
                 let to_idx = get_or_insert_new_station_idx(*s.0, &mut new_stations);
                 walking_connections.push(create_walking_connection(
                     c,
