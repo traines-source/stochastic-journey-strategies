@@ -47,7 +47,7 @@ impl StationContraction {
 }
 
 pub fn load_timetable<'a, 'b>(gtfs_path: &str, start_date: chrono::NaiveDate, end_date: chrono::NaiveDate) -> Timetable {
-    Timetable::load(gtfs_path, start_date, end_date)
+    Timetable::load_linking_stops(gtfs_path, start_date, end_date, 0)
 }
 
 pub fn retrieve<'a, 'b>(t: &Timetable, stations: &'a mut Vec<connection::Station>, routes: &'a mut Vec<connection::Route>, connections: &'b mut Vec<connection::Connection>) -> HashMap<(usize, u16), usize> {
@@ -168,7 +168,25 @@ fn get_rand_conn_idx(connection_count: usize) -> usize {
     rng.gen_range(0..connection_count)
 }
 
-pub fn create_simulation_samples(gtfs_path: &str, start_date: chrono::NaiveDate, end_date: chrono::NaiveDate) -> Vec<OriginDestinationSample> {
+fn in_bbox(lon: f64, lat: f64, bbox: Option<(f64, f64, f64, f64)>) -> bool {
+    if let Some(b) = bbox {
+        return lat >= b.0 && lon >= b.1 && lat <= b.2 && lon <= b.3;
+    }
+    return true;
+}
+
+fn get_rand_stop_idx(connections: &[connection::Connection], stations: &[connection::Station], from: bool, bbox: Option<(f64, f64, f64, f64)>) -> usize {
+    loop {
+        let c = &connections[get_rand_conn_idx(connections.len())];
+        let s_idx = if from {c.from_idx} else {c.to_idx};
+        let s = &stations[s_idx];
+        if in_bbox(s.lon, s.lat, bbox) {
+            return s_idx;
+        }
+    }
+}
+
+pub fn create_simulation_samples(gtfs_path: &str, start_date: chrono::NaiveDate, end_date: chrono::NaiveDate, bbox: Option<(f64, f64, f64, f64)>) -> Vec<OriginDestinationSample> {
     let t = load_timetable(gtfs_path, start_date, end_date);
     let mut tt = GtfsTimetable {
         stations: vec![],
@@ -182,8 +200,8 @@ pub fn create_simulation_samples(gtfs_path: &str, start_date: chrono::NaiveDate,
     let sample_count = 10000;
     let mut samples = vec![];
     for _i in 0..sample_count {
-        let origin = tt.connections[get_rand_conn_idx(tt.connections.len())].from_idx;
-        let destination = tt.connections[get_rand_conn_idx(tt.connections.len())].to_idx;
+        let origin = get_rand_stop_idx(&tt.connections, &tt.stations, true, bbox);
+        let destination = get_rand_stop_idx(&tt.connections, &tt.stations, true, bbox);
         samples.push(OriginDestinationSample {from_idx: origin, from_id: tt.stations[origin].id.clone(), to_idx: destination, to_id: tt.stations[destination].id.clone()});
     }
     samples
