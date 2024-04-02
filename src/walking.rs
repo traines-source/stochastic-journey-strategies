@@ -66,15 +66,15 @@ pub fn create_quadratic_footpaths(stations: &mut Vec<Station>) {
 }
 
 pub struct StationLocation {
-    station_id: usize,
+    station_idx: usize,
     lon: f64,
     lat: f64,
 }
 
 impl StationLocation {
-    pub fn new(station_id: usize, lon: f64, lat: f64) -> StationLocation {
+    pub fn new(station_idx: usize, lon: f64, lat: f64) -> StationLocation {
         StationLocation {
-            station_id,
+            station_idx,
             lon,
             lat,
         }
@@ -117,11 +117,10 @@ pub fn relevant_stations_with_extended_walking(
     for s in weights_by_station_idx.iter() {
         new_stops.extend(
             rtree
-                .locate_within_distance(
-                    [stations[*s.0].lon, stations[*s.0].lat],
-                    MAX_WALKING_METRES.powi(2),
-                )
-                .map(|p| (p.station_id, *s.1)),
+                .nearest_neighbor_iter_with_distance_2(&[stations[*s.0].lon, stations[*s.0].lat])
+                .take_while(|(_p, dist)| *dist < MAX_WALKING_METRES.powi(2))
+                .take(50)
+                .map(|(p, _dist)| (p.station_idx, *s.1)),
         );
     }
     weights_by_station_idx.extend(new_stops.into_iter());
@@ -134,7 +133,7 @@ pub fn create_relevant_timetable_with_extended_walking(
     connection_pairs: HashMap<i32, i32>,
     weights_by_station_idx: &HashMap<usize, types::MFloat>,
     origin_idx: usize,
-    destination_idx: usize
+    destination_idx: usize,
 ) -> (GtfsTimetable, usize, usize) {
     let origin_id = &stations[origin_idx].id;
     let destination_id = &stations[destination_idx].id;
@@ -176,21 +175,23 @@ pub fn create_relevant_timetable_with_extended_walking(
         new_connections.push(new);
     }
     let mut walking_connections = vec![];
-    for s in weights_by_station_idx.iter() {
-        for c in &new_connections {
-            if new_stations[c.to_idx].id == stations[*s.0].id {
+    for s1 in weights_by_station_idx.iter() {
+        for s2 in weights_by_station_idx.iter() {
+            if s1.0 == s2.0 {
                 continue;
             }
-            let dist = geodist_meters(&new_stations[c.to_idx], &stations[*s.0]);
-            if dist < 100.0 {
-                let to_idx = get_or_insert_new_station_idx(*s.0, &mut new_stations);
-                walking_connections.push(create_walking_connection(
-                    c,
-                    new_connections.len() + walking_connections.len(),
-                    &mut new_stations,
-                    dist,
-                    to_idx,
-                ));
+            let from_idx = get_or_insert_new_station_idx(*s1.0, &mut new_stations);
+            let to_idx = get_or_insert_new_station_idx(*s2.0, &mut new_stations);
+            let dist = geodist_meters(&new_stations[from_idx], &new_stations[to_idx]);
+            if dist < MAX_WALKING_METRES {
+                new_stations
+                    .get_mut(from_idx)
+                    .unwrap()
+                    .footpaths
+                    .push(Footpath {
+                        target_location_idx: to_idx,
+                        duration: walking_duration(dist),
+                    });
             }
         }
     }
@@ -206,7 +207,7 @@ pub fn create_relevant_timetable_with_extended_walking(
             transport_and_day_to_connection_id: HashMap::new(),
         },
         new_stations_map[origin_id],
-        new_stations_map[destination_id]
+        new_stations_map[destination_id],
     )
 }
 

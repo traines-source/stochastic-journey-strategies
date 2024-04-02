@@ -116,6 +116,7 @@ fn prepare_configured_systems(config: &mut ApiConfig) {
                     )
                 },
             );
+            c.1.rtree = walking::init_rtree(&tt.stations);
             //c.1.t = Some(t);
             c.1.tt = Some(tt);
         }
@@ -156,12 +157,14 @@ fn query_on_timetable(
     if weights_by_station_idx.is_empty() {
         return vec![];
     }
-    /*walking::relevant_stations_with_extended_walking(
+    println!("unextended: {}", weights_by_station_idx.len());
+    walking::relevant_stations_with_extended_walking(
         &mut weights_by_station_idx,
         &tt.stations,
         &system_conf.rtree,
-    );*/
-    let connection_pairs = env.relevant_connection_pairs(&weights_by_station_idx, 200, start_time, start_time+query_window);
+    );
+    println!("extended: {}", weights_by_station_idx.len());
+    let connection_pairs = env.relevant_connection_pairs(&weights_by_station_idx, 10000, start_time, start_time+query_window);
     println!("creating relevant tt...");
     let walking_timetable = walking::create_relevant_timetable_with_extended_walking(
         &mut tt.connections,
@@ -173,7 +176,7 @@ fn query_on_timetable(
         destination_idx
     );
     let mut rel_tt = walking_timetable.0;
-    println!("conns incl. walking: {}", rel_tt.connections.len());
+    println!("conns incl. walking: {} relstops: {} greatest footpath set: {}", rel_tt.connections.len(), rel_tt.stations.len(), rel_tt.stations.iter().map(|s|s.footpaths.len()).max().unwrap());
     let mut rel_env = topocsa::Environment::new(
         system_conf.store.as_mut().unwrap(),
         &mut rel_tt.connections,
@@ -183,21 +186,22 @@ fn query_on_timetable(
         now,
         0.01,
         0.001,
-        false,
+        true,
         false,
     );
     rel_env.preprocess();
     println!("querying relevant tt...");
-    let relevant_station_labels = rel_env.query(
+    let walking_station_labels = rel_env.query(
         walking_timetable.1,
         walking_timetable.2,
         start_time,
         start_time + query_window,
     );
-    print!("{:?}", relevant_station_labels[walking_timetable.1].last().unwrap());
-    /*let weights_by_station_idx =
-        rel_env.relevant_stations(walking_timetable.1, walking_timetable.2, &relevant_station_labels);
-    let relevant_connection_pairs = rel_env.relevant_connection_pairs(&weights_by_station_idx, 100);
+    println!("{:?}", station_labels[system_conf.contraction.as_ref().unwrap().stop_to_group[origin_idx]].last());
+    println!("{:?}", walking_station_labels[walking_timetable.1].last());
+    let weights_by_station_idx =
+        rel_env.relevant_stations(walking_timetable.1, walking_timetable.2, &walking_station_labels);
+    let relevant_connection_pairs = rel_env.relevant_connection_pairs(&weights_by_station_idx, 100, start_time, start_time+query_window);
     println!("rel. conns: {}", relevant_connection_pairs.len());
     let no_extended_walking = HashMap::new();
     let relevant_timetable = walking::create_relevant_timetable_with_extended_walking(
@@ -209,14 +213,14 @@ fn query_on_timetable(
         walking_timetable.1, walking_timetable.2
     );
     println!("conns: {} stops: {}", relevant_timetable.0.connections.len(), relevant_timetable.0.stations.len());
-    */
-    metadata.origin_idx = walking_timetable.1;
-    metadata.destination_idx = walking_timetable.2;
+    println!("fromto: {} {}", relevant_timetable.1, relevant_timetable.2);
+    metadata.origin_idx = relevant_timetable.1;
+    metadata.destination_idx = relevant_timetable.2;
     metadata.start_ts = system_conf.reference_ts;
     stost::wire::serde::serialize_protobuf(
-        &rel_tt.stations,
+        &relevant_timetable.0.stations,
         &system_conf.routes,
-        &rel_tt.connections,
+        &relevant_timetable.0.connections,
         system_conf.contraction.as_ref(),
         &metadata
     )
