@@ -22,11 +22,11 @@ use rustc_hash::FxHashSet;
 use ndarray_stats::QuantileExt;
 use serde::Deserialize;
 use serde::Serialize;
-use stost::{connection, query::csameat, walking};
+use stost::{connection, query::{csameat, Query}, walking};
 use stost::gtfs::GtfsTimetable;
 use stost::gtfs::OriginDestinationSample;
 use stost::gtfs::StationContraction;
-use stost::query::Query;
+use stost::query::Queriable;
 use stost::types;
 use std::collections::HashMap;
 use std::io::Write;
@@ -291,8 +291,14 @@ impl Simulation {
         if self.results.get(&pair).is_none() {
             let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, current_time, true, true);
             Self::preprocess_if_necessary(&mut env, timing_preprocessing);
+            let query = Query {
+                origin_idx: pair.0,
+                destination_idx: pair.1,
+                start_time: pair.2,
+                max_time: pair.2+self.conf.query_window
+            };
             let start = Instant::now();
-            let stoch = env.query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window);
+            let stoch = env.query(query);
             let mut timing_stoch = start.elapsed().as_millis();
             let (min_journey, timing_det) = get_min_det_journey(t, pair.0, pair.1, pair.2);
             let stoch_exist_alternatives = stoch.get(self.contr.as_ref().map(|contr| contr.stop_to_group[pair.0]).unwrap_or(pair.0)).is_some_and(|s| s.len() > 0);
@@ -302,7 +308,7 @@ impl Simulation {
                 self.det_actions.insert(*pair, min_journey.unwrap());
                 let relevant_stations = if self.conf.stoch_simulation.starts_with("adaptive_online_relevant") {
                     let start = Instant::now();
-                    let mut relevant_stations = env.relevant_stations(pair.0, pair.1, &stoch);
+                    let mut relevant_stations = env.relevant_stations(query, &stoch);
                     timing_stoch += start.elapsed().as_millis();
                     println!("Enriching relevant stations...");
                     for l in &*self.det_actions[pair].legs {
@@ -316,7 +322,7 @@ impl Simulation {
                 let connection_pairs_reverse = if self.conf.stoch_simulation.contains("csameat") {
                     let start = Instant::now();
                     let dummy = HashMap::new();
-                    let connection_pairs_reverse = env.relevant_connection_pairs(&dummy, 0, pair.2, pair.2+self.conf.query_window);
+                    let connection_pairs_reverse = env.relevant_connection_pairs(query, &dummy, 0);
                     timing_stoch += start.elapsed().as_millis();
                     connection_pairs_reverse
                 } else {
@@ -397,6 +403,12 @@ impl Simulation {
             }
             let mut env = Self::new_env(&mut self.store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, &self.contr, &self.conf, fixed_arrival_time.unwrap_or(current_time), !self.conf.stoch_simulation.contains("with_distr"), false);
             Self::preprocess_if_necessary(&mut env, timing_preprocessing);
+            let query = Query {
+                origin_idx: pair.0,
+                destination_idx: pair.1,
+                start_time: pair.2,
+                max_time: pair.2+self.conf.query_window
+            };
             let start = Instant::now();
             if self.conf.stoch_simulation.starts_with("adaptive_online_relevant") {
                 self.stoch_actions.entry(*pair).and_modify(|a| {
@@ -406,11 +418,11 @@ impl Simulation {
                             a.relevant_stations.insert(f.target_location_idx, 1000.0);
                         }
                     }
-                    a.connection_pairs = env.relevant_connection_pairs(&a.relevant_stations, 1000, pair.2, pair.2+self.conf.query_window);
+                    a.connection_pairs = env.relevant_connection_pairs(query, &a.relevant_stations, 1000);
                     a.connection_pairs_reverse = a.connection_pairs.iter().map(|(arr,dep)| (*dep as usize, *arr as usize)).collect();
                 });
             }
-            let stoch = env.pair_query(pair.0, pair.1, pair.2, pair.2+self.conf.query_window, &self.stoch_actions[pair].connection_pairs);
+            let stoch = env.pair_query(query, &self.stoch_actions[pair].connection_pairs);
             let timing_stoch = start.elapsed().as_millis();
             println!("elapsed: {} connpairs: {}", timing_stoch, self.stoch_actions[pair].connection_pairs.len());
             self.stoch_actions.get_mut(pair).unwrap().station_labels = stoch;
@@ -458,7 +470,7 @@ impl Simulation {
         gtfs::sort_station_departures_asc(&mut tt.stations, &tt.connections, &tt.order);
     }
 
-    fn preprocess_if_necessary<'a>(env: &mut Box<dyn Query + 'a>, timing_preprocessing: &mut u128) {
+    fn preprocess_if_necessary<'a>(env: &mut Box<dyn Queriable + 'a>, timing_preprocessing: &mut u128) {
         if *timing_preprocessing != 0 {
             return;
         }
@@ -521,8 +533,8 @@ impl Simulation {
         ((mtime-reference_ts)/60) as i32
     }
 
-    fn new_env<'a: 'b, 'b>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a Vec<connection::Station>, cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, contr: &'a Option<StationContraction>, conf: &SimulationConfig, now: types::Mtime, mean_only: bool, initial: bool) -> Box<dyn Query<'a> + 'b> {
-        let mut env: Box<dyn Query> = if conf.stoch_simulation.contains("csameat") {
+    fn new_env<'a: 'b, 'b>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a Vec<connection::Station>, cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, contr: &'a Option<StationContraction>, conf: &SimulationConfig, now: types::Mtime, mean_only: bool, initial: bool) -> Box<dyn Queriable<'a> + 'b> {
+        let mut env: Box<dyn Queriable> = if conf.stoch_simulation.contains("csameat") {
             Box::new(csameat::Environment::new(
                 store,
                 connections,
@@ -880,6 +892,7 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
     for i in 0..baseline.len() {
         analyze_result(&mut a, baseline[i], target[i], &meta[i]);
     }
+    println!("repeated: {} first: {}", a.target_algo_elapsed.len(), a.target_first_algo_elapsed.len());
     println!("infeasible: both: {} both original: {} baseline: {} target: {} broken: baseline: {} target: {} feasible: both: {} total: {}", a.baseline_and_target_infeasible, a.baseline_and_target_infeasible_original, a.baseline_infeasible, a.target_infeasible, a.baseline_broken, a.target_broken, a.delta_baseline_target_actual_travel_time.len(), baseline.len());
     let samples = baseline.len();
     //let samples_target = a.target_actual_travel_time.len();
@@ -937,9 +950,11 @@ fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, targe
         }
     }
     if baseline.actual_dest_arrival.is_some() && target.actual_dest_arrival.is_some() {
-        /*print_distribution(target, meta);
+        /*if meta.pair.0 == 24491 && meta.pair.1 == 34985 {
+            print_distribution(target, meta);
+        }
         if a.delta_baseline_target_predicted.len() > 3 {
-            panic!("");
+            //panic!("");
         }*/
         /*if (target.actual_dest_arrival.unwrap() as types::MFloat-baseline.actual_dest_arrival.unwrap() as types::MFloat).abs() > 300.0 {
             println!("{:?} {:?} {:?} {:?} {:?}", meta.pair, meta.from_station_name, meta.to_station_name, target, baseline.actual_dest_arrival);
@@ -1027,7 +1042,7 @@ fn print_percentogram(percentiles: &[i32; 100], samples: usize, name: &str) {
 fn print_distribution(result: &SimulationResult, meta: &SimulationJourney) {
     let d = result.connections_taken.first().unwrap().destination_arrival.borrow();
     let distr = d.as_ref().unwrap();
-    println!("pair {:?} mean {} actual {}", meta.pair, distr.mean-get_pair_mam(meta) as types::MFloat, result.actual_dest_arrival.unwrap()-get_pair_mam(meta));
+    println!("pair {:?} mean {} actual {} det {} det actual {}", meta.pair, meta.stoch.original_dest_arrival_prediction-get_pair_mam(meta) as types::MFloat, result.actual_dest_arrival.unwrap()-get_pair_mam(meta), meta.det.original_dest_arrival_prediction as i32-get_pair_mam(meta), meta.det.actual_dest_arrival.unwrap()-get_pair_mam(meta));
     println!("{:?}", distr.histogram.iter().enumerate().map(|v| (v.0 as types::Mtime+distr.start-get_pair_mam(meta), *v.1*100.0)).collect::<Vec<(types::Mtime, types::MFloat)>>());
 }
 

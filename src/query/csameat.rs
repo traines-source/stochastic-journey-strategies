@@ -9,8 +9,9 @@ use crate::distribution_store;
 use crate::connection;
 use crate::gtfs::StationContraction;
 use crate::types;
-use super::Query;
+use super::Queriable;
 use super::ConnectionLabel;
+use super::Query;
 
 #[derive(Debug)]
 pub struct Environment<'a> {
@@ -48,7 +49,7 @@ impl PartialOrd for ConnectionLabel {
 }
 
 
-impl<'a> Query<'a> for Environment<'a> {
+impl<'a> Queriable<'a> for Environment<'a> {
 
     fn set_station_contraction(&mut self, contr: &'a StationContraction) {
         self.contraction = Some(contr);
@@ -58,23 +59,23 @@ impl<'a> Query<'a> for Environment<'a> {
         self.do_preprocess();
     }
 
-    fn query(&mut self, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime) -> Vec<Vec<ConnectionLabel>> {
+    fn query(&mut self, q: Query) -> Vec<Vec<ConnectionLabel>> {
         let start_ts = Instant::now();
-        let station_labels = self.full_query(origin, destination, start_time, max_time);
-        let decision_graph = self.get_decision_graph(origin, destination, start_time, &station_labels);
+        let station_labels = self.full_query(q.origin_idx, q.destination_idx, q.start_time, q.max_time);
+        let decision_graph = self.get_decision_graph(q.origin_idx, q.destination_idx, q.start_time, &station_labels);
         println!("csameat elapsed: {}", start_ts.elapsed().as_millis());
         decision_graph
     }
 
-    fn pair_query(&mut self, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>> {  
-        self.query(origin, destination, start_time, max_time)
+    fn pair_query(&mut self, q: Query, connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>> {  
+        self.query(q)
     }
 
-    fn relevant_stations(&mut self, _origin_idx: usize, _destination_idx: usize, _station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, types::MFloat> {
+    fn relevant_stations(&mut self, _q: Query, _station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, types::MFloat> {
         HashMap::new()
     }
 
-    fn relevant_connection_pairs(&mut self, _weights_by_station_idx: &HashMap<usize, types::MFloat>, _max_stop_count: usize, _start_time: types::Mtime, _max_time: types::Mtime) -> HashMap<i32, i32> {
+    fn relevant_connection_pairs(&mut self, _q: Query, _weights_by_station_idx: &HashMap<usize, types::MFloat>, _max_stop_count: usize) -> HashMap<i32, i32> {
         std::mem::replace(&mut self.connection_pairs, HashMap::new())   
     }
 

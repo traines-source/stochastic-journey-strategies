@@ -9,10 +9,10 @@ use rmps::Serializer;
 use std::io::Write;
 use std::fs;
 use stost::distribution_store;
-use stost::query::topocsa;
+use stost::query::{topocsa, Query};
 use stost::gtfs;
 use std::time::Instant;
-use stost::query::Query;
+use stost::query::Queriable;
 
 const CACHE_PATH: &str = "./tests/fixtures/timetable.ign.cache";
 const GTFS_PATH: &str = "../gtfs/swiss-gtfs/2023-11-06/";
@@ -74,13 +74,26 @@ fn create_gtfs_cache() {
 #[test]
 #[ignore]
 fn create_simulation_samples() {
-    let samples = gtfs::create_simulation_samples(GTFS_PATH, day(2023, 11, 2), day(2023, 11, 9));
+    let samples = gtfs::create_simulation_samples(GTFS_PATH, day(2023, 11, 2), day(2023, 11, 9), None);
     let buf = serde_json::to_vec(&samples).unwrap();
     let mut file = fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .open("./benches/samples/samples.ign.json").expect("file not openable");
+    file.write_all(&buf).expect("error writing file");
+}
+
+#[test]
+#[ignore]
+fn create_bw_simulation_samples() {
+    let samples = gtfs::create_simulation_samples("../gtfs/german-gtfs/2023-10-30/", day(2023, 11, 2), day(2023, 11, 3), Some((47.525, 7.493, 49.774, 10.514)));
+    let buf = serde_json::to_vec(&samples).unwrap();
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open("./simulation/samples/bw.json").expect("file not openable");
     file.write_all(&buf).expect("error writing file");
 }
 
@@ -93,14 +106,19 @@ fn gtfs() {
     let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
     let mut env = topocsa::Environment::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 8100, 0.01, 0.01, true, false);
     //dbg!(&tt.stations[9032], &tt.stations[34734]);
-    let o = 10000;
-    let d = 20000;
+    let q = Query {
+        origin_idx: 10000,
+        destination_idx: 20000,
+        start_time: 8100,
+        max_time: 8820
+    };
+    
     println!("querying...");
-    let station_labels = env.query(o, d, 8100, 8820);
-    let origin_deps = &station_labels[o];
+    let station_labels = env.query(q);
+    let origin_deps = &station_labels[q.origin_idx];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
-    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[q.origin_idx].name, tt.stations[q.destination_idx].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
 }
 
 #[test]
@@ -114,16 +132,20 @@ fn gtfs_with_contr() {
     let mut env = topocsa::Environment::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 0, 0.01, 0.001, true, false);
     let contr = gtfs::get_station_contraction(&tt.stations);
     env.set_station_contraction(&contr);
-    let o = 10000;
-    let d = 20000;
+    let q = Query {
+        origin_idx: 10000,
+        destination_idx: 20000,
+        start_time: 7200,
+        max_time: 8640
+    };
     println!("querying...");
-    let station_labels = env.query(o, d, 7200, 8640);
-    let origin_deps = &station_labels[contr.stop_to_group[o]];
+    let station_labels = env.query(q);
+    let origin_deps = &station_labels[contr.stop_to_group[q.origin_idx]];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
     //println!("{:?}", contr);
 
-    println!("{:?} {:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, best_conn.destination_arrival.mean(), &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
+    println!("{:?} {:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[q.origin_idx].name, tt.stations[q.destination_idx].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, best_conn.destination_arrival.mean(), &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
 }
 
 #[test]
@@ -153,27 +175,29 @@ fn gtfs_with_relevant_stations() {
         }
     );
 
-    let o = 24868;
-    let d = 33777;
+    let q = Query {
+        origin_idx: 24868,
+        destination_idx: 33777,
+        start_time: 7200,
+        max_time: 8640
+    };
     println!("querying rel...");
-    let start_time = 7200;
-    let max_time = 8640;
-    let sl = env.query(o, d, start_time, max_time);
+    let sl = env.query(q);
 
     let start_ts = Instant::now();
-    let relevant_stations = env.relevant_stations(o, d, &sl);
+    let relevant_stations = env.relevant_stations(q, &sl);
     println!("elapsed relevant stations: {}", start_ts.elapsed().as_millis());
-    let connection_pairs = env.relevant_connection_pairs(&relevant_stations, 1000, start_time, max_time);
+    let connection_pairs = env.relevant_connection_pairs(q, &relevant_stations, 1000);
     println!("elapsed incl relevant connections: {} len: {}", start_ts.elapsed().as_millis(), connection_pairs.len());
     env.preprocess();
-    let station_labels = env.pair_query(o, d, start_time, max_time, &connection_pairs);
-    let origin_deps = &station_labels[contr.stop_to_group[o]];
+    let station_labels = env.pair_query(q, &connection_pairs);
+    let origin_deps = &station_labels[contr.stop_to_group[q.origin_idx]];
     let best_conn = origin_deps.last().unwrap();
     println!("mean: {}, {}", best_conn.destination_arrival.mean, best_conn.destination_arrival.mean());
     let second_best_conn = &origin_deps[origin_deps.len()/3];
     //println!("{:?}", contr);
 
-    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[q.origin_idx].name, tt.stations[q.destination_idx].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
 }
 
 #[test]
@@ -199,14 +223,19 @@ fn gtfs_with_rt() {
     );
     let contr = gtfs::get_station_contraction(&tt.stations);
     env.set_station_contraction(&contr);
-    let o = 10100;
-    let d = 20100;
+    
+    let q = Query {
+        origin_idx: 10100,
+        destination_idx: 20100,
+        start_time: 7200,
+        max_time: 8220
+    };
     println!("querying...");
-    let station_labels = env.query(o, d, 7500, 8220);
-    let origin_deps = &station_labels[o];
+    let station_labels = env.query(q);
+    let origin_deps = &station_labels[q.origin_idx];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
-    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[q.origin_idx].name, tt.stations[q.destination_idx].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
 }
 
 #[test]
@@ -237,14 +266,18 @@ fn load_only_gtfs_with_rt() {
     let contr = gtfs::get_station_contraction(&tt.stations);
     env.set_station_contraction(&contr);
 
-    let o = 10000;
-    let d = 20000;
+    let q = Query {
+        origin_idx: 10000,
+        destination_idx: 20000,
+        start_time: 7800,
+        max_time: 8220
+    };
     println!("querying...");
-    let station_labels = env.query(o, d, 7800, 8220);
-    let origin_deps = &station_labels[o];
+    let station_labels = env.query(q);
+    let origin_deps = &station_labels[q.origin_idx];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
-    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[q.origin_idx].name, tt.stations[q.destination_idx].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
 
     for i in 0..tt.connections.len() {
         assert_eq!(tt.connections[tt.order[i]].id, i); 
@@ -271,16 +304,20 @@ fn gtfs_small() {
         }
     );
 
-    let o = 11;
-    let d = 69;
-    println!("{:?} {:?} {:?} {:?}", stations[o].id, stations[o].name, stations[d].id, stations[d].name);
-    assert_eq!(stations[d].footpaths.len(), 3);
-
-    let station_labels = env.query(o, d, 7200, 8640);
-    let origin_deps = &station_labels[o];
+    let q = Query {
+        origin_idx: 11,
+        destination_idx: 69,
+        start_time: 7200,
+        max_time: 8640
+    };
+    println!("{:?} {:?} {:?} {:?}", stations[q.origin_idx].id, stations[q.origin_idx].name, stations[q.destination_idx].id, stations[q.destination_idx].name);
+    assert_eq!(stations[q.destination_idx].footpaths.len(), 3);
+    
+    let station_labels = env.query(q);
+    let origin_deps = &station_labels[q.origin_idx];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
-    println!("{:?} {:?} {:?} {:?} {:?}{:?}", stations[o].name, stations[d].name, &connections[order[best_conn.connection_id]].departure, best_conn.destination_arrival, &connections[order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", stations[q.origin_idx].name, stations[q.destination_idx].name, &connections[order[best_conn.connection_id]].departure, best_conn.destination_arrival, &connections[order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
     
 }
 
@@ -303,17 +340,21 @@ fn gtfs_repeated() {
         let mut env = topocsa::Environment::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 0, 0.01, 0.01, true, true);
         let contr = gtfs::get_station_contraction(&tt.stations);
         env.set_station_contraction(&contr);
-        let o = 10000;
-        let d = 20000;
+        let q = Query {
+            origin_idx: 10000,
+            destination_idx: 20000,
+            start_time: 7200,
+            max_time: (7200+i*1440) as i32
+        };    
         let start_ts = Instant::now();
         env.preprocess();
         let prepr = start_ts.elapsed().as_millis();
         let mem = memory_stats::memory_stats().unwrap().physical_mem;
         let start_ts = Instant::now();
-        let station_labels = env.query(o, d, 7200, (7200+i*1440) as i32);
+        let station_labels = env.query(q);
         let query = start_ts.elapsed().as_millis();
         stats.push((i, prepr, query, mem));
-        let origin_deps = &station_labels[contr.stop_to_group[o]];
+        let origin_deps = &station_labels[contr.stop_to_group[q.origin_idx]];
         let best_conn = origin_deps.last().unwrap();
         println!("STATS: {:?} {:?}", best_conn.destination_arrival.mean(), stats);
     }

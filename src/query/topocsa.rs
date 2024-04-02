@@ -16,6 +16,7 @@ use crate::gtfs::StationContraction;
 use crate::types;
 use crate::query::ConnectionLabel;
 
+use super::Queriable;
 use super::Query;
 
 #[derive(Debug)]
@@ -62,7 +63,7 @@ struct CsaInstrumentation {
     infeas_iter: usize,
 }
 
-impl<'a> Query<'a> for Environment<'a> {
+impl<'a> Queriable<'a> for Environment<'a> {
 
     fn set_station_contraction(&mut self, contr: &'a StationContraction) {
         self.contraction = Some(contr);
@@ -72,24 +73,24 @@ impl<'a> Query<'a> for Environment<'a> {
         self.do_preprocess();
     }
 
-    fn query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime) -> Vec<Vec<ConnectionLabel>> {
+    fn query(&mut self, query: Query) -> Vec<Vec<ConnectionLabel>> {
         let pairs = HashMap::new();
         let start_ts = Instant::now();
-        let r = self.pair_query(_origin, destination, start_time, max_time, &pairs);
+        let r = self.pair_query(query, &pairs);
         println!("elapsed: {}", start_ts.elapsed().as_millis());
         r
     }
 
-    fn pair_query(&mut self, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>> {  
-        self.full_query(origin, destination, start_time, max_time, connection_pairs)
+    fn pair_query(&mut self, query: Query, connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>> {  
+        self.full_query(query, connection_pairs)
     }
 
-    fn relevant_stations(&mut self, origin_idx: usize, destination_idx: usize, station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, types::MFloat> {
-        self.get_relevant_stations(origin_idx, destination_idx, station_labels)
+    fn relevant_stations(&mut self, query: Query, station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, types::MFloat> {
+        self.get_relevant_stations(query.origin_idx, query.destination_idx, station_labels)
     }
 
-    fn relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>, max_stop_count: usize, start_time: types::Mtime, max_time: types::Mtime) -> HashMap<i32, i32> {
-        self.get_relevant_connection_pairs(weights_by_station_idx, max_stop_count, start_time, max_time)
+    fn relevant_connection_pairs(&mut self, query: Query, weights_by_station_idx: &HashMap<usize, types::MFloat>, max_stop_count: usize) -> HashMap<i32, i32> {
+        self.get_relevant_connection_pairs(weights_by_station_idx, max_stop_count, query.start_time, query.max_time)
     }
 
     fn update(&mut self, connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>) {
@@ -304,7 +305,7 @@ impl<'a> Environment<'a> {
         println!("connections: {} topoidx: {} cut: {}", self.connections.len(), topo_idx, self.cut.len());
     }
 
-    fn full_query(&mut self, _origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>> {
+    fn full_query(&mut self, q: Query, connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>> {
         let mut connection_pair_ids = vec![-1; if connection_pairs.len() > 0 { self.connections.len() } else { 0 }];
         for pair in connection_pairs.iter() {
             connection_pair_ids[self.order[*pair.0 as usize]] = *pair.1;
@@ -324,7 +325,7 @@ impl<'a> Environment<'a> {
             }
             let c = &self.connections[i];
 
-            if c.departure.projected()+max_delay < start_time || c.departure.projected() >= max_time {
+            if c.departure.projected()+max_delay < q.start_time || c.departure.projected() >= q.max_time {
                 continue;
             }
             instr.looked_at += 1;
@@ -333,16 +334,9 @@ impl<'a> Environment<'a> {
                 None => c.to_idx
             };
             let dest_contr = match self.contraction {
-                Some(contr) => contr.stop_to_group[destination],
-                None => destination
+                Some(contr) => contr.stop_to_group[q.destination_idx],
+                None => q.destination_idx
             };
-            /*let orig_contr = match self.contraction {
-                Some(contr) => contr.stop_to_group[origin],
-                None => destination
-            };
-            if stop_idx == orig_contr && c.arrival.projected()+max_delay < start_time {
-                break;
-            }*/
             let new_distribution = if stop_idx == dest_contr {
                 if !c.arrival.in_out_allowed {
                     if !self.mean_only {
@@ -351,9 +345,9 @@ impl<'a> Environment<'a> {
                     continue;
                 }
                 let mut new_distribution = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now);
-                if c.to_idx != destination { // TODO calc complete new_distribution?
+                if c.to_idx != q.destination_idx { // TODO calc complete new_distribution?
                     let contr = self.contraction.unwrap();
-                    new_distribution = new_distribution.shift(contr.get_transfer_time(c.to_idx, destination) as i32);
+                    new_distribution = new_distribution.shift(contr.get_transfer_time(c.to_idx, q.destination_idx) as i32);
                 }
                 new_distribution
             } else {
@@ -363,7 +357,7 @@ impl<'a> Environment<'a> {
                     let footpaths = &self.stations[stop_idx].footpaths;
                     for f in footpaths {
                         let mut footpath_dest_arr = distribution::Distribution::empty(0);
-                        if f.target_location_idx == destination {
+                        if f.target_location_idx == q.destination_idx {
                             if !c.arrival.in_out_allowed {
                                 if !self.mean_only {
                                     c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
@@ -732,10 +726,12 @@ pub fn prepare<'a>(store: &'a mut distribution_store::Store, connections: &'a mu
     e
 }
 
-pub fn prepare_and_query<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, origin: usize, destination: usize, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: types::MFloat, mean_only: bool) {
+pub fn prepare_and_query<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, origin_idx: usize, destination_idx: usize, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: types::MFloat, mean_only: bool) {
     let mut order = Vec::with_capacity(connections.len());
     let mut e = prepare(store, connections, stations, cut, &mut order, now, epsilon, mean_only);
-    e.query(origin, destination, start_time, max_time);
+    e.query(Query {
+        origin_idx, destination_idx, start_time, max_time
+    });
     println!("Done.");
 }
 

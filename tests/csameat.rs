@@ -5,8 +5,9 @@ use std::collections::HashMap;
 use rustc_hash::FxHashSet;
 use stost::distribution_store;
 use stost::query::csameat;
-use stost::query::Query;
+use stost::query::Queriable;
 use stost::gtfs;
+use stost::query::Query;
 
 const CACHE_PATH: &str = "./tests/fixtures/timetable.ign.cache";
 const GTFS_PATH: &str = "../gtfs/swiss-gtfs/2023-11-06/";
@@ -28,22 +29,26 @@ fn gtfs_with_contr() {
     let mut env = csameat::Environment::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 0);
     let contr = gtfs::get_station_contraction(&tt.stations);
     env.set_station_contraction(&contr);
-    let o = 10000;
-    let d = 20000;
+    let q = Query {
+        origin_idx: 10000,
+        destination_idx: 20000,
+        start_time: 7200,
+        max_time: 8640
+    };
     env.preprocess();
     println!("querying...");
-    let station_labels = env.full_query(o, d, 7200, 8640);
-    let decision_graph = env.get_decision_graph(o, d, 7200, &station_labels);
+    let station_labels = env.full_query(q.origin_idx, q.destination_idx, 7200, 8640);
+    let decision_graph = env.get_decision_graph(q.origin_idx, q.destination_idx, 7200, &station_labels);
     let dummy = HashMap::new();
-    let connection_pairs = env.relevant_connection_pairs(&dummy, 0, 7200, 8640);
-    let origin_deps = &station_labels[contr.stop_to_group[o]];
+    let connection_pairs = env.relevant_connection_pairs(q, &dummy, 0);
+    let origin_deps = &station_labels[contr.stop_to_group[q.origin_idx]];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
     //println!("{:?}", contr);
 
-    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[o].name, tt.stations[d].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[best_conn.connection_id]].departure, second_best_conn.destination_arrival);
+    println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[q.origin_idx].name, tt.stations[q.destination_idx].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[best_conn.connection_id]].departure, second_best_conn.destination_arrival);
 
-    let origin_deps = &decision_graph[contr.stop_to_group[o]];
+    let origin_deps = &decision_graph[contr.stop_to_group[q.origin_idx]];
     let best_conn = origin_deps.last().unwrap();
     let cpreverse: HashMap<usize, usize> = connection_pairs.iter().map(|(arr,dep)| (*dep as usize, *arr as usize)).collect();
     let arr_conn = &tt.connections[tt.order[cpreverse[&tt.connections[tt.order[best_conn.connection_id]].id]]];
@@ -79,23 +84,27 @@ fn gtfs_with_rt() {
     );
     let contr = gtfs::get_station_contraction(&tt.stations);
     env.set_station_contraction(&contr);
-    let o = 38895;
-    let d = 34984;
-    println!("{:?} {:?}", tt.stations[o].name, tt.stations[d].name);
+    let q = Query {
+        origin_idx: 38895,
+        destination_idx: 34984,
+        start_time: 7500,
+        max_time: 8220
+    };
+    println!("{:?} {:?}", tt.stations[q.origin_idx].name, tt.stations[q.destination_idx].name);
     env.preprocess();
     println!("querying...");
-    let station_labels = env.full_query(o, d, 7500, 8220);
-    let decision_graph = env.get_decision_graph(o, d, 7500, &station_labels);
+    let station_labels = env.full_query(q.origin_idx, q.destination_idx, 7500, 8220);
+    let decision_graph = env.get_decision_graph(q.origin_idx, q.destination_idx, 7500, &station_labels);
     let dummy = HashMap::new();
-    let connection_pairs_reverse = env.relevant_connection_pairs(&dummy, 0, 7200, 8220);
-    let origin_deps = &station_labels[contr.stop_to_group[o]];
+    let connection_pairs_reverse = env.relevant_connection_pairs(q, &dummy, 0);
+    let origin_deps = &station_labels[contr.stop_to_group[q.origin_idx]];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
     //println!("{:?}", contr);
 
     println!("{:?} {:?} {:?}{:?}", &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[best_conn.connection_id]].departure, second_best_conn.destination_arrival);
 
-    let origin_deps = &decision_graph[contr.stop_to_group[o]];
+    let origin_deps = &decision_graph[contr.stop_to_group[q.origin_idx]];
     let best_conn = origin_deps.last().unwrap();
     let cpreverse: HashMap<usize, usize> = connection_pairs_reverse.iter().map(|(arr,dep)| (*arr as usize, *dep as usize)).collect();
     let arr_conn = &tt.connections[tt.order[cpreverse[&best_conn.connection_id]]];

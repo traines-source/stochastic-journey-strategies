@@ -5,6 +5,7 @@ use stost::connection;
 use stost::connection::StopInfo;
 use stost::distribution_store;
 use stost::gtfs;
+use stost::query::Queriable;
 use stost::query::Query;
 use stost::wire::serde;
 use stost::query::topocsa;
@@ -25,9 +26,16 @@ fn from_relevant(c: &mut Criterion) {
     let meta = serde::deserialize_protobuf(bytes, &mut stations, &mut routes, &mut connections, false);
     let mut env = topocsa::prepare(&mut store, &mut connections, &stations, &mut cut, &mut order, serde::to_mtime(meta.now, meta.start_ts), 0.0, true);
 
+    let q = Query {
+        origin_idx: meta.origin_idx,
+        destination_idx: meta.destination_idx,
+        start_time: 7200,
+        max_time: 7200+1440
+    };
+
     let mut group = c.benchmark_group("once");
     //measurement_time(Duration::from_secs(10))
-    group.bench_function("from_relevant", |b| b.iter(|| env.query(black_box(meta.origin_idx), black_box(meta.destination_idx), black_box(7200), black_box(8640))));
+    group.bench_function("from_relevant", |b| b.iter(|| env.query(black_box(q))));
     group.finish();
 }
 
@@ -61,10 +69,16 @@ fn from_gtfs(c: &mut Criterion) {
     env.set_station_contraction(&contr);
     let o = 10000;
     let d = 20000;
+    let q = Query {
+        origin_idx: 10000,
+        destination_idx: 20000,
+        start_time: 7500,
+        max_time: 7500+720
+    };
     println!("querying...");
     let mut group = c.benchmark_group("once");
     group.sample_size(10);
-    group.bench_function("from_gtfs", |b| b.iter(|| env.query(black_box(o), black_box(d), black_box(7500), black_box(8220))));
+    group.bench_function("from_gtfs", |b| b.iter(|| env.query(black_box(q))));
     group.finish();
 }
 
