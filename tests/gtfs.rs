@@ -8,7 +8,7 @@ use serde::Serialize;
 use rmps::Serializer;
 use std::io::Write;
 use std::fs;
-use stost::distribution_store;
+use stost::{distribution_store, walking};
 use stost::query::{topocsa, Query};
 use stost::gtfs;
 use std::time::Instant;
@@ -129,18 +129,45 @@ fn gtfs_with_contr() {
 
     let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
     //gtfs::shorten_footpaths(&mut tt.stations);
-    let mut env = topocsa::Environment::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 0, 0.01, 0.001, true, false);
+    let mut env = topocsa::Environment::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 0, 0.0, 0.0, true, false);
     let contr = gtfs::get_station_contraction(&tt.stations);
     env.set_station_contraction(&contr);
     let q = Query {
-        origin_idx: 10000,
-        destination_idx: 20000,
-        start_time: 7200,
-        max_time: 8640
+        origin_idx: 27224,
+        destination_idx: 2645,
+        start_time: 7800,
+        max_time: 7800+720
     };
     println!("querying...");
     let station_labels = env.query(q);
     let origin_deps = &station_labels[contr.stop_to_group[q.origin_idx]];
+    let best_conn = origin_deps.iter().rev().filter(|l| tt.connections[tt.order[l.connection_id]].departure.projected() > 7800).take(1).last().unwrap();
+    let second_best_conn = &origin_deps[origin_deps.len()/3];
+    //println!("{:?}", contr);
+
+    println!("{:?} {:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[q.origin_idx].name, tt.stations[q.destination_idx].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, best_conn.destination_arrival.mean(), &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
+}
+
+
+#[test]
+#[ignore]
+fn gtfs_with_extended_walking() {
+    let mut store = distribution_store::Store::new();
+    store.load_distributions("./data/ch_sbb.csv");
+
+    let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
+
+    let contr = gtfs::get_station_contraction(&tt.stations);
+    let q = Query {
+        origin_idx: 40209,
+        destination_idx: 39166,
+        start_time: 7800,
+        max_time: 7800+720
+    };
+    let rtree = walking::init_rtree(&tt.stations);
+    println!("querying...");
+    let (mut walking_tt, walking_origin_idx, walking_destination_idx, station_labels) = walking::query_with_extended_walking(&mut store, &mut tt, q, 7200, &contr, &rtree);
+    let origin_deps = &station_labels[contr.stop_to_group[walking_origin_idx]];
     let best_conn = origin_deps.last().unwrap();
     let second_best_conn = &origin_deps[origin_deps.len()/3];
     //println!("{:?}", contr);
@@ -208,14 +235,14 @@ fn gtfs_with_rt() {
 
     let mut tt = gtfs::load_gtfs_cache(CACHE_PATH);
     let t = gtfs::load_timetable(GTFS_PATH, day(2023, 11, 2), day(2023, 11, 3));
-    let mut env = topocsa::Environment::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 7500, 0.01, 0.01, true, false);
+    let mut env = topocsa::Environment::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 7850, 0.01, 0.0, true, false);
     let path = format!("{}2023-11-02T07:00:03+01:00.gtfsrt", GTFSRT_PATH);
     gtfs::load_realtime(&path, &t, &tt.transport_and_day_to_connection_id,
         |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
             env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
         }
     );
-    let path = format!("{}2023-11-02T10:00:03+01:00.gtfsrt", GTFSRT_PATH);
+    let path = format!("{}2023-11-02T11:50:03+01:00.gtfsrt", GTFSRT_PATH);
     gtfs::load_realtime(&path, &t, &tt.transport_and_day_to_connection_id,
         |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
             env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)
@@ -225,16 +252,17 @@ fn gtfs_with_rt() {
     env.set_station_contraction(&contr);
     
     let q = Query {
-        origin_idx: 10100,
-        destination_idx: 20100,
-        start_time: 7200,
-        max_time: 8220
+        origin_idx: 27224,
+        destination_idx: 2645,
+        start_time: 7800,
+        max_time: 7800+720
     };
     println!("querying...");
     let station_labels = env.query(q);
-    let origin_deps = &station_labels[q.origin_idx];
-    let best_conn = origin_deps.last().unwrap();
-    let second_best_conn = &origin_deps[origin_deps.len()/3];
+    let origin_deps = &station_labels[contr.stop_to_group[25835]];
+    let conns: Vec<&stost::query::ConnectionLabel> = origin_deps.iter().rev().filter(|l| tt.connections[tt.order[l.connection_id]].departure.projected() > 7848).take(2).collect();
+    let best_conn = conns[0];
+    let second_best_conn = conns[1];
     println!("{:?} {:?} {:?} {:?} {:?}{:?}", tt.stations[q.origin_idx].name, tt.stations[q.destination_idx].name, &tt.connections[tt.order[best_conn.connection_id]].departure, best_conn.destination_arrival, &tt.connections[tt.order[second_best_conn.connection_id]].departure, second_best_conn.destination_arrival);
 }
 

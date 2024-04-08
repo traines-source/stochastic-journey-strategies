@@ -1,7 +1,5 @@
 use crate::{
-    connection::{Connection, Station},
-    gtfs::{sort_station_departures_asc, GtfsTimetable},
-    types,
+    connection::{Connection, Station}, distribution_store, gtfs::{sort_station_departures_asc, GtfsTimetable, StationContraction}, query::{topocsa, ConnectionLabel, Queriable, Query}, types
 };
 use motis_nigiri::Footpath;
 use rstar::RTree;
@@ -119,7 +117,7 @@ pub fn relevant_stations_with_extended_walking(
             rtree
                 .nearest_neighbor_iter_with_distance_2(&[stations[*s.0].lon, stations[*s.0].lat])
                 .take_while(|(_p, dist)| *dist < MAX_WALKING_METRES.powi(2))
-                .take(50)
+                .take(10)
                 .map(|(p, _dist)| (p.station_idx, *s.1)),
         );
     }
@@ -234,4 +232,75 @@ fn create_walking_connection(
         message: WALKING_MSG.to_string(),
         destination_arrival: RefCell::new(None),
     }
+}
+
+pub fn query_with_extended_walking(store: &mut distribution_store::Store, tt: &mut GtfsTimetable, query: Query, now: types::Mtime, contraction: &StationContraction, rtree: &RTree<StationLocation>) -> (GtfsTimetable, usize, usize, Vec<Vec<ConnectionLabel>>) {
+    let mut env = topocsa::Environment::new(
+        store,
+        &mut tt.connections,
+        &tt.stations,
+        &mut tt.cut,
+        &mut tt.order,
+        now,
+        0.01,
+        0.001,
+        true,
+        true,
+    );
+    env.set_station_contraction(contraction);
+    println!("preprocessing...");
+    env.preprocess();
+    println!("start_time: {} now: {}", query.start_time, now);
+    println!("querying...");
+    let station_labels = env.query(query);
+    let mut weights_by_station_idx =
+        env.relevant_stations(query, &station_labels);
+    if weights_by_station_idx.is_empty() {
+        return (GtfsTimetable::new(), 0, 0, vec![])
+    }
+    println!("unextended: {}", weights_by_station_idx.len());
+    relevant_stations_with_extended_walking(
+        &mut weights_by_station_idx,
+        &tt.stations,
+        rtree,
+    );
+    println!("extended: {}", weights_by_station_idx.len());
+    let connection_pairs = env.relevant_connection_pairs(query, &weights_by_station_idx, 10000);
+    println!("creating relevant tt...");
+    let walking_timetable = create_relevant_timetable_with_extended_walking(
+        &mut tt.connections,
+        &tt.stations,
+        &tt.order,
+        connection_pairs,
+        &weights_by_station_idx,
+        query.origin_idx,
+        query.destination_idx
+    );
+    let mut walking_tt = walking_timetable.0;
+    println!("conns incl. walking: {} relstops: {} greatest footpath set: {}", walking_tt.connections.len(), walking_tt.stations.len(), walking_tt.stations.iter().map(|s|s.footpaths.len()).max().unwrap());
+    let mut rel_env = topocsa::Environment::new(
+        store,
+        &mut walking_tt.connections,
+        &walking_tt.stations,
+        &mut walking_tt.cut,
+        &mut walking_tt.order,
+        now,
+        0.01,
+        0.001,
+        true,
+        false,
+    );
+    rel_env.preprocess();
+    println!("querying walking tt...");
+    let walking_query = Query {
+        origin_idx: walking_timetable.1,
+        destination_idx: walking_timetable.2,
+        start_time: query.start_time,
+        max_time: query.max_time
+    };
+    let walking_station_labels = rel_env.query(walking_query);
+    println!("{:?}", station_labels[contraction.stop_to_group[query.origin_idx]].last());
+    println!("{:?}", walking_station_labels[walking_timetable.1].last());
+    
+    (walking_tt, walking_timetable.1, walking_timetable.2, walking_station_labels)
 }
