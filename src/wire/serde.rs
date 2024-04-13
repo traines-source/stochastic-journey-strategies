@@ -194,7 +194,7 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
             }) }
         });
     }
-    for (key, mut connections) in trips.into_iter() {
+    for (key, connections) in trips.into_iter() {
         //connections.sort_by(|a, b| a.departure.as_ref().unwrap().scheduled.cmp(&b.departure.as_ref().unwrap().scheduled)); // maybe unnecessary
         wire_routes.get_mut(key.1).unwrap().trips.push(wire::Trip{
             connections: connections

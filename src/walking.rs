@@ -252,7 +252,7 @@ fn create_walking_connection(
     }
 }
 
-pub fn query_with_extended_walking(store: &mut distribution_store::Store, tt: &mut GtfsTimetable, query: Query, now: types::Mtime, contraction: &StationContraction, rtree: &RTree<StationLocation>) -> (GtfsTimetable, usize, usize, Vec<Vec<ConnectionLabel>>) {
+pub fn query_with_extended_walking(store: &mut distribution_store::Store, tt: &mut GtfsTimetable, query: Query, now: types::Mtime, contraction: &StationContraction, _rtree: &RTree<StationLocation>) -> (GtfsTimetable, usize, usize, Vec<Vec<ConnectionLabel>>) {
     let mut env = topocsa::Environment::new(
         store,
         &mut tt.connections,
@@ -271,7 +271,7 @@ pub fn query_with_extended_walking(store: &mut distribution_store::Store, tt: &m
     println!("start_time: {} now: {}", query.start_time, now);
     println!("querying...");
     let station_labels = env.query(query);
-    let mut weights_by_station_idx =
+    let weights_by_station_idx =
         env.get_relevant_stations(query.origin_idx, query.destination_idx, &station_labels, false);
     if weights_by_station_idx.is_empty() {
         return (GtfsTimetable::new(), 0, 0, vec![])

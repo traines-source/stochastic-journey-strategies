@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate rmp_serde as rmps;
-
 use std::collections::HashMap;
 use rustc_hash::FxHashSet;
 use stost::distribution_store;

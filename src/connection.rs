@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use motis_nigiri::Footpath;
 use serde::{Serialize, Deserialize};
 
 use crate::distribution;

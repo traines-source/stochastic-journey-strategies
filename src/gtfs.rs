@@ -1,11 +1,7 @@
-use std::{collections::HashMap, cell::RefCell};
-
+use std::collections::HashMap;
 use chrono;
-
 use motis_nigiri::Timetable;
-
 use crate::connection::{self, Route};
-
 use rustc_hash::FxHashSet;
 use serde::{Serialize, Deserialize};
 use rand::Rng;

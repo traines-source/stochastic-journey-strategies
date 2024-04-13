@@ -3,7 +3,6 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::time::Instant;
 use rustc_hash::FxHashSet;
-
 use crate::distribution;
 use crate::distribution_store;
 use crate::connection;
@@ -67,7 +66,7 @@ impl<'a> Queriable<'a> for Environment<'a> {
         decision_graph
     }
 
-    fn pair_query(&mut self, q: Query, connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>> {  
+    fn pair_query(&mut self, q: Query, _connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>> {  
         self.query(q)
     }
 

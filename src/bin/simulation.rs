@@ -1035,7 +1035,7 @@ fn print_distribution(result: &SimulationResult, meta: &SimulationJourney) {
     println!("{:?}", distr.histogram.iter().enumerate().map(|v| (v.0 as types::Mtime+distr.start-get_pair_mam(meta), *v.1*100.0)).collect::<Vec<(types::Mtime, types::MFloat)>>());
 }
 
-fn histogram(mut arr: ArrayBase<OwnedRepr<types::MFloat>, Dim<[usize; 1]>>) -> Vec<(i32, types::MFloat)> {
+fn histogram(arr: ArrayBase<OwnedRepr<types::MFloat>, Dim<[usize; 1]>>) -> Vec<(i32, types::MFloat)> {
     let min = arr.min().unwrap().floor() as i32;
     let max = arr.max().unwrap().ceil() as i32+2;
     

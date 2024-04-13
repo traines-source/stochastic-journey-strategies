@@ -27,6 +27,7 @@ struct ApiConfig {
     systems: HashMap<String, ApiSystem>,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct ApiSystem {
     provide_timetable: bool,

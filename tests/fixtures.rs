@@ -1,16 +1,13 @@
 #[macro_use]
 extern crate assert_float_eq;
 
-use std::collections::HashMap;
 use std::collections::HashSet;
 use rustc_hash::FxHashSet;
-
 use stost::connection;
 use stost::distribution_store;
 use stost::wire::serde;
 use stost::query::topocsa;
 use stost::query::recursive;
-use stost::wire::serde::QueryMetadata;
 
 fn compare_connections(original: &[connection::Connection], new: &[connection::Connection]) {
     let mut i = 0;

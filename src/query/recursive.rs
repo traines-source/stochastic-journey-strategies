@@ -9,12 +9,10 @@ use crate::distribution_store;
 use crate::connection;
 use crate::types;
 
-pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut Vec<connection::Connection>, stations: &[connection::Station], _origin: &'a connection::Station, destination: &'a connection::Station, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, cut: HashSet<(usize, usize)> ) {
+pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut Vec<connection::Connection>, stations: &[connection::Station], _origin: &'a connection::Station, destination: &'a connection::Station, _start_time: types::Mtime, _max_time: types::Mtime, now: types::Mtime, cut: HashSet<(usize, usize)> ) {
     let mut q = Query {
         store: store,
         destination: destination,
-        start_time: start_time,
-        max_time: max_time,
         now: now,
         trace: IndexMap::new(),
         visited: HashMap::new(),
@@ -38,8 +36,6 @@ pub fn query<'a, 'b>(store: &'b mut distribution_store::Store, connections: &mut
 struct Query<'a> {
     store: &'a mut distribution_store::Store,
     destination: &'a connection::Station,
-    start_time: types::Mtime,
-    max_time: types::Mtime,
     now: types::Mtime,
     trace: IndexMap<usize, f32>,
     visited: HashMap<usize, usize>,
