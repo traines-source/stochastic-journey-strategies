@@ -7,7 +7,7 @@ use rustc_hash::FxHashSet;
 use std::{cell::RefCell, collections::HashMap};
 
 const WALKING_METRES_PER_SECOND: f64 = 1.5;
-const MAX_WALKING_METRES: f64 = 300.0;
+const MAX_WALKING_METRES: f64 = 5000.0;
 pub const WALKING_MSG: &str = "walking";
 pub const WALKING_PRODUCT_TYPE: i16 = 100;
 
