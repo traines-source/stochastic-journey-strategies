@@ -69,7 +69,9 @@ pub fn retrieve<'a, 'b>(t: &Timetable, stations: &'a mut Vec<connection::Station
     }
     let gtfs_routes = t.get_routes();
     for r in gtfs_routes {
-        routes.push(Route::new(r.route_idx.to_string(), "".to_string(), r.clasz as i16));
+        let mut route = Route::new(r.route_idx.to_string(), "".to_string(), r.clasz as i16);
+        route.direction = r.stops.last().map(|s| stations[s.location_idx].name.clone()).unwrap_or_default(); // TODO proper directions from GTFS
+        routes.push(route);
     }
     let mut gtfs_connections = t.get_connections();
     for c in &mut gtfs_connections {

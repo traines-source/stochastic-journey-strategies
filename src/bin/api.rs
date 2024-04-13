@@ -65,7 +65,9 @@ fn get_last_glob_path(glob: &str) -> String {
         .expect("Failed to read glob pattern")
         .last()
         .expect("no eligible file");
-    file.as_ref().unwrap().to_str().unwrap().to_owned()
+    let f = file.as_ref().unwrap().to_str().unwrap().to_owned();
+    println!("Loading {}", f);
+    f
 }
 
 fn prepare_configured_systems(config: &mut ApiConfig) {
@@ -73,16 +75,18 @@ fn prepare_configured_systems(config: &mut ApiConfig) {
         let mut store = distribution_store::Store::new();
         store.load_distributions(&format!("./data/{}.csv", c.0));
         if c.1.provide_timetable {
-            let now = chrono::offset::Local::now();
+            let now = chrono::offset::Local::now().date_naive(); //chrono::NaiveDate::from_ymd_opt(2023, 11, 2).unwrap();
             let path = get_last_glob_path(&c.1.gtfs_glob);
             let t = gtfs::load_timetable(
                 &path,
-                now.date_naive(),
-                now.checked_add_days(Days::new(1)).unwrap().date_naive(),
+                now,
+                now.checked_add_days(Days::new(1)).unwrap(),
             );
+            println!("start_ts: {}", t.get_start_day_ts());
             let mut tt = gtfs::GtfsTimetable::new();
             tt.transport_and_day_to_connection_id =
                 gtfs::retrieve(&t, &mut tt.stations, &mut c.1.routes, &mut tt.connections);
+            walking::shorten_footpaths(&mut tt.stations);
             c.1.contraction = Some(gtfs::get_station_contraction(&mut tt.stations));
             c.1.station_idx = tt
                 .stations
@@ -149,6 +153,9 @@ fn query_on_timetable(system_conf: &mut ApiSystem, mut metadata: QueryMetadata) 
         system_conf.contraction.as_ref().unwrap(),
         &system_conf.rtree,
     );
+    if walking_tt.stations.is_empty() {
+        return vec![];
+    }
     let mut rel_env = topocsa::Environment::new(
         system_conf.store.as_mut().unwrap(),
         &mut walking_tt.connections,
@@ -168,8 +175,8 @@ fn query_on_timetable(system_conf: &mut ApiSystem, mut metadata: QueryMetadata) 
         max_time: full_query.max_time
     };
     let weights_by_station_idx =
-        rel_env.relevant_stations(walking_query, &walking_station_labels);
-    let relevant_connection_pairs = rel_env.relevant_connection_pairs(walking_query, &weights_by_station_idx, 100);
+        rel_env.get_relevant_stations(walking_query.origin_idx, walking_query.destination_idx, &walking_station_labels, false);
+    let relevant_connection_pairs = rel_env.relevant_connection_pairs(walking_query, &weights_by_station_idx, 10000);
     println!("rel. conns: {}", relevant_connection_pairs.len());
     let no_extended_walking = HashMap::new();
     let relevant_timetable = walking::create_relevant_timetable_with_extended_walking(

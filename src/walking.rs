@@ -7,7 +7,7 @@ use rustc_hash::FxHashSet;
 use std::{cell::RefCell, collections::HashMap};
 
 const WALKING_METRES_PER_SECOND: f64 = 1.5;
-const MAX_WALKING_METRES: f64 = 5000.0;
+const MAX_WALKING_METRES: f64 = 300.0;
 pub const WALKING_MSG: &str = "walking";
 pub const WALKING_PRODUCT_TYPE: i16 = 100;
 
@@ -173,7 +173,7 @@ pub fn create_relevant_timetable_with_extended_walking(
         new_connections.push(new);
     }
     let mut walking_connections = vec![];
-    for s1 in weights_by_station_idx.iter() {
+    /*for s1 in weights_by_station_idx.iter() {
         for s2 in weights_by_station_idx.iter() {
             if s1.0 == s2.0 {
                 continue;
@@ -190,6 +190,24 @@ pub fn create_relevant_timetable_with_extended_walking(
                         target_location_idx: to_idx,
                         duration: walking_duration(dist),
                     });
+            }
+        }
+    }*/
+    for s in weights_by_station_idx.iter() {
+        for c in &new_connections {
+            if new_stations[c.to_idx].id == stations[*s.0].id {
+                continue;
+            }
+            let dist = geodist_meters(&new_stations[c.to_idx], &stations[*s.0]);
+            if dist < MAX_WALKING_METRES {
+                let to_idx = get_or_insert_new_station_idx(*s.0, &mut new_stations);
+                walking_connections.push(create_walking_connection(
+                    c,
+                    new_connections.len() + walking_connections.len(),
+                    &mut new_stations,
+                    dist,
+                    to_idx,
+                ));
             }
         }
     }
@@ -254,16 +272,16 @@ pub fn query_with_extended_walking(store: &mut distribution_store::Store, tt: &m
     println!("querying...");
     let station_labels = env.query(query);
     let mut weights_by_station_idx =
-        env.relevant_stations(query, &station_labels);
+        env.get_relevant_stations(query.origin_idx, query.destination_idx, &station_labels, false);
     if weights_by_station_idx.is_empty() {
         return (GtfsTimetable::new(), 0, 0, vec![])
     }
     println!("unextended: {}", weights_by_station_idx.len());
-    relevant_stations_with_extended_walking(
+    /*relevant_stations_with_extended_walking(
         &mut weights_by_station_idx,
         &tt.stations,
         rtree,
-    );
+    );*/
     println!("extended: {}", weights_by_station_idx.len());
     let connection_pairs = env.relevant_connection_pairs(query, &weights_by_station_idx, 10000);
     println!("creating relevant tt...");
@@ -287,7 +305,7 @@ pub fn query_with_extended_walking(store: &mut distribution_store::Store, tt: &m
         now,
         0.01,
         0.001,
-        true,
+        false,
         false,
     );
     rel_env.preprocess();

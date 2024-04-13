@@ -128,7 +128,7 @@ impl<'a> Connection {
             to_idx: arrival.to_idx,
             departure: self.departure.clone(),
             arrival: arrival.arrival.clone(),
-            message: "".to_string(),
+            message: self.message.clone(),
             destination_arrival: RefCell::new(None)
         }
 	}

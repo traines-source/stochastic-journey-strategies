@@ -15,6 +15,7 @@ use crate::connection;
 use crate::gtfs::StationContraction;
 use crate::types;
 use crate::query::ConnectionLabel;
+use crate::walking::WALKING_MSG;
 
 use super::Queriable;
 use super::Query;
@@ -86,7 +87,7 @@ impl<'a> Queriable<'a> for Environment<'a> {
     }
 
     fn relevant_stations(&mut self, query: Query, station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, types::MFloat> {
-        self.get_relevant_stations(query.origin_idx, query.destination_idx, station_labels)
+        self.get_relevant_stations(query.origin_idx, query.destination_idx, station_labels, true)
     }
 
     fn relevant_connection_pairs(&mut self, query: Query, weights_by_station_idx: &HashMap<usize, types::MFloat>, max_stop_count: usize) -> HashMap<i32, i32> {
@@ -558,8 +559,7 @@ impl<'a> Environment<'a> {
         }
     }
 
-    fn get_relevant_stations(&mut self, origin_idx: usize, destination_idx: usize, station_labels: &[Vec<ConnectionLabel>]) -> HashMap<usize, types::MFloat> {
-        println!("from {} {} to {} {}", origin_idx, self.stations[origin_idx].name, destination_idx, self.stations[destination_idx].name);
+    pub fn get_relevant_stations(&mut self, origin_idx: usize, destination_idx: usize, station_labels: &[Vec<ConnectionLabel>], extend_by_contraction: bool) -> HashMap<usize, types::MFloat> {
         let mut stack = vec![(0, 1.0)];
         let mut initial = true;
         let mut weights_by_station_idx: HashMap<usize, types::MFloat> = HashMap::new();
@@ -631,7 +631,7 @@ impl<'a> Environment<'a> {
                 if !initial && self.cut.contains(&(c.id, dep.id)) {
                     continue;
                 }
-                if !initial && !c.is_consecutive(dep) {
+                if !initial && (!c.is_consecutive(dep) || dep.message == WALKING_MSG) { // TODO refactor extended walking
                     let mut transfer_time = transfer_times[min_k];
                     if let Some(contr) = self.contraction {
                         transfer_time = contr.get_transfer_time(c.to_idx, dep.from_idx) as i32;
@@ -665,9 +665,11 @@ impl<'a> Environment<'a> {
             initial = false;
             
         }
-        for w in &weights_by_station_idx.iter().map(|w| (*w.0, *w.1)).collect::<Vec<(usize, types::MFloat)>>() {
-            for f in &self.stations[w.0].footpaths {
-                *weights_by_station_idx.entry(f.target_location_idx).or_default() += w.1;
+        if extend_by_contraction {
+            for w in &weights_by_station_idx.iter().map(|w| (*w.0, *w.1)).collect::<Vec<(usize, types::MFloat)>>() {
+                for f in &self.stations[w.0].footpaths {
+                    *weights_by_station_idx.entry(f.target_location_idx).or_default() += w.1;
+                }
             }
         }
         println!("relevant stations: {}", weights_by_station_idx.len());
@@ -691,6 +693,13 @@ impl<'a> Environment<'a> {
         }
         let mut connection_pairs = HashMap::new();
         for trip in trip_id_to_conn_idxs.values_mut() {
+            if trip.len() == 1 {
+                let c = &self.connections[trip[0].0];
+                if c.message == WALKING_MSG && weights_by_station_idx.contains_key(&c.from_idx) && weights_by_station_idx.contains_key(&c.to_idx) {
+                    connection_pairs.insert(c.id as i32, c.id as i32);
+                }
+                continue;
+            }
             trip.sort_unstable_by(|a,b| self.connections[a.0].departure.scheduled.cmp(&self.connections[b.0].departure.scheduled)
                 .then(self.connections[a.0].id.cmp(&self.connections[b.0].id))
                 .then(b.1.cmp(&a.1))
@@ -710,10 +719,15 @@ impl<'a> Environment<'a> {
         if c.departure.projected()+max_delay < start_time || c.departure.projected() >= max_time {
             return;
         }
-        match trip_id_to_conn_idxs.get_mut(&c.trip_id) {
+        let trip_id = if c.message == WALKING_MSG {
+            (self.connections.len()+trip_id_to_conn_idxs.len()) as i32
+        } else {
+            c.trip_id
+        };
+        match trip_id_to_conn_idxs.get_mut(&trip_id) {
             Some(list) => list.push((connidx, is_departure)),
             None => {
-                trip_id_to_conn_idxs.insert(c.trip_id, vec![(connidx, is_departure)]);
+                trip_id_to_conn_idxs.insert(trip_id, vec![(connidx, is_departure)]);
             }
         }
     }
