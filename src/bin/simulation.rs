@@ -1,45 +1,39 @@
 #[macro_use]
 extern crate assert_float_eq;
 
-use std::borrow::Borrow;
-use std::collections::HashSet;
-use std::env;
-use std::error::Error;
-
 use glob::glob;
 use motis_nigiri::Timetable;
-use ndarray_stats::{
-    HistogramExt,
-    histogram::{
-        Histogram, Grid, GridBuilder,
-        Edges, Bins,
-        strategies::Sqrt},
-};
+use ndarray::{self, array, ArrayBase, Dim, OwnedRepr};
+use ndarray_stats::histogram::{Bins, Edges, Grid, Histogram};
 use ndarray_stats::interpolate::Higher;
 use ndarray_stats::interpolate::Lower;
-use ndarray_stats::interpolate::Nearest;
-use rustc_hash::FxHashSet;
 use ndarray_stats::QuantileExt;
+use noisy_float::types::{n32, n64, N32};
+use rustc_hash::FxHashSet;
 use serde::Deserialize;
 use serde::Serialize;
-use stost::{connection, query::{csameat, Query}, walking};
-use stost::gtfs::GtfsTimetable;
-use stost::gtfs::OriginDestinationSample;
-use stost::gtfs::StationContraction;
-use stost::query::Queriable;
-use stost::types;
 use std::collections::HashMap;
-use std::io::Write;
+use std::env;
+use std::error::Error;
 use std::fs;
+use std::io::Write;
 use std::time::Instant;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
+use stost::distribution;
 use stost::distribution_store;
 use stost::gtfs;
-use stost::distribution;
+use stost::gtfs::GtfsTimetable;
+use stost::gtfs::OriginDestinationSample;
+use stost::gtfs::StationContraction;
 use stost::query::topocsa;
-use ndarray::{self, array, ArrayBase, Axis, Dim, OwnedRepr};
-use noisy_float::types::{n32, n64, N32, N64};
+use stost::query::Queriable;
+use stost::types;
+use stost::{
+    connection,
+    query::{csameat, Query},
+    walking,
+};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct SimulationConfig {
@@ -150,9 +144,6 @@ impl SimulationJourney {
     fn is_completed(&self) -> bool {
         self.det.is_completed() && self.stoch.is_completed()
     }
-    fn is_broken(&self) -> bool {
-        self.det.broken || self.stoch.broken
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -214,7 +205,10 @@ impl Simulation {
         
         let simulation_run_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
-        assert!(self.conf.num_days == 1 || self.conf.start_mams.last().unwrap()+self.conf.query_window-1440 < self.conf.start_mams[0], "last start_mam may not overlap with first start_mam of the next day");
+        assert!(
+            self.conf.num_days == 1 || self.conf.start_mams.last().unwrap()+self.conf.query_window-1440 < self.conf.start_mams[0],
+            "last start_mam may not overlap with first start_mam of the next day"
+        );
 
         for f in glob(&self.conf.gtfsrt_glob).expect("Failed to read glob pattern") {
             let path = f.as_ref().unwrap().to_str().unwrap().to_owned();
@@ -502,8 +496,6 @@ impl Simulation {
             let next_start_mam = self.conf.start_mams[*next_start_mam_idx];
             println!("Beginning next start_mam {}", next_start_mam);
             stop_pairs.extend(load_samples(&self.conf.samples_config_path).iter().take(self.conf.samples).map(|s| (s.from_idx, s.to_idx, next_start_mam+reference_offset)));
-            //let number_of_days = if next_start_mam+self.conf.query_window > 1440 { 2 } else { 1 };
-            //let has_changed = number_of_days == 2 && self.conf.start_mams[*next_start_mam_idx-1]+self.conf.query_window <= 1440; TODO stable connids?
             let number_of_days = 2;
             if *next_start_mam_idx == 0 {
                 println!("Loading GTFS day_idx {} days {}", day_idx, number_of_days);
@@ -647,7 +639,11 @@ impl Simulation {
             }
             Some(Alternative{
                 from_conn_idx: tt.order[l.connection_id],
-                to_conn_idx: if stoch_actions.connection_pairs_reverse.is_empty() { tt.order[l.connection_id] } else { tt.order[stoch_actions.connection_pairs_reverse[&l.connection_id]] },
+                to_conn_idx: if stoch_actions.connection_pairs_reverse.is_empty() { 
+                    tt.order[l.connection_id]
+                } else {
+                    tt.order[stoch_actions.connection_pairs_reverse[&l.connection_id]]
+                },
                 proj_dest_arr: l.destination_arrival.mean
             })
         }));
@@ -718,7 +714,7 @@ impl Simulation {
             start_time
         } else {
             let c = &tt.connections[tt.order[log.last().unwrap().conn_id]];
-            std::cmp::max(std::cmp::max(c.arrival.projected(), c.departure.projected()), log.last().unwrap().arrival_time_lower_bound) // TODO enforce while gtfsrt updating?
+            std::cmp::max(std::cmp::max(c.arrival.projected(), c.departure.projected()), log.last().unwrap().arrival_time_lower_bound)
         }
     }
 
@@ -819,7 +815,10 @@ pub fn analyze_simulation(files: Vec<&String>) {
                 day_idx = 0;
             }
             if day_idx == 0 {
-                println!("meanonly: {} short: {} relonly: {} fuzzy: {} eps: {}", !run.config.stoch_simulation.contains("with_distr"), run.config.transfer == "short", run.config.stoch_simulation.contains("relevant"), run.config.transfer_strategy != "domination", run.config.epsilon_feasible != 0.0, );
+                println!(
+                    "meanonly: {} short: {} relonly: {} fuzzy: {} eps: {}",
+                    !run.config.stoch_simulation.contains("with_distr"), run.config.transfer == "short", run.config.stoch_simulation.contains("relevant"), run.config.transfer_strategy != "domination", run.config.epsilon_feasible != 0.0
+                );
             }
             run_at = run.simulation_run_at;
         }
@@ -843,8 +842,8 @@ fn analyze_multiday_simulation(run: Vec<SimulationJourney>, baseline: Option<Vec
         analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), false, true);
         //analyze_run_with_separate_baseline(&baseline_map, run.iter().filter(|r| r.pair.2%1440 != 1080).collect(), false, true);
         println!("\nComparison between stoch target and stoch baseline before 19h");
-        //analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), true, true);
-        analyze_run_with_separate_baseline(&baseline_map, run.iter().filter(|r| r.pair.2%1440 != 1080).collect(), true, true);
+        analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), true, true);
+        //analyze_run_with_separate_baseline(&baseline_map, run.iter().filter(|r| r.pair.2%1440 != 1080).collect(), true, true);
         println!("\nComparison between det target and det baseline");
         analyze_run_with_separate_baseline(&baseline_map, run.iter().collect(), false, false);
     }
@@ -895,9 +894,7 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
     println!("repeated: {} first: {}", a.target_algo_elapsed.len(), a.target_first_algo_elapsed.len());
     println!("infeasible: both: {} both original: {} baseline: {} target: {} broken: baseline: {} target: {} feasible: both: {} total: {}", a.baseline_and_target_infeasible, a.baseline_and_target_infeasible_original, a.baseline_infeasible, a.target_infeasible, a.baseline_broken, a.target_broken, a.delta_baseline_target_actual_travel_time.len(), baseline.len());
     let samples = baseline.len();
-    //let samples_target = a.target_actual_travel_time.len();
-    //print_percentogram(&a.target_destination_arrival_percentiles, samples_target, "target_destination_arrival_percentiles");
-    //print_percentogram(&a.target_mean_percentiles, samples_target, "target_mean_percentiles");
+    let samples_target = a.target_actual_travel_time.len();
     let delta_baseline_predicted_actual = summary(a.delta_baseline_predicted_actual, "delta_baseline_predicted_actual", samples);
     let delta_target_predicted_actual = summary(a.delta_target_predicted_actual, "delta_target_predicted_actual", samples);
     summary(a.delta_baseline_target_predicted, "delta_baseline_target_predicted", samples);
@@ -911,12 +908,14 @@ fn analyze_run(baseline: Vec<&SimulationResult>, target: Vec<&SimulationResult>,
     summary(a.target_first_algo_elapsed, "target_first_algo_elapsed", samples);
     summary(a.target_algo_elapsed, "target_algo_elapsed", samples);
     summary(a.target_preprocessing_elapsed, "target_preprocessing_elapsed", samples);
-    //println!("delta_baseline_predicted_actual: {:?}", histogram(delta_baseline_predicted_actual));
-    //println!("delta_target_predicted_actual: {:?}", histogram(delta_target_predicted_actual));
-    //let hist_arrival = histogram(delta_baseline_target_actual_arrival);
-    //println!("delta_baseline_target_actual_arrival: {:?}", hist_arrival);
-    //println!("delta_baseline_target_actual_arrival cdf: {:?}", cdf(&hist_arrival));
-    //println!("delta_baseline_target_actual_travel_time: {:?}", histogram(delta_baseline_target_actual_travel_time));
+    println!("delta_baseline_predicted_actual: {:?}", histogram(delta_baseline_predicted_actual));
+    println!("delta_target_predicted_actual: {:?}", histogram(delta_target_predicted_actual));
+    let hist_arrival = histogram(delta_baseline_target_actual_arrival);
+    println!("delta_baseline_target_actual_arrival: {:?}", hist_arrival);
+    println!("delta_baseline_target_actual_arrival cdf: {:?}", cdf(&hist_arrival));
+    println!("delta_baseline_target_actual_travel_time: {:?}", histogram(delta_baseline_target_actual_travel_time));
+    print_percentogram(&a.target_destination_arrival_percentiles, samples_target, "target_destination_arrival_percentiles");
+    //print_percentogram(&a.target_mean_percentiles, samples_target, "target_mean_percentiles");
 }
 
 fn get_pair_mam(meta: &SimulationJourney) -> types::Mtime {
@@ -937,7 +936,7 @@ fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, targe
         }
     }
     if target.actual_dest_arrival.is_some() {
-        //percentograms(a, target);
+        percentograms(a, target);
         a.delta_target_predicted_actual.push(target.actual_dest_arrival.unwrap() as types::MFloat-target.original_dest_arrival_prediction);
         a.target_actual_travel_time.push((target.actual_dest_arrival.unwrap()-target.departure) as types::MFloat);
         a.target_first_algo_elapsed.push(target.algo_elapsed_ms[0] as types::MFloat);
@@ -952,13 +951,6 @@ fn analyze_result(a: &mut SimulationAnalysis, baseline: &SimulationResult, targe
     if baseline.actual_dest_arrival.is_some() && target.actual_dest_arrival.is_some() {
         /*if meta.pair.0 == 24491 && meta.pair.1 == 34985 {
             print_distribution(target, meta);
-        }
-        if a.delta_baseline_target_predicted.len() > 3 {
-            //panic!("");
-        }*/
-        /*if (target.actual_dest_arrival.unwrap() as types::MFloat-baseline.actual_dest_arrival.unwrap() as types::MFloat).abs() > 300.0 {
-            println!("{:?} {:?} {:?} {:?} {:?}", meta.pair, meta.from_station_name, meta.to_station_name, target, baseline.actual_dest_arrival);
-            println!("{:?}\n", baseline);
         }*/
         a.delta_baseline_target_predicted.push(target.original_dest_arrival_prediction-baseline.original_dest_arrival_prediction);
         a.delta_baseline_predicted_target_actual.push(target.actual_dest_arrival.unwrap() as types::MFloat-baseline.original_dest_arrival_prediction);
@@ -990,8 +982,7 @@ fn cdf(histogram: &Vec<(i32, types::MFloat)>) -> Vec<(i32, types::MFloat)> {
 fn percentograms(a: &mut SimulationAnalysis, target: &SimulationResult) {
     let dest = target.connections_taken.first().unwrap().destination_arrival.borrow();
     let distr = dest.as_ref().unwrap();
-    //println!("weirder {} {} {}", distr.start, distr.start+distr.histogram.len() as i32, target.actual_dest_arrival.unwrap());
-
+    
     let mut cum = 0.0;
     let mut percentile = 1;
     let mut i = 0;
@@ -1001,8 +992,6 @@ fn percentograms(a: &mut SimulationAnalysis, target: &SimulationResult) {
         cum += v;
         let last_percentile = percentile;
         while cum*100.0 >= percentile as f32 {
-            //println!("weird {} {} {}", distr.start, i, target.actual_dest_arrival.unwrap()); 
-            //println!("{} {} {}", percentile, cum, distr.start+i);
             percentile += 1;
         }
         let linear_percentile = ((percentile-1-last_percentile) as f32/2.0+last_percentile as f32).floor() as usize;
@@ -1026,7 +1015,6 @@ fn percentograms(a: &mut SimulationAnalysis, target: &SimulationResult) {
     if !found_mean && distr.mean as i32 >= distr.start && distr.mean as i32 <= distr.start+distr.histogram.len() as i32-1 {
         a.target_mean_percentiles[99] += 1; 
     }
-    assert_float_absolute_eq!(distr.mean, distr.mean(), 5.0);
 }
 
 fn print_percentogram(percentiles: &[i32; 100], samples: usize, name: &str) {
@@ -1039,6 +1027,7 @@ fn print_percentogram(percentiles: &[i32; 100], samples: usize, name: &str) {
     println!("{}: {:?} {:?}", name, acc, percentiles);
 }
 
+#[allow(dead_code)]
 fn print_distribution(result: &SimulationResult, meta: &SimulationJourney) {
     let d = result.connections_taken.first().unwrap().destination_arrival.borrow();
     let distr = d.as_ref().unwrap();
@@ -1047,8 +1036,6 @@ fn print_distribution(result: &SimulationResult, meta: &SimulationJourney) {
 }
 
 fn histogram(mut arr: ArrayBase<OwnedRepr<types::MFloat>, Dim<[usize; 1]>>) -> Vec<(i32, types::MFloat)> {
-    //let min = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.01), &Lower).unwrap().min().unwrap().floor() as i32;
-    //let max = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.99), &Higher).unwrap().max().unwrap().ceil() as i32+2;
     let min = arr.min().unwrap().floor() as i32;
     let max = arr.max().unwrap().ceil() as i32+2;
     
@@ -1077,9 +1064,7 @@ fn summary(values: Vec<types::MFloat>, name: &str, samples: usize) -> ArrayBase<
         return arr;
     }
     let q5 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.05), &Lower).unwrap().into_iter().last().unwrap();
-    //let q50 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.5), &Nearest).unwrap();
     let q95 = arr.quantile_axis_skipnan_mut(ndarray::Axis(0), n64(0.95), &Higher).unwrap().into_iter().last().unwrap();
-    // arr.std(1.0)
     println!("{}: fail mean trimmean min 5% 95% max: {:.2} & {:.2} & {:.2} & {} & {} & {} & {}", name, failures*100.0, arr.mean().unwrap(), trimmed_mean, around2(*arr.min().unwrap()), around2(q5), around2(q95), around2(*arr.max().unwrap()));
     arr
 }
