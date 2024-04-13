@@ -1,6 +1,7 @@
 use chrono::Days;
 use rouille::Response;
 use rstar::RTree;
+use rustc_hash::FxHashSet;
 use serde::Deserialize;
 use stost::query::Query;
 use std::collections::HashMap;
@@ -14,7 +15,6 @@ use stost::distribution_store::Store;
 use stost::gtfs;
 use stost::gtfs::GtfsTimetable;
 use stost::gtfs::StationContraction;
-use stost::query;
 use stost::query::topocsa;
 use stost::query::Queriable;
 use stost::walking;
@@ -211,16 +211,19 @@ fn query_on_given(
 ) -> Vec<u8> {
     walking::create_quadratic_footpaths(input_stations);
     println!("querying...");
-    query::query(
+    let mut cut = FxHashSet::default();
+    topocsa::prepare_and_query(
         system_conf.store.as_mut().unwrap(),
         input_connections,
         &input_stations,
+        &mut cut,
         metadata.origin_idx,
         metadata.destination_idx,
         0,
         1440 * 2,
         to_mtime(metadata.now, metadata.start_ts),
-    );
+        0.001,
+        false);
     stost::wire::serde::serialize_protobuf(
         &input_stations,
         &input_routes,

@@ -63,6 +63,28 @@ pub fn create_quadratic_footpaths(stations: &mut Vec<Station>) {
     println!("Created {} footpaths", ctr);
 }
 
+pub fn create_materialized_quadratic_footpaths(stations: &mut Vec<Station>, connections: &mut Vec<Connection>) {
+    let mut walking_connections = vec![];
+    for s in 0..stations.len() {
+        for c in connections.iter() {
+            if stations[c.to_idx].id == stations[s].id {
+                continue;
+            }
+            let dist = geodist_meters(&stations[c.to_idx], &stations[s]);
+            if dist < MAX_WALKING_METRES {
+                walking_connections.push(create_walking_connection(
+                    c,
+                    connections.len() + walking_connections.len(),
+                    stations,
+                    dist,
+                    s,
+                ));
+            }
+        }
+    }
+    connections.append(&mut walking_connections);
+}
+
 pub struct StationLocation {
     station_idx: usize,
     lon: f64,

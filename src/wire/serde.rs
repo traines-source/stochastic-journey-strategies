@@ -44,9 +44,6 @@ pub fn to_mtime(t: i64, reference: i64) -> types::Mtime {
 }
 
 pub fn from_mtime(mtime: types::Mtime, reference: i64) -> i64 {
-    if mtime == 0 {
-        return 0
-    }
     (mtime*60) as i64 + reference
 }
 
@@ -85,11 +82,14 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connec
                 let from_idx = stations_idx[&c.from_id as &str];
                 let to_idx = stations_idx[&c.to_id as &str];
                 let id = connections.len();
-                let nc = connection::Connection::new(
+                let mut nc = connection::Connection::new(
                     id, route_idx, r.product_type as i16, trip_id, c.cancelled,
                     from_idx, to_mtime(c.departure.as_ref().unwrap().scheduled, timetable.start_time), if c.departure.as_ref().unwrap().is_live { Some(c.departure.as_ref().unwrap().delay_minutes as i16) } else { None },
                     to_idx, to_mtime(c.arrival.as_ref().unwrap().scheduled, timetable.start_time), if c.arrival.as_ref().unwrap().is_live { Some(c.arrival.as_ref().unwrap().delay_minutes as i16) } else { None }
                 );
+                if nc.product_type == 100 {
+                    nc.departure.in_out_allowed = false; //TODO tstp footpaths not reachable, using virtual footpaths instead
+                }
                 nc.destination_arrival.replace(if !load_distributions || c.destination_arrival.is_none() { None } else { let da = c.destination_arrival.as_ref().unwrap(); Some(distribution::Distribution {
                     histogram: da.histogram.to_vec().into_iter().map(|h| h as types::MFloat).collect(),
                     start: to_mtime(da.start, timetable.start_time),
@@ -188,7 +188,7 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
             message: Cow::Borrowed(""),
             destination_arrival: if da.is_none() || da.as_ref().unwrap().mean == 0.0 { None } else { let da = da.as_ref().unwrap(); Some(wire::Distribution {
                 histogram: Cow::Owned(da.histogram.iter().map(|h| *h as f32).collect()),
-                start: from_mtime(da.start, metadata.start_ts),
+                start: if da.start == 0 { 0 } else { from_mtime(da.start, metadata.start_ts) },
                 mean: (da.mean*60.0) as i64 + metadata.start_ts,
                 feasible_probability: da.feasible_probability as f32
             }) }
