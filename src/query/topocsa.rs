@@ -1,24 +1,19 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::time::Instant;
-use rustc_hash::FxHashSet;
-
-
-use indexmap::IndexSet;
-use serde::Deserialize;
-use serde::Serialize;
-
-use crate::distribution;
-use crate::distribution_store;
-use crate::connection;
-use crate::gtfs::StationContraction;
-use crate::types;
-use crate::query::ConnectionLabel;
-use crate::walking::WALKING_MSG;
-
 use super::Queriable;
 use super::Query;
+use crate::connection;
+use crate::distribution;
+use crate::distribution_store;
+use crate::gtfs::StationContraction;
+use crate::query::ConnectionLabel;
+use crate::types;
+use crate::walking::WALKING_MSG;
+use rustc_hash::FxHashSet;
+use serde::Deserialize;
+use serde::Serialize;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::ops::ControlFlow;
+use std::time::Instant;
 
 #[derive(Debug)]
 pub struct Environment<'a> {
@@ -46,8 +41,6 @@ pub struct DfsConnectionLabel {
 pub struct Instrumentation {
     found: usize,
     encounter_1: usize,
-    unraveling_time: u128,
-    before_prob_time: u128,
     unraveling_no: usize,
     cycle_sum_len: usize,
     cycle_max_len: usize,
@@ -60,8 +53,6 @@ pub struct Instrumentation {
 struct CsaInstrumentation {
     looked_at: usize,
     deps: usize,
-    selected_count: usize,
-    infeas_iter: usize,
 }
 
 impl<'a> Queriable<'a> for Environment<'a> {
@@ -176,7 +167,7 @@ impl<'a> Environment<'a> {
                     found = true;
                     instr.found += 1;
                     let dep = &self.connections[dep_idx];
-                    let is_continuing = if c_label.footpath_i == footpaths.len() { c.is_consecutive(dep) } else { false };
+                    let is_continuing = c_label.footpath_i == footpaths.len() && c.is_consecutive(dep);
                     if !is_continuing {
                         let transfer_time = if c_label.footpath_i == footpaths.len() { self.stations[stop_idx].transfer_time } else { footpaths[c_label.footpath_i].duration } as i32;
                         let reachable = self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
@@ -193,28 +184,8 @@ impl<'a> Environment<'a> {
                     
                     if dep_visited == 1 {
                         instr.encounter_1 += 1;
-                        let predicted_transfer_time = dep.departure.projected()-c.arrival.projected();
-                        let mut min_transfer = if c.is_consecutive(dep) { 1 } else { predicted_transfer_time };
-                        let mut min_i = stack.len();
-                        let mut i = stack.len();
-                        while stack[i-1] != dep_idx {
-                            i -= 1;
-                            let a = &self.connections[stack[i-1]];
-                            let b = &self.connections[stack[i]];
-                            if a.is_consecutive(b) {
-                                continue;
-                            }
-                            let predicted_transfer_time = b.departure.projected()-a.arrival.projected();
-                            if predicted_transfer_time < min_transfer {
-                                min_transfer = predicted_transfer_time;
-                                min_i = i;
-                            }
-                        }
-                        instr.cycle_sum_len += stack.len()-i;
-                        if stack.len()-i > instr.cycle_max_len {
-                            instr.cycle_max_len = stack.len()-i;
-                        }
-                        if min_i == stack.len() {
+                        let cut_successor_i = self.find_cut_with_lowest_transfer_time(c, dep, dep_idx, &stack, instr);
+                        if cut_successor_i == stack.len() {
                             if self.epsilon_reachable == 0.0 {
                                 self.cut.insert((c.id, dep.id));
                             }
@@ -224,12 +195,12 @@ impl<'a> Environment<'a> {
                             continue;
                         }
                         if self.epsilon_reachable == 0.0 {
-                            let cut_predecessor = stack[min_i-1];
-                            let cut_successor = stack[min_i];
+                            let cut_predecessor = stack[cut_successor_i-1];
+                            let cut_successor = stack[cut_successor_i];
                             self.cut.insert((cut_predecessor, cut_successor));
                         }
-                        instr.unraveling_no += stack.len()-min_i;
-                        let cut_len = min_i..stack.len();
+                        instr.unraveling_no += stack.len()-cut_successor_i;
+                        let cut_len = cut_successor_i..stack.len();
                         for _ in cut_len {
                             let idx = stack.pop().unwrap();
                             let label = labels.get_mut(idx).unwrap();
@@ -259,6 +230,32 @@ impl<'a> Environment<'a> {
         }
         //println!("instr: {:?}", instr);
     }
+
+    #[inline]
+    fn find_cut_with_lowest_transfer_time(&self, c: &connection::Connection, dep: &connection::Connection, dep_idx: usize, stack: &[usize], instr: &mut Instrumentation) -> usize {
+        let predicted_transfer_time = dep.departure.projected()-c.arrival.projected();
+        let mut min_transfer = if c.is_consecutive(dep) { 1 } else { predicted_transfer_time };
+        let mut min_i = stack.len();
+        let mut i = stack.len();
+        while stack[i-1] != dep_idx {
+            i -= 1;
+            let a = &self.connections[stack[i-1]];
+            let b = &self.connections[stack[i]];
+            if a.is_consecutive(b) {
+                continue;
+            }
+            let predicted_transfer_time = b.departure.projected()-a.arrival.projected();
+            if predicted_transfer_time < min_transfer {
+                min_transfer = predicted_transfer_time;
+                min_i = i;
+            }
+        }
+        instr.cycle_sum_len += stack.len()-i;
+        if stack.len()-i > instr.cycle_max_len {
+            instr.cycle_max_len = stack.len()-i;
+        }
+        min_i
+    }
     
     fn do_preprocess(&mut self) {
         self.cut.clear();
@@ -268,7 +265,7 @@ impl<'a> Environment<'a> {
 
         let mut topo_idx = 0;
         
-        let mut instr = Instrumentation { found: 0, encounter_1: 0, unraveling_time: 0, before_prob_time: 0, unraveling_no: 0, cycle_sum_len: 0, cycle_max_len: 0, cycle_self_count: 0, encounter_2: 0, iterations: 0 };
+        let mut instr = Instrumentation { found: 0, encounter_1: 0, unraveling_no: 0, cycle_sum_len: 0, cycle_max_len: 0, cycle_self_count: 0, encounter_2: 0, iterations: 0 };
         let start = Instant::now();
         let mut labels: Vec<DfsConnectionLabel> = Vec::with_capacity(self.connections.len());
         for c in &*self.connections {
@@ -290,14 +287,13 @@ impl<'a> Environment<'a> {
             let idx = conn_idxs[i];
             if visited[idx] != 2 {
                 self.dfs(idx, &mut topo_idx, &mut labels, &mut visited, &mut stops_completed_up, &mut instr);
-                //println!("connections {} cycles found {} labels {} done {} {}", self.connections.len(), self.cut.len(), self.order.len(), idx, id);
             }
         }
         println!("instr: {:?}", instr);
         self.store.borrow().print_stats();
         println!("Done DFSing. {}", start.elapsed().as_millis());
         self.connections.sort_unstable_by(|a, b|
-            labels[self.order[a.id]].order.partial_cmp(&labels[self.order[b.id]].order).unwrap() // TODO complete cmp?
+            labels[self.order[a.id]].order.cmp(&labels[self.order[b.id]].order)
         );
         let mut new_order: Vec<usize> = (0..self.connections.len()).map(|id| labels[self.order[id]].order).collect();
         self.order.clear();
@@ -314,11 +310,8 @@ impl<'a> Environment<'a> {
         let mut instr = CsaInstrumentation {
             looked_at: 0,
             deps: 0,
-            selected_count: 0,
-            infeas_iter: 0
         };
-        let mut station_labels: Vec<Vec<ConnectionLabel>> = (0..self.stations.len()).map(|i| Vec::new()).collect();
-        let empty_vec = vec![];
+        let mut station_labels: Vec<Vec<ConnectionLabel>> = (0..self.stations.len()).map(|_i| Vec::new()).collect();
         let max_delay = self.store.borrow().max_delay as types::Mtime;
         for i in 0..self.connections.len() {
             if connection_pair_ids.len() > 0 && connection_pair_ids[i] == -1 {
@@ -341,7 +334,7 @@ impl<'a> Environment<'a> {
             let new_distribution = if stop_idx == dest_contr {
                 if !c.arrival.in_out_allowed {
                     if !self.mean_only {
-                        c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
+                        c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled)));
                     }
                     continue;
                 }
@@ -354,102 +347,17 @@ impl<'a> Environment<'a> {
             } else {
                 let mut new_distribution = distribution::Distribution::empty(c.arrival.scheduled);
                 if self.contraction.is_none() {
-                    let mut footpath_distributions = vec![];
-                    let footpaths = &self.stations[stop_idx].footpaths;
-                    for f in footpaths {
-                        let mut footpath_dest_arr = distribution::Distribution::empty(0);
-                        if f.target_location_idx == q.destination_idx {
-                            if !c.arrival.in_out_allowed {
-                                if !self.mean_only {
-                                    c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled))); //TODO remove
-                                }
-                                continue;
-                            }
-                            footpath_dest_arr = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now).shift(f.duration as i32);
-                        } else {
-                            self.new_destination_arrival(f.target_location_idx, i, -1, 0, c.product_type, &c.arrival, f.duration as i32, &station_labels, &empty_vec, &mut footpath_dest_arr, &mut instr);   
-                        }
-                        if footpath_dest_arr.feasible_probability > 0.0 {
-                            footpath_distributions.push(footpath_dest_arr);
-                        }
-                    }
-                    //println!("{:?} {:?}", footpath_distributions.len(), footpaths.len());
-                    // TODO domination in case of strict domination
-                    footpath_distributions.sort_unstable_by(|a, b| a.mean.partial_cmp(&b.mean).unwrap());
-                    self.new_destination_arrival(stop_idx, i, c.trip_id, c.route_idx, c.product_type, &c.arrival, self.stations[stop_idx].transfer_time as i32, &station_labels, &footpath_distributions, &mut new_distribution, &mut instr);   
+                    self.calculate_destination_arrival_with_footpaths(stop_idx, q, c, i, &station_labels, &mut new_distribution, &mut instr);   
                 } else {
                     if station_labels[stop_idx].is_empty() {
                         continue;
                     } 
-                    self.new_contr_destination_arrival(stop_idx, i, &station_labels, &mut new_distribution, &mut instr);
+                    self.calculate_contracted_destination_arrival(stop_idx, i, &station_labels, &mut new_distribution, &mut instr);
                 }
                 new_distribution   
             };
 
-            let departure_conn_idx = if connection_pair_ids.len() == 0 { i } else { self.order[connection_pair_ids[i] as usize] };
-            let departure_conn = if connection_pair_ids.len() == 0 { c } else { &self.connections[departure_conn_idx] };
-            let departure_station_idx = match self.contraction {
-                Some(contr) => contr.stop_to_group[departure_conn.from_idx],
-                None => departure_conn.from_idx
-            };
-            let departures = station_labels.get_mut(departure_station_idx).unwrap();
-            if !self.mean_only {
-                departure_conn.destination_arrival.replace(Some(new_distribution.clone())); // TODO remove
-            }
-            if new_distribution.feasible_probability > self.epsilon_feasible && new_distribution.feasible_probability > 1e-3 {                
-                let mut j = departures.len() as i32-1;
-                while j >= 0 {
-                    if new_distribution.mean < departures[j as usize].destination_arrival.mean {
-                        break;
-                    }
-                    j -= 1;
-                }
-                let mut prob_after = 1.0;
-                let mut departure_mean = 0.0;
-
-                if self.domination {
-                    departure_mean = self.store.borrow_mut().delay_distribution_mean(&departure_conn.departure, true, departure_conn.product_type, self.now);
-                    if ((j+1) as usize) < departures.len() && departure_mean < departures[(j+1) as usize].departure_mean {
-                        continue;
-                    }
-                    if j >= 0 && departure_mean > departures[j as usize].departure_mean {
-                        let mut k = j-1;
-                        while k >= 0 && departure_mean > departures[k as usize].departure_mean {
-                            k -= 1;
-                        }
-                        let replace_up_to = (k+1) as usize;
-                        if replace_up_to != j as usize {
-                            departures.drain(replace_up_to..j as usize);
-                        }
-                        departures[replace_up_to] = ConnectionLabel{
-                            connection_id: departure_conn.id,
-                            destination_arrival: new_distribution,
-                            prob_after: 1.0,
-                            departure_mean: departure_mean
-                        };
-                        continue;
-                    }
-                } else if self.contraction.is_some() {
-                    if ((j+1) as usize) < departures.len() { 
-                        let ref_label = &departures[(j+1) as usize];
-                        let reference = &self.connections[self.order[ref_label.connection_id]];
-                        prob_after = self.store.borrow_mut().before_probability(&reference.departure, reference.product_type, true, &departure_conn.departure, departure_conn.product_type, 1, self.now)
-                    }
-                    if prob_after > 0.0 && j >= 0 {
-                        let ref_label = departures.get_mut(j as usize).unwrap();
-                        let reference = &self.connections[self.order[ref_label.connection_id]];
-                        ref_label.prob_after = self.store.borrow_mut().before_probability(&departure_conn.departure, departure_conn.product_type, true, &reference.departure, reference.product_type, 1, self.now);
-                    }
-                }
-                if prob_after > 0.0 {                    
-                    departures.insert((j+1) as usize, ConnectionLabel{
-                        connection_id: departure_conn.id,
-                        destination_arrival: new_distribution,
-                        prob_after: prob_after,
-                        departure_mean: departure_mean
-                    });
-                }
-            }
+            self.insert_departure_label(&connection_pair_ids, i, c, new_distribution, &mut station_labels);
         }
         println!("instr {:?}", instr);
         self.store.borrow().print_stats();
@@ -457,7 +365,34 @@ impl<'a> Environment<'a> {
     }
 
     #[inline]
-    fn new_destination_arrival<'c>(&'c self, station_idx: usize, c_idx: usize, from_trip_id: i32, from_route_idx: usize, from_product_type: i16, from_arrival: &connection::StopInfo, transfer_time: i32, station_labels: &[Vec<ConnectionLabel>], footpath_distributions: &[distribution::Distribution], new_distribution: &mut distribution::Distribution, instr: &mut CsaInstrumentation) {
+    fn calculate_destination_arrival_with_footpaths(&self, stop_idx: usize, q: Query, c: &connection::Connection, i: usize, station_labels: &Vec<Vec<ConnectionLabel>>, new_distribution: &mut distribution::Distribution, instr: &mut CsaInstrumentation) {
+        let empty_vec = vec![];
+        let mut footpath_distributions = vec![];
+        let footpaths = &self.stations[stop_idx].footpaths;
+        for f in footpaths {
+            let mut footpath_dest_arr = distribution::Distribution::empty(0);
+            if f.target_location_idx == q.destination_idx {
+                if !c.arrival.in_out_allowed {
+                    if !self.mean_only {
+                        c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled)));
+                    }
+                    continue;
+                }
+                footpath_dest_arr = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now).shift(f.duration as i32);
+            } else {
+                self.calculate_destination_arrival(f.target_location_idx, i, -1, 0, c.product_type, &c.arrival, f.duration as i32, station_labels, &empty_vec, &mut footpath_dest_arr, instr);   
+            }
+            if footpath_dest_arr.feasible_probability > 0.0 {
+                footpath_distributions.push(footpath_dest_arr);
+            }
+        }
+        // TODO domination in case of strict domination
+        footpath_distributions.sort_unstable_by(|a, b| a.mean.partial_cmp(&b.mean).unwrap());
+        self.calculate_destination_arrival(stop_idx, i, c.trip_id, c.route_idx, c.product_type, &c.arrival, self.stations[stop_idx].transfer_time as i32, station_labels, &footpath_distributions, new_distribution, instr);
+    }
+    
+    #[inline]
+    fn calculate_destination_arrival<'c>(&'c self, station_idx: usize, c_idx: usize, from_trip_id: i32, from_route_idx: usize, from_product_type: i16, from_arrival: &connection::StopInfo, transfer_time: i32, station_labels: &[Vec<ConnectionLabel>], footpath_distributions: &[distribution::Distribution], new_distribution: &mut distribution::Distribution, instr: &mut CsaInstrumentation) {
         let mut remaining_probability = 1.0;
         let mut last_departure: Option<&connection::StopInfo> = None;
         let mut last_product_type: i16 = 0;
@@ -527,7 +462,7 @@ impl<'a> Environment<'a> {
     }
 
     #[inline]
-    fn new_contr_destination_arrival<'c>(&'c self, station_idx: usize, c_idx: usize, station_labels: &[Vec<ConnectionLabel>], new_distribution: &mut distribution::Distribution, instr: &mut CsaInstrumentation) {
+    fn calculate_contracted_destination_arrival<'c>(&'c self, station_idx: usize, c_idx: usize, station_labels: &[Vec<ConnectionLabel>], new_distribution: &mut distribution::Distribution, instr: &mut CsaInstrumentation) {
         let mut remaining_probability = 1.0;
         let departures = &station_labels[station_idx];
         let contr = self.contraction.unwrap();
@@ -556,6 +491,74 @@ impl<'a> Environment<'a> {
         new_distribution.feasible_probability = (1.0-remaining_probability).clamp(0.0, 1.0);
         if new_distribution.feasible_probability < 1.0 {
             new_distribution.normalize_with(self.mean_only, self.epsilon_feasible*self.epsilon_feasible);
+        }
+    }
+
+    #[inline]
+    fn insert_departure_label(&self, connection_pair_ids: &Vec<i32>, i: usize, c: &connection::Connection, new_distribution: distribution::Distribution, station_labels: &mut Vec<Vec<ConnectionLabel>>) {
+        let departure_conn_idx = if connection_pair_ids.len() == 0 { i } else { self.order[connection_pair_ids[i] as usize] };
+        let departure_conn = if connection_pair_ids.len() == 0 { c } else { &self.connections[departure_conn_idx] };
+        let departure_station_idx = match self.contraction {
+            Some(contr) => contr.stop_to_group[departure_conn.from_idx],
+            None => departure_conn.from_idx
+        };
+        if !self.mean_only {
+            departure_conn.destination_arrival.replace(Some(new_distribution.clone()));
+        }
+        let departures = station_labels.get_mut(departure_station_idx).unwrap();
+        if new_distribution.feasible_probability > self.epsilon_feasible && new_distribution.feasible_probability > 1e-3 {                
+            let mut j = departures.len() as i32-1;
+            while j >= 0 {
+                if new_distribution.mean < departures[j as usize].destination_arrival.mean {
+                    break;
+                }
+                j -= 1;
+            }
+            let mut prob_after = 1.0;
+            let mut departure_mean = 0.0;
+    
+            if self.domination {
+                departure_mean = self.store.borrow_mut().delay_distribution_mean(&departure_conn.departure, true, departure_conn.product_type, self.now);
+                if ((j+1) as usize) < departures.len() && departure_mean < departures[(j+1) as usize].departure_mean {
+                    return;
+                }
+                if j >= 0 && departure_mean > departures[j as usize].departure_mean {
+                    let mut k = j-1;
+                    while k >= 0 && departure_mean > departures[k as usize].departure_mean {
+                        k -= 1;
+                    }
+                    let replace_up_to = (k+1) as usize;
+                    if replace_up_to != j as usize {
+                        departures.drain(replace_up_to..j as usize);
+                    }
+                    departures[replace_up_to] = ConnectionLabel{
+                        connection_id: departure_conn.id,
+                        destination_arrival: new_distribution,
+                        prob_after: 1.0,
+                        departure_mean: departure_mean
+                    };
+                    return;
+                }
+            } else if self.contraction.is_some() {
+                if ((j+1) as usize) < departures.len() { 
+                    let ref_label = &departures[(j+1) as usize];
+                    let reference = &self.connections[self.order[ref_label.connection_id]];
+                    prob_after = self.store.borrow_mut().before_probability(&reference.departure, reference.product_type, true, &departure_conn.departure, departure_conn.product_type, 1, self.now)
+                }
+                if prob_after > 0.0 && j >= 0 {
+                    let ref_label = departures.get_mut(j as usize).unwrap();
+                    let reference = &self.connections[self.order[ref_label.connection_id]];
+                    ref_label.prob_after = self.store.borrow_mut().before_probability(&departure_conn.departure, departure_conn.product_type, true, &reference.departure, reference.product_type, 1, self.now);
+                }
+            }
+            if prob_after > 0.0 {                    
+                departures.insert((j+1) as usize, ConnectionLabel{
+                    connection_id: departure_conn.id,
+                    destination_arrival: new_distribution,
+                    prob_after: prob_after,
+                    departure_mean: departure_mean
+                });
+            }
         }
     }
 
@@ -679,7 +682,6 @@ impl<'a> Environment<'a> {
     fn get_relevant_connection_pairs(&mut self, weights_by_station_idx: &HashMap<usize, types::MFloat>, max_station_count: usize, start_time: types::Mtime, max_time: types::Mtime) -> HashMap<i32, i32> {
         let mut stations: Vec<(&usize, &types::MFloat)> = weights_by_station_idx.iter().collect();
         stations.sort_unstable_by(|a,b| b.1.partial_cmp(a.1).unwrap());
-        //println!("{:?}", stations.iter().take(500).map(|s| (&self.stations[s.0].name as &str, s.1)).collect::<Vec<(&str, types::MFloat)>>());
         let mut trip_id_to_conn_idxs: HashMap<i32, Vec<(usize, bool)>> = HashMap::new();
         let max_delay = self.store.borrow().max_delay as types::Mtime;
 
