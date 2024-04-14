@@ -87,7 +87,7 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connec
                     from_idx, to_mtime(c.departure.as_ref().unwrap().scheduled, timetable.start_time), if c.departure.as_ref().unwrap().is_live { Some(c.departure.as_ref().unwrap().delay_minutes as i16) } else { None },
                     to_idx, to_mtime(c.arrival.as_ref().unwrap().scheduled, timetable.start_time), if c.arrival.as_ref().unwrap().is_live { Some(c.arrival.as_ref().unwrap().delay_minutes as i16) } else { None }
                 );
-                if nc.product_type == 100 {
+                if nc.product_type == WALKING_PRODUCT_TYPE {
                     nc.departure.in_out_allowed = false; //TODO tstp footpaths not reachable, using virtual footpaths instead
                 }
                 nc.destination_arrival.replace(if !load_distributions || c.destination_arrival.is_none() { None } else { let da = c.destination_arrival.as_ref().unwrap(); Some(distribution::Distribution {
@@ -170,7 +170,7 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
         trips.get_mut(&(c.trip_id, route_idx)).unwrap().push(wire::Connection{
             from_id: Cow::Borrowed(&stations.get(c.from_idx).unwrap().id),
             to_id: Cow::Borrowed(&stations.get(c.to_idx).unwrap().id),
-            cancelled: false,
+            cancelled: false, // TODO
             departure: Some(wire::StopInfo{
                 scheduled: from_mtime(c.departure.scheduled, metadata.start_ts),
                 delay_minutes: c.departure.delay.unwrap_or(0) as i32,

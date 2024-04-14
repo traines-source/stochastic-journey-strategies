@@ -77,7 +77,6 @@ impl Distribution {
     
     #[inline]
     pub fn normalize_with(&mut self, mean_only: bool, epsilon: types::MFloat) {
-        // TODO performance vs accuracy
         if self.feasible_probability == 0.0 {
             return;
         }
