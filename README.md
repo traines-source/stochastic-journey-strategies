@@ -33,7 +33,7 @@ One can run single bootstrap tests e.g. like that:
 ./run-docker.ign.sh cargo test --package StoSt --test gtfs --release -- gtfs_with_rt --exact --nocapture --ignored
 ```
 
-If your GTFS(-RT) files are not located in a `../gtfs/` directory with the same substructure as https://mirror.traines.eu, you may need to manually adjust the paths in the tests.
+If your GTFS(-RT) files are not located in a `../gtfs/` directory with the same substructure as https://mirror.traines.eu, you may need to manually adjust the paths in the tests. In addition, you may first need to run the `create_gtfs_cache` test, or only use the tests that do not rely on the cache, but reload the GTFS from scratch.
 
 ### Simulation
 The simulation component can be used to evaluate the algorithm in repeated runs compared to other algorithms, in particular with respect to how much earlier an actual simulated user may arrive using the StoSt algorithm. In order to run a simulation, the `simulation` binary must be run with a configuration file:
@@ -65,6 +65,9 @@ Connection in the sense of [CSA](https://doi.org/10.1145/3274661), i.e. a vehicl
 
 ### Destination Arrival Distributions
 Indicating the probabilities of all possible arrival times for each connection the user may take.
+
+### Delay Distributions
+Given the currently predicted delay and other evidence for a connection, assigns probabilities of the actual final delay, and hence induces the departure and arrival distributions of a connection. Delay distributions for Germany and Switzerland are available in [data/](https://github.com/traines-source/stochastic-journey-strategies/blob/master/data/). For trying out, they can also be used for other regions, as long as the product types/transport modes/classes somewhat match. You can create your own distributions by importing historical realtime data into [public-transport-statistics](https://github.com/traines-source/public-transport-statistics) and exporting it similar to the SQL scripts given in [data/](https://github.com/traines-source/stochastic-journey-strategies/blob/master/data/), or just somehow create the csv file with a method of your choice.
 
 ### Relevant Stops Approach
 Instead of running on the full timetable, the algorithm can run only on stops relevant for the query. This enables clients to provide their own small realtime timetable that they have obtained from e.g. another API (as is the case for time-space-train-planner) or to achieve faster query running times on the GTFS timetables for repeated queries.
