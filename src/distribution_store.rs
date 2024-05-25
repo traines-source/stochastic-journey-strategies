@@ -311,7 +311,9 @@ impl Store {
                 if key.product_type == WALKING_PRODUCT_TYPE {
                     return self.delay.get(&DelayKey { product_type: WALKING_PRODUCT_TYPE, prior_delay: (0,0), prior_ttl: (0,0), is_departure: key.is_departure }).unwrap();
                 }
-                return self.delay.get(&DelayKey { product_type: -1, prior_delay: (0,0), prior_ttl: (0,0), is_departure: false }).unwrap();                
+                return self.delay.get(&DelayKey { product_type: key.product_type, prior_delay: (0,0), prior_ttl: (0,0), is_departure: key.is_departure }).unwrap_or(
+                    self.delay.get(&DelayKey { product_type: -1, prior_delay: (0,0), prior_ttl: (0,0), is_departure: false }).unwrap()
+                );                
             }
         }
     }
