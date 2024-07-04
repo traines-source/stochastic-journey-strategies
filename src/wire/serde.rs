@@ -130,7 +130,7 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connec
 
 pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection::Route], connections: &[connection::Connection], _contraction: Option<&StationContraction>, metadata: &QueryMetadata) -> Vec<u8> {
     let mut wire_stations: Vec<wire::Station> = Vec::new();
-    let mut trips: IndexMap<(i32, usize), Vec<wire::Connection>> = IndexMap::new();
+    let mut trips: IndexMap<(i32, usize), Vec<(usize, wire::Connection)>> = IndexMap::new();
     for s in stations.iter().enumerate() {
         wire_stations.push(wire::Station{
             id: Cow::Borrowed(&s.1.id),
@@ -167,7 +167,7 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
             trips.insert((c.trip_id, route_idx), vec![]);
         }
         let da = c.destination_arrival.borrow();
-        trips.get_mut(&(c.trip_id, route_idx)).unwrap().push(wire::Connection{
+        trips.get_mut(&(c.trip_id, route_idx)).unwrap().push((c.id, wire::Connection{
             from_id: Cow::Borrowed(&stations.get(c.from_idx).unwrap().id),
             to_id: Cow::Borrowed(&stations.get(c.to_idx).unwrap().id),
             cancelled: false, // TODO
@@ -192,12 +192,12 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
                 mean: (da.mean*60.0) as i64 + metadata.start_ts,
                 feasible_probability: da.feasible_probability as f32
             }) }
-        });
+        }));
     }
-    for (key, connections) in trips.into_iter() {
-        //connections.sort_by(|a, b| a.departure.as_ref().unwrap().scheduled.cmp(&b.departure.as_ref().unwrap().scheduled)); // maybe unnecessary
+    for (key, mut connections) in trips.into_iter() {
+        connections.sort_by(|a, b| a.0.cmp(&b.0));
         wire_routes.get_mut(key.1).unwrap().trips.push(wire::Trip{
-            connections: connections
+            connections: connections.into_iter().map(|c| c.1).collect()
         });
     }
     let response_message = wire::Message{
