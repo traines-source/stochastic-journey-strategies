@@ -4,6 +4,7 @@ use std::borrow::Cow;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use indexmap::IndexMap;
+use std::cell::Cell;
 
 
 use quick_protobuf::{MessageRead, MessageWrite, BytesReader, Writer};
@@ -94,7 +95,8 @@ pub fn deserialize_protobuf<'a, 'b>(bytes: Vec<u8>, stations: &'a mut Vec<connec
                     histogram: da.histogram.to_vec().into_iter().map(|h| h as types::MFloat).collect(),
                     start: to_mtime(da.start, timetable.start_time),
                     mean: (da.mean as types::MFloat/60.0) - timetable.start_time as types::MFloat,
-                    feasible_probability: da.feasible_probability as types::MFloat
+                    feasible_probability: da.feasible_probability as types::MFloat,
+                    relevance: Cell::new(da.relevance as types::MFloat)
                 }) });
                 connections.push(nc);
                 stations[from_idx].departures.push(id);
@@ -190,7 +192,8 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
                 histogram: Cow::Owned(da.histogram.iter().map(|h| *h as f32).collect()),
                 start: if da.start == 0 { 0 } else { from_mtime(da.start, metadata.start_ts) },
                 mean: (da.mean*60.0) as i64 + metadata.start_ts,
-                feasible_probability: da.feasible_probability as f32
+                feasible_probability: da.feasible_probability as f32,
+                relevance: da.relevance.get() as f32
             }) }
         }));
     }

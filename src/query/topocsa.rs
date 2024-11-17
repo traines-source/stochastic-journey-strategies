@@ -1,12 +1,16 @@
 use super::Queriable;
 use super::Query;
 use crate::connection;
+use crate::connection::Connection;
+use crate::connection::StopInfo;
 use crate::distribution;
+use crate::distribution::Distribution;
 use crate::distribution_store;
 use crate::gtfs::StationContraction;
 use crate::query::ConnectionLabel;
 use crate::types;
-use crate::walking::WALKING_MSG;
+use crate::walking::WALKING_PRODUCT_TYPE;
+use crate::walking::{WALKING_MSG, WALKING_RELEVANCE_THRESH};
 use rustc_hash::FxHashSet;
 use serde::Deserialize;
 use serde::Serialize;
@@ -302,6 +306,7 @@ impl<'a> Environment<'a> {
     }
 
     fn full_query(&mut self, q: Query, connection_pairs: &HashMap<i32, i32>) -> Vec<Vec<ConnectionLabel>> {
+        let mut materialized_footpaths: Vec<Connection> = vec![];
         let mut connection_pair_ids = vec![-1; if connection_pairs.len() > 0 { self.connections.len() } else { 0 }];
         for pair in connection_pairs.iter() {
             connection_pair_ids[self.order[*pair.0 as usize]] = *pair.1;
@@ -346,7 +351,7 @@ impl<'a> Environment<'a> {
             } else {
                 let mut new_distribution = distribution::Distribution::empty(c.arrival.scheduled);
                 if self.contraction.is_none() {
-                    self.calculate_destination_arrival_with_footpaths(stop_idx, q, c, i, &station_labels, &mut new_distribution, &mut instr);   
+                    self.calculate_destination_arrival_with_footpaths(stop_idx, q, c, i, &station_labels, &mut materialized_footpaths, &mut new_distribution, &mut instr);   
                 } else {
                     if station_labels[stop_idx].is_empty() {
                         continue;
@@ -358,45 +363,45 @@ impl<'a> Environment<'a> {
 
             self.insert_departure_label(&connection_pair_ids, i, c, new_distribution, &mut station_labels);
         }
-        println!("instr {:?}", instr);
+        println!("instr {:?} matfoot: {}", instr, materialized_footpaths.len());
+        self.connections.extend(materialized_footpaths.into_iter());
         self.store.borrow().print_stats();
         station_labels
     }
 
     #[inline]
-    fn calculate_destination_arrival_with_footpaths(&self, stop_idx: usize, q: Query, c: &connection::Connection, i: usize, station_labels: &Vec<Vec<ConnectionLabel>>, new_distribution: &mut distribution::Distribution, instr: &mut CsaInstrumentation) {
+    fn calculate_destination_arrival_with_footpaths(&self, stop_idx: usize, q: Query, c: &connection::Connection, i: usize, station_labels: &Vec<Vec<ConnectionLabel>>, materialized_footpaths: &mut Vec<Connection>, new_distribution: &mut distribution::Distribution, instr: &mut CsaInstrumentation) {
         let empty_vec = vec![];
-        let mut footpath_distributions = vec![];
+        let mut footpath_distributions: Vec<(usize, Distribution)> = vec![];
         let footpaths = &self.stations[stop_idx].footpaths;
-        for f in footpaths {
+        for f in footpaths.iter().enumerate() {
             let mut footpath_dest_arr = distribution::Distribution::empty(0);
-            if f.target_location_idx == q.destination_idx {
+            if f.1.target_location_idx == q.destination_idx {
                 if !c.arrival.in_out_allowed {
                     if !self.mean_only {
                         c.destination_arrival.replace(Some(distribution::Distribution::empty(c.arrival.scheduled)));
                     }
                     continue;
                 }
-                footpath_dest_arr = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now).shift(f.duration as i32);
+                footpath_dest_arr = self.store.borrow().delay_distribution(&c.arrival, false, c.product_type, self.now).shift(f.1.duration as i32);
             } else {
-                self.calculate_destination_arrival(f.target_location_idx, i, -1, 0, c.product_type, &c.arrival, f.duration as i32, station_labels, &empty_vec, &mut footpath_dest_arr, instr);   
+                self.calculate_destination_arrival(f.1.target_location_idx, i, -1, 0, c.product_type, &c.arrival, f.1.duration as i32, station_labels, &empty_vec, materialized_footpaths, &mut footpath_dest_arr, instr);   
             }
             if footpath_dest_arr.feasible_probability > 0.0 {
-                footpath_distributions.push(footpath_dest_arr);
+                footpath_distributions.push((f.0, footpath_dest_arr));
             }
         }
         // TODO domination in case of strict domination
-        footpath_distributions.sort_unstable_by(|a, b| a.mean.partial_cmp(&b.mean).unwrap());
-        self.calculate_destination_arrival(stop_idx, i, c.trip_id, c.route_idx, c.product_type, &c.arrival, self.stations[stop_idx].transfer_time as i32, station_labels, &footpath_distributions, new_distribution, instr);
+        footpath_distributions.sort_unstable_by(|a, b| a.1.mean.partial_cmp(&b.1.mean).unwrap());
+        self.calculate_destination_arrival(stop_idx, i, c.trip_id, c.route_idx, c.product_type, &c.arrival, self.stations[stop_idx].transfer_time as i32, station_labels, &footpath_distributions, materialized_footpaths, new_distribution, instr);
     }
     
     #[inline]
-    fn calculate_destination_arrival<'c>(&'c self, station_idx: usize, c_idx: usize, from_trip_id: i32, from_route_idx: usize, from_product_type: i16, from_arrival: &connection::StopInfo, transfer_time: i32, station_labels: &[Vec<ConnectionLabel>], footpath_distributions: &[distribution::Distribution], new_distribution: &mut distribution::Distribution, instr: &mut CsaInstrumentation) {
+    fn calculate_destination_arrival<'c>(&'c self, station_idx: usize, c_idx: usize, from_trip_id: i32, from_route_idx: usize, from_product_type: i16, from_arrival: &connection::StopInfo, transfer_time: i32, station_labels: &[Vec<ConnectionLabel>], footpath_distributions: &[(usize, distribution::Distribution)], materialized_footpaths: &mut Vec<Connection>, new_distribution: &mut distribution::Distribution, instr: &mut CsaInstrumentation) {
         let mut remaining_probability = 1.0;
         let mut last_departure: Option<&connection::StopInfo> = None;
         let mut last_product_type: i16 = 0;
         let departures = station_labels.get(station_idx).unwrap();
-
         let mut departures_i = 0;
         let mut footpaths_i = 0;
         let c = &self.connections[c_idx];
@@ -406,11 +411,13 @@ impl<'a> Environment<'a> {
             let mut departure_product_type = 0;
             let mut is_continuing = false;
             let mut transfer_time = transfer_time;
+            let mut departure_connection = None;
             if footpaths_i < footpath_distributions.len() {
-                dest_arr_dist = Some(&footpath_distributions[footpaths_i]);
+                dest_arr_dist = Some(&footpath_distributions[footpaths_i].1);
                 departure = Some(&c.arrival);
                 departure_product_type = c.product_type;
                 is_continuing = true;
+                departure_connection = None;
             }
             if departures_i < departures.len() {
                 let dep_i = departures.len()-1-departures_i;
@@ -431,7 +438,8 @@ impl<'a> Environment<'a> {
                     transfer_time = match self.contraction {
                         Some(contr) => contr.get_transfer_time(c.to_idx, dep.from_idx) as i32,
                         None => transfer_time
-                    }
+                    };
+                    departure_connection = Some(dep);
                 }
             } else {
                 footpaths_i += 1;
@@ -445,7 +453,10 @@ impl<'a> Environment<'a> {
                 p *= self.store.borrow_mut().before_probability(from_arrival, from_product_type, false, departure.unwrap(), departure_product_type, transfer_time, self.now);
             }
             if p > 0.0 {
-                new_distribution.add_with(dest_arr_dist.as_ref().unwrap(), p*remaining_probability, self.mean_only);
+                let p_taking = p*remaining_probability;
+                new_distribution.add_with(dest_arr_dist.as_ref().unwrap(), p_taking, self.mean_only);
+                departure_connection.map(|c| c.destination_arrival.borrow().as_ref().map(|da| da.update_relevance(p_taking)));
+                self.materialize_footpath(p_taking, departure_connection, footpath_distributions, footpaths_i, station_idx, materialized_footpaths, departure, from_product_type);
                 remaining_probability = (1.0-p).clamp(0.0,1.0)*remaining_probability;
                 last_departure = departure;
                 last_product_type = departure_product_type;
@@ -460,6 +471,31 @@ impl<'a> Environment<'a> {
         }
     }
 
+    fn materialize_footpath<'c>(&'c self, p_taking: f32, departure_connection: Option<&Connection>, footpath_distributions: &[(usize, Distribution)], footpaths_i: usize, station_idx: usize, materialized_footpaths: &mut Vec<Connection>, departure: Option<&StopInfo>, from_product_type: i16) {
+        if !self.mean_only && from_product_type != WALKING_PRODUCT_TYPE && p_taking > WALKING_RELEVANCE_THRESH && departure_connection.is_none() {
+            let footpath_idx = footpath_distributions[footpaths_i-1].0;
+            let footpath = &self.stations[station_idx].footpaths[footpath_idx];
+            let id = self.connections.len()+materialized_footpaths.len();
+            let mut c = Connection::new(
+                id,
+                id,
+                WALKING_PRODUCT_TYPE,
+                (id) as i32,
+                false,
+                station_idx,
+                departure.unwrap().projected(),
+                None,
+                footpath.target_location_idx,
+                departure.unwrap().projected()+footpath.duration as types::Mtime,
+                None
+            );
+            c.destination_arrival.replace(Some(footpath_distributions[footpaths_i-1].1.clone()));
+            c.destination_arrival.borrow().as_ref().unwrap().relevance.set(p_taking);
+            c.message = WALKING_MSG.to_owned();
+            materialized_footpaths.push(c);
+        }
+    }
+    
     #[inline]
     fn calculate_contracted_destination_arrival<'c>(&'c self, station_idx: usize, c_idx: usize, station_labels: &[Vec<ConnectionLabel>], new_distribution: &mut distribution::Distribution, instr: &mut CsaInstrumentation) {
         let mut remaining_probability = 1.0;
@@ -480,7 +516,8 @@ impl<'a> Environment<'a> {
                 p *= store.before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
             }
             if p > 0.0 {
-                new_distribution.add_with(&dep_label.destination_arrival, p*remaining_probability, self.mean_only);
+                let p_taking = p*remaining_probability;
+                new_distribution.add_with(&dep_label.destination_arrival, p_taking, self.mean_only);
                 remaining_probability = (1.0-p)*remaining_probability;
                 if remaining_probability <= self.epsilon_feasible {
                     break;

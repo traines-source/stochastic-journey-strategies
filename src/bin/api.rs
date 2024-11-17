@@ -210,6 +210,7 @@ fn query_on_given(
     metadata: QueryMetadata,
 ) -> Vec<u8> {
     walking::create_quadratic_footpaths(input_stations);
+    walking::create_materialized_initial_footpaths(metadata.origin_idx, input_stations, input_connections);
     println!("querying...");
     let mut cut = FxHashSet::default();
     topocsa::prepare_and_query(

@@ -1,5 +1,5 @@
 use crate::{
-    connection::{Connection, Station}, distribution_store, gtfs::{sort_station_departures_asc, GtfsTimetable, StationContraction}, query::{topocsa, ConnectionLabel, Queriable, Query}, types
+    connection::{Connection, Station, StopInfo}, distribution_store, gtfs::{sort_station_departures_asc, GtfsTimetable, StationContraction}, query::{topocsa, ConnectionLabel, Queriable, Query}, types
 };
 use motis_nigiri::Footpath;
 use rstar::RTree;
@@ -10,6 +10,8 @@ const WALKING_METRES_PER_SECOND: f64 = 1.5;
 const MAX_WALKING_METRES: f64 = 5000.0;
 pub const WALKING_MSG: &str = "walking";
 pub const WALKING_PRODUCT_TYPE: i16 = 100;
+pub const WALKING_RELEVANCE_THRESH: f32 = 0.05;
+pub const WALKING_INITIAL_BUFFER_MINUTES: i32 = 3;
 
 pub fn geodist_meters_string(stop1: &Station, stop2: &Station) -> String {
     format!("{}m", geodist_meters(stop1, stop2).round())
@@ -49,6 +51,9 @@ pub fn create_quadratic_footpaths(stations: &mut Vec<Station>) {
     let mut ctr = 0;
     for i in 0..stations.len() {
         for j in 0..stations.len() {
+            if i == j {
+                continue;
+            }
             let dist = geodist_meters(&stations[i], &stations[j]);
             if dist < MAX_WALKING_METRES {
                 stations[i].footpaths.push(Footpath {
@@ -61,6 +66,38 @@ pub fn create_quadratic_footpaths(stations: &mut Vec<Station>) {
         stations[i].transfer_time = 1;
     }
     println!("Created {} footpaths", ctr);
+}
+
+pub fn create_materialized_initial_footpaths(origin: usize, stations: &mut Vec<Station>, connections: &mut Vec<Connection>) {
+    let mut walking_connections = vec![];
+
+    for i in 0..stations[origin].footpaths.len() {
+        let target_idx = stations[origin].footpaths[i].target_location_idx;
+        let duration = stations[origin].footpaths[i].duration;
+        for j in 0..stations[target_idx].departures.len() {
+            let id = connections.len() + walking_connections.len();
+            let c = &connections[stations[target_idx].departures[j]];
+            let arrival = StopInfo::new(c.arrival.projected()-WALKING_INITIAL_BUFFER_MINUTES, None);
+            let mut departure = arrival.clone();
+            departure.scheduled -= duration as i32;
+            departure.in_out_allowed = false;
+            stations.get_mut(origin).unwrap().departures.push(id);
+            stations.get_mut(target_idx).unwrap().arrivals.push(id);
+            walking_connections.push(Connection {
+                id: id,
+                route_idx: id,
+                trip_id: id as i32,
+                product_type: WALKING_PRODUCT_TYPE,
+                from_idx: origin,
+                to_idx: target_idx,
+                departure: departure,
+                arrival: arrival,
+                message: WALKING_MSG.to_string(),
+                destination_arrival: RefCell::new(None),
+            });
+        }
+    }
+    connections.append(&mut walking_connections);
 }
 
 pub fn create_materialized_quadratic_footpaths(stations: &mut Vec<Station>, connections: &mut Vec<Connection>) {

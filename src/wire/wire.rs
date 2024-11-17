@@ -21,6 +21,7 @@ pub struct Distribution<'a> {
     pub start: i64,
     pub mean: i64,
     pub feasible_probability: f32,
+    pub relevance: f32,
 }
 
 impl<'a> MessageRead<'a> for Distribution<'a> {
@@ -32,6 +33,7 @@ impl<'a> MessageRead<'a> for Distribution<'a> {
                 Ok(16) => msg.start = r.read_int64(bytes)?,
                 Ok(24) => msg.mean = r.read_int64(bytes)?,
                 Ok(37) => msg.feasible_probability = r.read_float(bytes)?,
+                Ok(45) => msg.relevance = r.read_float(bytes)?,
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -47,6 +49,7 @@ impl<'a> MessageWrite for Distribution<'a> {
         + if self.start == 0i64 { 0 } else { 1 + sizeof_varint(*(&self.start) as u64) }
         + if self.mean == 0i64 { 0 } else { 1 + sizeof_varint(*(&self.mean) as u64) }
         + if self.feasible_probability == 0f32 { 0 } else { 1 + 4 }
+        + if self.relevance == 0f32 { 0 } else { 1 + 4 }
     }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
@@ -54,6 +57,7 @@ impl<'a> MessageWrite for Distribution<'a> {
         if self.start != 0i64 { w.write_with_tag(16, |w| w.write_int64(*&self.start))?; }
         if self.mean != 0i64 { w.write_with_tag(24, |w| w.write_int64(*&self.mean))?; }
         if self.feasible_probability != 0f32 { w.write_with_tag(37, |w| w.write_float(*&self.feasible_probability))?; }
+        if self.relevance != 0f32 { w.write_with_tag(45, |w| w.write_float(*&self.relevance))?; }
         Ok(())
     }
 }

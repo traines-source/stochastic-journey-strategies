@@ -1,6 +1,7 @@
 use std::cmp;
 use std::ops::Range;
 use serde::{Serialize, Deserialize};
+use std::cell::Cell;
 
 use crate::types;
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -10,7 +11,9 @@ pub struct Distribution {
     #[serde(default)]
 	pub mean: types::MFloat,
     #[serde(default)]
-    pub feasible_probability: types::MFloat
+    pub feasible_probability: types::MFloat,
+    #[serde(default)]
+    pub relevance: Cell<types::MFloat>
 }
 
 const EMPTY_HISTOGRAM: Vec<types::MFloat> = vec![];
@@ -36,7 +39,8 @@ impl Distribution {
             histogram: EMPTY_HISTOGRAM,
             start: start,
             mean: 0.,
-            feasible_probability: 0.0
+            feasible_probability: 0.0,
+            relevance: Cell::new(0.0)
         }
     }
 
@@ -48,7 +52,8 @@ impl Distribution {
             histogram: vec![1.0/(width as types::MFloat); width],
             start: start,
             mean:  start as types::MFloat+((width-1) as types::MFloat/2.0),
-            feasible_probability: 1.0
+            feasible_probability: 1.0,
+            relevance: Cell::new(0.0)
         }
     }
 
@@ -151,7 +156,8 @@ impl Distribution {
             histogram: self.histogram.clone(),
             start: self.start+start,
             mean: self.mean+start as types::MFloat,
-            feasible_probability: self.feasible_probability
+            feasible_probability: self.feasible_probability,
+            relevance: Cell::new(self.relevance.get())
         }
     }
 
@@ -221,7 +227,8 @@ impl Distribution {
             histogram: h,
             start: latest_sample_delays[0].0.start as i32,
             mean:  mean as types::MFloat,
-            feasible_probability: feasibility as types::MFloat
+            feasible_probability: feasibility as types::MFloat,
+            relevance: Cell::new(0.0)
         };
         assert_float_absolute_eq!(mean as types::MFloat, d.mean());
         d
@@ -248,6 +255,10 @@ impl Distribution {
             self.mean = self.mean();
             assert_float_absolute_eq!(1.0, self.histogram.iter().sum::<f32>(), 1e-3);
         }
+    }
+
+    pub fn update_relevance(&self, relevance: types::MFloat) {
+        self.relevance.set(self.relevance.get().max(relevance));
     }
 }
 
