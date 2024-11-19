@@ -10,7 +10,7 @@ const WALKING_METRES_PER_SECOND: f64 = 1.5;
 const MAX_WALKING_METRES: f64 = 5000.0;
 pub const WALKING_MSG: &str = "walking";
 pub const WALKING_PRODUCT_TYPE: i16 = 100;
-pub const WALKING_RELEVANCE_THRESH: f32 = 0.05;
+pub const WALKING_RELEVANCE_THRESH: f32 = 0.01;
 pub const WALKING_INITIAL_BUFFER_MINUTES: i32 = 3;
 
 pub fn geodist_meters_string(stop1: &Station, stop2: &Station) -> String {
@@ -76,7 +76,8 @@ pub fn create_materialized_initial_footpaths(origin: usize, stations: &mut Vec<S
         let duration = stations[origin].footpaths[i].duration;
         for j in 0..stations[target_idx].departures.len() {
             let id = connections.len() + walking_connections.len();
-            let c = &connections[stations[target_idx].departures[j]];
+            let cid = stations[target_idx].departures[j];
+            let c = &connections[cid];
             let arrival = StopInfo::new(c.arrival.projected()-WALKING_INITIAL_BUFFER_MINUTES, None);
             let mut departure = arrival.clone();
             departure.scheduled -= duration as i32;
@@ -86,7 +87,7 @@ pub fn create_materialized_initial_footpaths(origin: usize, stations: &mut Vec<S
             walking_connections.push(Connection {
                 id: id,
                 route_idx: id,
-                trip_id: id as i32,
+                trip_id: cid as i32,
                 product_type: WALKING_PRODUCT_TYPE,
                 from_idx: origin,
                 to_idx: target_idx,
@@ -98,6 +99,14 @@ pub fn create_materialized_initial_footpaths(origin: usize, stations: &mut Vec<S
         }
     }
     connections.append(&mut walking_connections);
+}
+
+pub fn update_footpath_relevance(order: &[usize], connections: &[Connection]) {
+    for c in connections.iter() {
+        if c.product_type == WALKING_PRODUCT_TYPE {
+            c.destination_arrival.borrow().as_ref().inspect(|da| da.relevance.set(da.relevance.get()*connections[order[c.trip_id as usize]].destination_arrival.borrow().as_ref().unwrap().relevance.get()));
+        }
+    }
 }
 
 pub fn create_materialized_quadratic_footpaths(stations: &mut Vec<Station>, connections: &mut Vec<Connection>) {

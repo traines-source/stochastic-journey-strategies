@@ -456,7 +456,7 @@ impl<'a> Environment<'a> {
                 let p_taking = p*remaining_probability;
                 new_distribution.add_with(dest_arr_dist.as_ref().unwrap(), p_taking, self.mean_only);
                 //departure_connection.map(|c| c.destination_arrival.borrow().as_ref().map(|da| da.update_relevance(p_taking)));
-                self.materialize_footpath(p_taking, departure_connection, footpath_distributions, footpaths_i, station_idx, materialized_footpaths, departure, from_product_type);
+                self.materialize_footpath(p_taking, departure_connection, footpath_distributions, footpaths_i, station_idx, materialized_footpaths, departure, from_product_type, c.id);
                 remaining_probability = (1.0-p).clamp(0.0,1.0)*remaining_probability;
                 last_departure = departure;
                 last_product_type = departure_product_type;
@@ -471,7 +471,7 @@ impl<'a> Environment<'a> {
         }
     }
 
-    fn materialize_footpath<'c>(&'c self, p_taking: f32, departure_connection: Option<&Connection>, footpath_distributions: &[(usize, Distribution)], footpaths_i: usize, station_idx: usize, materialized_footpaths: &mut Vec<Connection>, departure: Option<&StopInfo>, from_product_type: i16) {
+    fn materialize_footpath<'c>(&'c self, p_taking: f32, departure_connection: Option<&Connection>, footpath_distributions: &[(usize, Distribution)], footpaths_i: usize, station_idx: usize, materialized_footpaths: &mut Vec<Connection>, departure: Option<&StopInfo>, from_product_type: i16, c_id: usize) {
         if !self.mean_only && from_product_type != WALKING_PRODUCT_TYPE && p_taking > WALKING_RELEVANCE_THRESH && departure_connection.is_none() {
             let footpath_idx = footpath_distributions[footpaths_i-1].0;
             let footpath = &self.stations[station_idx].footpaths[footpath_idx];
@@ -480,7 +480,7 @@ impl<'a> Environment<'a> {
                 id,
                 id,
                 WALKING_PRODUCT_TYPE,
-                (id) as i32,
+                c_id as i32,
                 false,
                 station_idx,
                 departure.unwrap().projected(),
@@ -664,9 +664,10 @@ impl<'a> Environment<'a> {
                 let dep = &self.connections[self.order[dep_label.connection_id]];
                 is[min_k] += 1;
 
-                /*if !self.domination && initial && last_departure.is_some() && dep.departure.projected() < last_departure.unwrap().projected() { 
+                // TODO this is weird and magic^10
+                if !self.domination && initial && last_departure.is_some() && dep.departure.projected()+10 < last_departure.unwrap().projected() { 
                     continue;
-                }*/
+                }
                 if !initial && self.cut.contains(&(c.id, dep.id)) {
                     continue;
                 }
@@ -699,7 +700,7 @@ impl<'a> Environment<'a> {
                 }
                 if dep_prob > self.epsilon_feasible && dep_label.destination_arrival.feasible_probability >= 1.0-self.epsilon_feasible {
                     stack.push((self.order[dep_label.connection_id], dep_prob));
-                    dep.destination_arrival.borrow().as_ref().map(|da| da.update_relevance((da.relevance.get()+dep_prob).min(1.0)));
+                    dep.destination_arrival.borrow().as_ref().inspect(|da| da.relevance.set((da.relevance.get()+dep_prob).min(1.0)));
                 }
             }
             initial = false;
