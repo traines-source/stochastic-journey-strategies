@@ -455,7 +455,7 @@ impl<'a> Environment<'a> {
             if p > 0.0 {
                 let p_taking = p*remaining_probability;
                 new_distribution.add_with(dest_arr_dist.as_ref().unwrap(), p_taking, self.mean_only);
-                departure_connection.map(|c| c.destination_arrival.borrow().as_ref().map(|da| da.update_relevance(p_taking)));
+                //departure_connection.map(|c| c.destination_arrival.borrow().as_ref().map(|da| da.update_relevance(p_taking)));
                 self.materialize_footpath(p_taking, departure_connection, footpath_distributions, footpaths_i, station_idx, materialized_footpaths, departure, from_product_type);
                 remaining_probability = (1.0-p).clamp(0.0,1.0)*remaining_probability;
                 last_departure = departure;
@@ -699,6 +699,7 @@ impl<'a> Environment<'a> {
                 }
                 if dep_prob > self.epsilon_feasible && dep_label.destination_arrival.feasible_probability >= 1.0-self.epsilon_feasible {
                     stack.push((self.order[dep_label.connection_id], dep_prob));
+                    dep.destination_arrival.borrow().as_ref().map(|da| da.update_relevance((da.relevance.get()+dep_prob).min(1.0)));
                 }
             }
             initial = false;

@@ -213,18 +213,16 @@ fn query_on_given(
     walking::create_materialized_initial_footpaths(metadata.origin_idx, input_stations, input_connections);
     println!("querying...");
     let mut cut = FxHashSet::default();
-    topocsa::prepare_and_query(
-        system_conf.store.as_mut().unwrap(),
-        input_connections,
-        &input_stations,
-        &mut cut,
-        metadata.origin_idx,
-        metadata.destination_idx,
-        0,
-        1440 * 2,
-        to_mtime(metadata.now, metadata.start_ts),
-        0.001,
-        false);
+    let mut order = Vec::with_capacity(input_connections.len());
+    let mut e = topocsa::prepare(system_conf.store.as_mut().unwrap(), input_connections, input_stations, &mut cut, &mut order, to_mtime(metadata.now, metadata.start_ts), 0.001, false);
+    let station_labels = e.query(crate::Query {
+        origin_idx:  metadata.origin_idx,
+        destination_idx: metadata.destination_idx,
+        start_time: 0,
+        max_time: 1440 * 2,
+    });
+    e.get_relevant_stations(metadata.origin_idx, metadata.destination_idx, &station_labels, false);
+
     stost::wire::serde::serialize_protobuf(
         &input_stations,
         &input_routes,
