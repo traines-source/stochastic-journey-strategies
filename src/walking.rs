@@ -68,12 +68,12 @@ pub fn create_quadratic_footpaths(stations: &mut Vec<Station>) {
     println!("Created {} footpaths", ctr);
 }
 
-pub fn create_materialized_initial_footpaths(origin: usize, stations: &mut Vec<Station>, connections: &mut Vec<Connection>) {
+pub fn create_materialized_initial_footpaths(origin_idx: usize, stations: &mut Vec<Station>, connections: &mut Vec<Connection>) {
     let mut walking_connections = vec![];
 
-    for i in 0..stations[origin].footpaths.len() {
-        let target_idx = stations[origin].footpaths[i].target_location_idx;
-        let duration = stations[origin].footpaths[i].duration;
+    for i in 0..stations[origin_idx].footpaths.len() {
+        let target_idx = stations[origin_idx].footpaths[i].target_location_idx;
+        let duration = stations[origin_idx].footpaths[i].duration;
         for j in 0..stations[target_idx].departures.len() {
             let id = connections.len() + walking_connections.len();
             let cid = stations[target_idx].departures[j];
@@ -82,14 +82,14 @@ pub fn create_materialized_initial_footpaths(origin: usize, stations: &mut Vec<S
             let mut departure = arrival.clone();
             departure.scheduled -= duration as i32;
             departure.in_out_allowed = false;
-            stations.get_mut(origin).unwrap().departures.push(id);
+            stations.get_mut(origin_idx).unwrap().departures.push(id);
             stations.get_mut(target_idx).unwrap().arrivals.push(id);
             walking_connections.push(Connection {
                 id: id,
                 route_idx: id,
                 trip_id: cid as i32,
                 product_type: WALKING_PRODUCT_TYPE,
-                from_idx: origin,
+                from_idx: origin_idx,
                 to_idx: target_idx,
                 departure: departure,
                 arrival: arrival,
@@ -101,10 +101,16 @@ pub fn create_materialized_initial_footpaths(origin: usize, stations: &mut Vec<S
     connections.append(&mut walking_connections);
 }
 
-pub fn update_footpath_relevance(order: &[usize], connections: &[Connection]) {
+pub fn update_footpath_relevance(origin_idx: usize, destination_idx: usize, order: &[usize], connections: &[Connection]) {
     for c in connections.iter() {
         if c.product_type == WALKING_PRODUCT_TYPE {
-            c.destination_arrival.borrow().as_ref().inspect(|da| da.relevance.set(da.relevance.get()*connections[order[c.trip_id as usize]].destination_arrival.borrow().as_ref().unwrap().relevance.get()));
+            c.destination_arrival.borrow().as_ref().inspect(|da| da.relevance.set(
+                if c.from_idx == origin_idx && c.to_idx == destination_idx {
+                    1.0
+                } else {
+                    da.relevance.get()*connections[order[c.trip_id as usize]].destination_arrival.borrow().as_ref().unwrap().relevance.get()
+                }
+            ));
         }
     }
 }

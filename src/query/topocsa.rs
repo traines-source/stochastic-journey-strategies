@@ -602,7 +602,7 @@ impl<'a> Environment<'a> {
         let mut stack = vec![(0, 1.0)];
         let mut initial = true;
         let mut weights_by_station_idx: HashMap<usize, types::MFloat> = HashMap::new();
-        'outer: while !stack.is_empty() {
+        while !stack.is_empty() {
             let conn_with_prob = stack.pop().unwrap();
             let c = &self.connections[conn_with_prob.0];
             let station_idx = if initial { origin_idx } else { c.to_idx };
@@ -631,11 +631,12 @@ impl<'a> Environment<'a> {
                     for i in 0..footpaths.len() {
                         *weights_by_station_idx.entry(footpaths[i].target_location_idx).or_default() += conn_with_prob.1;
                     }
-                    continue 'outer;
+                    //continue 'outer;
+                } else {
+                    let transfer_time = footpaths[i].duration as i32;
+                    departures.push(&station_labels[stop_idx]);
+                    transfer_times.push(transfer_time);
                 }
-                let transfer_time = footpaths[i].duration as i32;
-                departures.push(&station_labels[stop_idx]);
-                transfer_times.push(transfer_time);
             }
             let mut is = vec![0; transfer_times.len()];
             let mut remaining_probability = 1.0;

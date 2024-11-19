@@ -222,7 +222,7 @@ fn query_on_given(
         max_time: 1440 * 2,
     });
     e.get_relevant_stations(metadata.origin_idx, metadata.destination_idx, &station_labels, false);
-    walking::update_footpath_relevance(&order, input_connections);
+    walking::update_footpath_relevance(metadata.origin_idx, metadata.destination_idx, &order, input_connections);
     stost::wire::serde::serialize_protobuf(
         &input_stations,
         &input_routes,
