@@ -9,6 +9,7 @@ use crate::distribution_store;
 use crate::gtfs::StationContraction;
 use crate::query::ConnectionLabel;
 use crate::types;
+use crate::types::Mtime;
 use crate::walking::WALKING_PRODUCT_TYPE;
 use crate::walking::{WALKING_MSG, WALKING_RELEVANCE_THRESH};
 use rustc_hash::FxHashSet;
@@ -641,6 +642,7 @@ impl<'a> Environment<'a> {
             let mut is = vec![0; transfer_times.len()];
             let mut remaining_probability = 1.0;
             let mut last_departure: Option<&connection::StopInfo> = None;
+            let mut last_transfer_time: Mtime = 0;
             let mut last_product_type: i16 = 0;
         
             while remaining_probability > self.epsilon_feasible {
@@ -664,26 +666,26 @@ impl<'a> Environment<'a> {
                 let mut p: types::MFloat = dep_label.destination_arrival.feasible_probability;
                 let dep = &self.connections[self.order[dep_label.connection_id]];
                 is[min_k] += 1;
-
-                // TODO this is weird and magic^10
-                if !self.domination && initial && last_departure.is_some() && dep.departure.projected()+10 < last_departure.unwrap().projected() { 
+                let mut transfer_time = transfer_times[min_k];
+                if let Some(contr) = self.contraction {
+                    transfer_time = contr.get_transfer_time(c.to_idx, dep.from_idx) as i32;
+                }
+                // TODO magic^10
+                if !self.domination && initial && last_departure.is_some() && dep.departure.projected()-transfer_time+10 < last_departure.unwrap().projected()-last_transfer_time { 
                     continue;
                 }
                 if !initial && self.cut.contains(&(c.id, dep.id)) {
                     continue;
                 }
                 if !initial && (!c.is_consecutive(dep) || dep.message == WALKING_MSG) { // TODO refactor extended walking
-                    let mut transfer_time = transfer_times[min_k];
-                    if let Some(contr) = self.contraction {
-                        transfer_time = contr.get_transfer_time(c.to_idx, dep.from_idx) as i32;
-                    }
                     p *= self.store.borrow_mut().before_probability(&c.arrival, c.product_type, false, &dep.departure, dep.product_type, transfer_time, self.now);
                 }
                 if !self.domination && last_departure.is_some() {
-                    p *= self.store.borrow_mut().before_probability(last_departure.unwrap(), last_product_type, true, &dep.departure, dep.product_type, 1, self.now);
+                    p *= self.store.borrow_mut().before_probability(last_departure.unwrap(), last_product_type, true, &dep.departure, dep.product_type, transfer_time-last_transfer_time, self.now);
                 }
                 if p > 0.0 {
                     last_departure = Some(&dep.departure);
+                    last_transfer_time = transfer_time;
                     last_product_type = dep.product_type;
                 }
                 if p <= self.epsilon_reachable {

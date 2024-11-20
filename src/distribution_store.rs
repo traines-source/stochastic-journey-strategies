@@ -273,17 +273,17 @@ impl Store {
 
     fn insert_fallback_distributions(&mut self) {
         self.insert_delay_key(DelayKey {
-            product_type: 100,
+            product_type: WALKING_PRODUCT_TYPE,
             prior_delay: (0,0),
             prior_ttl: (0,0),
             is_departure: true
-        }, distribution::Distribution::uniform(0, 3));
+        }, distribution::Distribution::uniform(0, 1)); //TODO?
         self.insert_delay_key(DelayKey {
-            product_type: 100,
+            product_type: WALKING_PRODUCT_TYPE,
             prior_delay: (0,0),
             prior_ttl: (0,0),
             is_departure: false
-        }, distribution::Distribution::uniform(-2, 3));
+        }, distribution::Distribution::uniform(0, 1));
         self.insert_delay_key(DelayKey {
             product_type: -1,
             prior_delay: (0,0),

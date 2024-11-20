@@ -78,9 +78,12 @@ pub fn create_materialized_initial_footpaths(origin_idx: usize, stations: &mut V
             let id = connections.len() + walking_connections.len();
             let cid = stations[target_idx].departures[j];
             let c = &connections[cid];
-            let arrival = StopInfo::new(c.arrival.projected()-WALKING_INITIAL_BUFFER_MINUTES, None);
+            let arrival = StopInfo::new(c.departure.projected()-WALKING_INITIAL_BUFFER_MINUTES, None);
             let mut departure = arrival.clone();
-            departure.scheduled -= duration as i32;
+            departure.scheduled -= duration.max(1) as i32;
+            if departure.projected() < 0 {
+                continue;
+            }
             departure.in_out_allowed = false;
             stations.get_mut(origin_idx).unwrap().departures.push(id);
             stations.get_mut(target_idx).unwrap().arrivals.push(id);
@@ -99,6 +102,9 @@ pub fn create_materialized_initial_footpaths(origin_idx: usize, stations: &mut V
         }
     }
     connections.append(&mut walking_connections);
+    for station in &mut *stations {
+        station.departures.sort_unstable_by(|a,b| connections[*a].departure.projected().cmp(&connections[*b].departure.projected()));
+    }
 }
 
 pub fn update_footpath_relevance(origin_idx: usize, destination_idx: usize, order: &[usize], connections: &[Connection]) {
