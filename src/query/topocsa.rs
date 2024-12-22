@@ -603,6 +603,9 @@ impl<'a> Environment<'a> {
         let mut stack = vec![(0, 1.0)];
         let mut initial = true;
         let mut weights_by_station_idx: HashMap<usize, types::MFloat> = HashMap::new();
+        if self.connections.is_empty() {
+            return weights_by_station_idx;
+        }
         while !stack.is_empty() {
             let conn_with_prob = stack.pop().unwrap();
             let c = &self.connections[conn_with_prob.0];
