@@ -42,7 +42,7 @@ fn create_gtfs_cache() {
     let t = gtfs::load_timetable(&format!("{}{}", prefix, GTFS_PATH), day(2023, 11, 2), day(2023, 11, 3));
     tt.transport_and_day_to_connection_id = gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);
     let start_ts = Instant::now();
-    topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 8000, 0.01, true);
+    topocsa::prepare(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 8000, 0.01, 0.01, true);
     println!("elapsed: {}", start_ts.elapsed().as_millis());
     let mut buf = vec![];
     tt.serialize(&mut Serializer::new(&mut buf)).unwrap();
@@ -296,6 +296,53 @@ fn load_only_gtfs_with_rt() {
 }
 
 #[test]
+#[ignore]
+fn delfi_gtfs() {
+    let mut store = distribution_store::Store::new();
+    store.load_distributions("./data/ch_sbb.csv");
+
+    let mut tt = gtfs::GtfsTimetable::new();
+    let mut routes = vec![];
+    let t = gtfs::load_timetable("/gtfs/german-delfi-gtfs/2025-01-06/gtfs.zip", day(2025, 1, 7), day(2025, 1, 8));
+    let mapping = gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);    
+    let mut env = topocsa::Environment::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 7800, 0.01, 0.01, true, false);
+    let path = "/gtfsrt/german-delfi-gtfs-rt/deincr.gtfs-rt.pbf.bak";
+    let mut ctr = 0; 
+    gtfs::load_realtime(&path, &t, &mapping,
+        |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
+            env.update(connection_id, is_departure, location_idx, in_out_allowed, delay);
+            ctr += 1;
+        }
+    );
+    println!("Done. {}", ctr)
+}
+
+
+
+// bash run-docker.ign.sh cargo test --package stost --test gtfs --release -- sbb_gtfs --exact --nocapture --ignored
+#[test]
+#[ignore]
+fn sbb_gtfs() {
+    let mut store = distribution_store::Store::new();
+    store.load_distributions("./data/ch_sbb.csv");
+
+    let mut tt = gtfs::GtfsTimetable::new();
+    let mut routes = vec![];
+    let t = gtfs::load_timetable("/gtfs/swiss-gtfs/2025-01-06/gtfs_fp2025_2025-01-06.zip", day(2025, 1, 8), day(2025, 1, 9));
+    let mapping = gtfs::retrieve(&t, &mut tt.stations, &mut routes, &mut tt.connections);    
+    let mut env = topocsa::Environment::new(&mut store, &mut tt.connections, &tt.stations, &mut tt.cut, &mut tt.order, 7800, 0.01, 0.01, true, false);
+    let path = "/gtfsrt/swiss-gtfs-rt/2025-01-08/2025-01-08T11:18:03+01:00.gtfsrt";
+    let mut ctr = 0; 
+    gtfs::load_realtime(&path, &t, &mapping,
+        |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
+            env.update(connection_id, is_departure, location_idx, in_out_allowed, delay);
+            ctr += 1;
+        }
+    );
+    println!("Done. {}", ctr)
+}
+
+#[test]
 fn gtfs_small() {
     let mut store = distribution_store::Store::new();
     store.load_distributions("./data/ch_sbb.csv");
@@ -308,7 +355,7 @@ fn gtfs_small() {
     let map = gtfs::retrieve(&t, &mut stations, &mut routes, &mut connections);
     let mut cut = FxHashSet::default();
 
-    let mut env = topocsa::prepare(&mut store, &mut connections, &stations, &mut cut, &mut order, 0, 0.01, false);
+    let mut env = topocsa::prepare(&mut store, &mut connections, &stations, &mut cut, &mut order, 0, 0.01, 0.01, false);
     gtfs::load_realtime("./tests/fixtures/2024-01-02T01_48_02+01_00.gtfsrt", &t, &map, 
         |connection_id: usize, is_departure: bool, location_idx: Option<usize>, in_out_allowed: Option<bool>, delay: Option<i16>| {
             env.update(connection_id, is_departure, location_idx, in_out_allowed, delay)

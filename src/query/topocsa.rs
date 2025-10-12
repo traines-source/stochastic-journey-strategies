@@ -599,6 +599,11 @@ impl<'a> Environment<'a> {
         }
     }
 
+    pub fn update_epsilon(&mut self, epsilon_reachable: types::MFloat, epsilon_feasible: types::MFloat) {
+        self.epsilon_reachable = epsilon_reachable;
+        self.epsilon_feasible = epsilon_feasible;
+    }
+
     pub fn get_relevant_stations(&mut self, origin_idx: usize, destination_idx: usize, station_labels: &[Vec<ConnectionLabel>], extend_by_contraction: bool) -> HashMap<usize, types::MFloat> {
         let mut stack = vec![(0, 1.0)];
         let mut initial = true;
@@ -779,8 +784,8 @@ impl<'a> Environment<'a> {
     }
 }
 
-pub fn prepare<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon: types::MFloat, mean_only: bool) -> Environment<'a> {
-    let mut e = Environment::new(store, connections, stations, cut, order, now, epsilon, epsilon, mean_only, false);    
+pub fn prepare<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, order: &'a mut Vec<usize>, now: types::Mtime, epsilon_reachable: types::MFloat, epsilon_feasible: types::MFloat, mean_only: bool) -> Environment<'a> {
+    let mut e = Environment::new(store, connections, stations, cut, order, now, epsilon_reachable, epsilon_feasible, mean_only, false);    
     println!("Starting topocsa...");
     e.preprocess();
     e
@@ -788,7 +793,7 @@ pub fn prepare<'a>(store: &'a mut distribution_store::Store, connections: &'a mu
 
 pub fn prepare_and_query<'a>(store: &'a mut distribution_store::Store, connections: &'a mut Vec<connection::Connection>, stations: &'a [connection::Station], cut: &'a mut FxHashSet<(usize, usize)>, origin_idx: usize, destination_idx: usize, start_time: types::Mtime, max_time: types::Mtime, now: types::Mtime, epsilon: types::MFloat, mean_only: bool) {
     let mut order = Vec::with_capacity(connections.len());
-    let mut e = prepare(store, connections, stations, cut, &mut order, now, epsilon, mean_only);
+    let mut e = prepare(store, connections, stations, cut, &mut order, now, epsilon, epsilon, mean_only);
     e.query(Query {
         origin_idx, destination_idx, start_time, max_time
     });

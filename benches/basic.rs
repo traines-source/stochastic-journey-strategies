@@ -27,7 +27,7 @@ fn from_relevant(c: &mut Criterion) {
         &mut cut,
         &mut order,
         serde::to_mtime(meta.now, meta.start_ts),
-        0.0,
+        0.0, 0.0,
         true,
     );
 
@@ -68,7 +68,7 @@ fn measure_prepare(c: &mut Criterion) {
                 black_box(&mut cut),
                 black_box(&mut order),
                 black_box(serde::to_mtime(meta.now, meta.start_ts)),
-                black_box(0.0),
+                black_box(0.0), black_box(0.0),
                 black_box(true),
             );
         })
