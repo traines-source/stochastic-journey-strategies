@@ -189,7 +189,7 @@ pub fn serialize_protobuf(stations: &[connection::Station], routes: &[connection
             }),
             message: Cow::Borrowed(""),
             destination_arrival: if da.is_none() || da.as_ref().unwrap().mean == 0.0 { None } else { let da = da.as_ref().unwrap(); Some(wire::Distribution {
-                histogram: Cow::Owned(da.histogram.iter().map(|h| *h as f32).collect()),
+                histogram: Cow::Owned(da.histogram.iter().map(|h| ((*h)*1000.0).round()/1000.0 as f32).collect()),
                 start: if da.start == 0 { 0 } else { from_mtime(da.start, metadata.start_ts) },
                 mean: (da.mean*60.0) as i64 + metadata.start_ts,
                 feasible_probability: da.feasible_probability as f32,

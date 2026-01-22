@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::env;
 use std::io::Read;
 use std::sync::Mutex;
+use std::time::Instant;
 use stost::connection;
 use stost::connection::Route;
 use stost::distribution_store;
@@ -223,7 +224,9 @@ fn query_on_given(
     });
     println!("relevant stations...");
     e.update_epsilon(0.01, 0.1);
+    let start_ts = Instant::now();
     e.get_relevant_stations(metadata.origin_idx, metadata.destination_idx, &station_labels, false);
+    println!("elapsed relevant stations: {}", start_ts.elapsed().as_millis());
     println!("updating fp relevance...");
     walking::update_footpath_relevance(metadata.origin_idx, metadata.destination_idx, &order, input_connections);
     println!("serializing...");
